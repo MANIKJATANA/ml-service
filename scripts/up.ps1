@@ -1,21 +1,25 @@
 #requires -Version 5.1
 <#
 .SYNOPSIS
-    Bring the whole stack up in Docker (frontend + backend + ml-service + Postgres + Redis).
+    Bring the stack up in Docker. App services (frontend + backend + ml-service)
+    run attached in the foreground; the backing services (Postgres + Redis) run
+    detached and KEEP running.
 
 .DESCRIPTION
-    Thin wrapper over `docker compose up --build`. Run from anywhere — it cd's to
-    the repo root itself.
+    Press Ctrl+C to stop the app services (frontend, backend, ml-service) only.
+    Postgres and Redis stay up in the background so you don't lose DB/queue state
+    between restarts. Stop everything with `docker compose down`.
 
 .PARAMETER Detached
-    Run in the background (-d) and return immediately.
+    Also run the app services in the background instead of attaching. Nothing to
+    Ctrl+C; use `docker compose down` (or `stop`) to bring them down.
 
 .PARAMETER NoBuild
-    Skip rebuilding images (omits --build, which is otherwise on by default).
+    Skip rebuilding the app images (omits --build, which is otherwise on).
 
 .EXAMPLE
-    .\scripts\up.ps1            # build + run in the foreground (Ctrl+C to stop)
-    .\scripts\up.ps1 -Detached  # build + run in the background
+    .\scripts\up.ps1            # infra detached; apps in foreground (Ctrl+C stops apps)
+    .\scripts\up.ps1 -Detached  # everything in the background
 #>
 [CmdletBinding()]
 param(
@@ -23,32 +27,47 @@ param(
     [switch]$NoBuild
 )
 
-$ErrorActionPreference = "Stop"
+# NOTE: do not set $ErrorActionPreference = 'Stop'. In Windows PowerShell 5.1
+# that turns any native-command stderr write into a terminating error, and
+# `docker compose` streams normal progress/logs to stderr, which would kill the
+# run (and break Ctrl+C handling). We judge success by exit code instead.
 
 # Repo root = parent of this script's folder.
 $repoRoot = Split-Path -Parent $PSScriptRoot
-Set-Location $repoRoot
+Set-Location -Path $repoRoot -ErrorAction Stop
+
+# Force Compose's classic builder. Its "bake" delegation can fail with
+# 'failed to solve: image "...": already exists' when rebuilding images that
+# already exist in Docker Desktop's containerd image store.
+$env:COMPOSE_BAKE = "false"
 
 # Fail early with a clear message if the Docker daemon isn't reachable.
-# In Windows PowerShell 5.1, a native command writing to stderr under
-# $ErrorActionPreference='Stop' raises a terminating error that redirection
-# alone won't swallow — so probe inside try/catch.
-$dockerReachable = $true
-try {
-    & docker info 2>&1 | Out-Null
-    if ($LASTEXITCODE -ne 0) { $dockerReachable = $false }
-} catch {
-    $dockerReachable = $false
-}
-if (-not $dockerReachable) {
+docker info 1>$null 2>$null
+if ($LASTEXITCODE -ne 0) {
     Write-Host "Docker daemon not reachable. Start Docker Desktop and retry." -ForegroundColor Red
     exit 1
 }
 
-$composeArgs = @("compose", "up")
-if (-not $NoBuild) { $composeArgs += "--build" }
-if ($Detached)     { $composeArgs += "-d" }
+$infra = @("postgres", "redis")          # stay running in the background
+$apps  = @("frontend", "backend", "ml-service")
 
-Write-Host "Starting stack: docker $($composeArgs -join ' ')" -ForegroundColor Cyan
-& docker @composeArgs
+# 1) Backing services: always detached so they survive Ctrl+C on the apps.
+Write-Host "Starting backing services (kept running): $($infra -join ', ')" -ForegroundColor Cyan
+docker compose up -d @infra
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+# 2) App services. --no-deps so Compose won't also stop postgres/redis on Ctrl+C.
+$appArgs = @("compose", "up", "--no-deps")
+if (-not $NoBuild) { $appArgs += "--build" }
+if ($Detached)     { $appArgs += "-d" }
+$appArgs += $apps
+
+if ($Detached) {
+    Write-Host "Starting app services (detached): $($apps -join ', ')" -ForegroundColor Cyan
+} else {
+    Write-Host "Starting app services (foreground). Press Ctrl+C to stop them - Postgres/Redis stay up." -ForegroundColor Cyan
+    Write-Host "Stop everything with: docker compose down" -ForegroundColor DarkGray
+}
+
+& docker @appArgs
 exit $LASTEXITCODE

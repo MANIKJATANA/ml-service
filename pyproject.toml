@@ -37,3 +37,8 @@ python_version = "3.12"
 strict = true
 explicit_package_bases = true
 mypy_path = ["services/backend/src", "services/ml_service/src"]
+
+# TEMP: the wiring-demo modules are throwaway; don't hold them to strict typing.
+[[tool.mypy.overrides]]
+module = ["backend.demo", "ml_service.demo"]
+ignore_errors = true

@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - **Record every decision.** Any change or non-trivial decision gets a dated entry in `decisions/` (see `decisions/README.md` for the format). Update the index there.
 - **Keep this file current.** When architecture, commands, or conventions change, update CLAUDE.md in the same change.
-- **Never push without being asked.** Commit locally if useful, but do not `git push` (or open PRs) until explicitly told to.
+- **Never commit or push on your own.** Make and verify changes, but do not run `git commit`, `git push`, or open PRs until the user explicitly asks. Leave changes staged/unstaged for them to review.
 - **Self-review.** After making changes, review your own work and fix the issues you introduced before reporting done.
 - **Never read `.env` files** (or any secrets files), and never store secrets in memory or in code.
 
@@ -24,6 +24,8 @@ Python is managed with **`uv` in workspace mode** — one root `pyproject.toml` 
 
 The structure above is **scaffolded** (see [decisions/0004](decisions/0004-scaffold-monorepo.md)): each service is a runnable shell with `/healthz` + `/readyz` and a passing health test; no business logic yet.
 
+> **TEMP wiring demo present** (see [decisions/0006](decisions/0006-temporary-wiring-demo.md)): `demo.py` modules, `/temp/*` routes, a `demo_events` table, the FE demo at `app/temp/page.tsx` (route `/temp`) + `app/api/temp/`, and TEMP deps/env exist only to prove FE→BE→ML (HTTP + Redis) + Postgres wiring. The home page `/` is a clean placeholder. Everything is marked `TEMP` — delete it (removal checklist in 0006) when real features land.
+
 ## Commands
 
 Run Python commands from the repo root (uv workspace). `uv` fetches Python 3.12 itself.
@@ -37,7 +39,7 @@ uv run uvicorn ml_service.api.main:app --reload          # ML service  :8000
 uv run uvicorn backend.main:app --reload --port 8001     # backend     :8001
 cd frontend && npm install && npm run dev                # frontend    :3000
 docker compose up --build           # all 3 images + Postgres + Redis (needs Docker running)
-./scripts/up.ps1                    # same, via helper (fails fast if Docker is down)
+./scripts/up.ps1                    # helper: Postgres+Redis detached (stay up), apps in foreground; Ctrl+C stops only the apps
 ```
 
 Helper scripts live in `scripts/` (see `scripts/README.md`).

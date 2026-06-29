@@ -37,7 +37,10 @@ uv run uvicorn ml_service.api.main:app --reload          # ML service  :8000
 uv run uvicorn backend.main:app --reload --port 8001     # backend     :8001
 cd frontend && npm install && npm run dev                # frontend    :3000
 docker compose up --build           # all 3 images + Postgres + Redis (needs Docker running)
+./scripts/up.ps1                    # same, via helper (fails fast if Docker is down)
 ```
+
+Helper scripts live in `scripts/` (see `scripts/README.md`).
 
 Notes for future instances:
 - The Python Dockerfiles build from the **repo root** context (they need root `pyproject.toml` + `uv.lock`); only the frontend builds from `./frontend`.

@@ -30,9 +30,18 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 Set-Location $repoRoot
 
 # Fail early with a clear message if the Docker daemon isn't reachable.
-docker info *> $null
-if ($LASTEXITCODE -ne 0) {
-    Write-Error "Docker daemon not reachable. Start Docker Desktop and retry."
+# In Windows PowerShell 5.1, a native command writing to stderr under
+# $ErrorActionPreference='Stop' raises a terminating error that redirection
+# alone won't swallow — so probe inside try/catch.
+$dockerReachable = $true
+try {
+    & docker info 2>&1 | Out-Null
+    if ($LASTEXITCODE -ne 0) { $dockerReachable = $false }
+} catch {
+    $dockerReachable = $false
+}
+if (-not $dockerReachable) {
+    Write-Host "Docker daemon not reachable. Start Docker Desktop and retry." -ForegroundColor Red
     exit 1
 }
 

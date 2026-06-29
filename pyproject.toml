@@ -1,0 +1,39 @@
+[project]
+name = "ml-platform"
+version = "0.0.0"
+description = "Monorepo root: photo-distribution platform (frontend + backend + ML service)."
+requires-python = ">=3.12"
+# This root is a workspace coordinator only — it ships no code of its own.
+dependencies = []
+
+[tool.uv.workspace]
+members = ["services/*", "packages/*"]
+
+[dependency-groups]
+# Shared dev tooling for every Python member of the workspace.
+dev = [
+    "ruff>=0.6",
+    "pytest>=8",
+    "pytest-asyncio>=0.24",
+    "mypy>=1.11",
+    "httpx>=0.27",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+# importlib mode lets same-named test files (e.g. test_health.py) coexist
+# across workspace members without __init__.py collisions.
+addopts = "--import-mode=importlib"
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+explicit_package_bases = true
+mypy_path = ["services/backend/src", "services/ml_service/src"]

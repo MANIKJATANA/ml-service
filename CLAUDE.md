@@ -10,14 +10,48 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Self-review.** After making changes, review your own work and fix the issues you introduced before reporting done.
 - **Never read `.env` files** (or any secrets files), and never store secrets in memory or in code.
 
-## Status: design phase, no code yet
+## Repo shape: monorepo, 3 Docker images
 
-The repo is git-initialized (`main` branch) with a secrets-safe `.gitignore`, but contains no implementation, build tooling, or tests yet — only the two specification documents:
+This is **one repo** that builds **three images** (see [decisions/0003](decisions/0003-monorepo-structure.md)):
+
+| Image | Path | Stack | Role |
+|---|---|---|---|
+| Frontend | `frontend/` | Next.js (Node) | UI |
+| Backend (BE) | `services/backend/` | Python + FastAPI | The "core system": uploads, storage, notifications, distribution; calls the ML service's enrollment API and enqueues inference jobs |
+| ML service | `services/ml_service/` | Python + FastAPI + workers | Face enrollment/inference, as specced below |
+
+Python is managed with **`uv` in workspace mode** — one root `pyproject.toml` + one `uv.lock` shared by the Python members (`backend`, `ml_service`); shared Python code goes in `packages/`. The Next.js frontend is a separate Node package. BE is the only caller of the ML service; the ML service never calls BE.
+
+The structure above is **scaffolded** (see [decisions/0004](decisions/0004-scaffold-monorepo.md)): each service is a runnable shell with `/healthz` + `/readyz` and a passing health test; no business logic yet.
+
+## Commands
+
+Run Python commands from the repo root (uv workspace). `uv` fetches Python 3.12 itself.
+
+```bash
+uv sync --all-packages              # install all workspace deps (creates .venv)
+uv run pytest                       # all Python tests
+uv run pytest services/ml_service   # a single service's tests
+uv run ruff check . && uv run mypy .
+uv run uvicorn ml_service.api.main:app --reload          # ML service  :8000
+uv run uvicorn backend.main:app --reload --port 8001     # backend     :8001
+cd frontend && npm install && npm run dev                # frontend    :3000
+docker compose up --build           # all 3 images + Postgres + Redis (needs Docker running)
+```
+
+Notes for future instances:
+- The Python Dockerfiles build from the **repo root** context (they need root `pyproject.toml` + `uv.lock`); only the frontend builds from `./frontend`.
+- pytest uses `--import-mode=importlib` so same-named test files coexist across services — don't add `__init__.py` to `tests/` dirs.
+- New Python deps go in the **service's** `pyproject.toml`; shared dev tools in the root `[dependency-groups] dev`. Re-run `uv sync --all-packages` after.
+
+## Status: scaffolded, no business logic yet
+
+The repo is git-initialized (`main`) with a secrets-safe `.gitignore`. The two ML-service specs are the binding source of truth:
 
 - `ml-service-requirements.md` — locked v1 requirements (the "what"). Source of truth for functional/non-functional requirements, locked decisions (§8), interface contracts (§9), and data contracts (§10).
 - `ml-service-architecture.md` — v1 architecture (the "how"). Source of truth for module layout (§5), adapter choices + versions (§6), and the FAISS index lifecycle (§7).
 
-When implementing, treat both docs as binding. The architecture doc's §5 module tree is the intended layout; §6's adapter table fixes the initial library choices and versions. If a code change contradicts either doc, surface the conflict rather than silently diverging.
+When implementing, treat both docs as binding. The architecture doc's §5 module tree is the intended layout (relocated under `services/ml_service/src/ml_service/`); §6's adapter table fixes the initial library choices and versions. If a code change contradicts either doc, surface the conflict rather than silently diverging.
 
 ## What this service is
 

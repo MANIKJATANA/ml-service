@@ -37,6 +37,14 @@ htmlcov/
 models/
 ~/.insightface/
 
+# Node / Next.js (frontend)
+node_modules/
+.next/
+out/
+.npm
+next-env.d.ts
+*.tsbuildinfo
+
 # OS / editor
 .DS_Store
 Thumbs.db

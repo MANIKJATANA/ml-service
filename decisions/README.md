@@ -17,3 +17,4 @@ Every change and decision made in this repo gets recorded here as a dated entry,
 - [0004 — Scaffold the monorepo (uv workspace + 3 images)](0004-scaffold-monorepo.md) — runnable shells, health endpoints, Dockerfiles, compose with Postgres + Redis.
 - [0005 — Add scripts/ folder with a stack-up helper](0005-add-scripts-folder.md) — `scripts/up.ps1` wraps `docker compose up --build`.
 - [0006 — Temporary end-to-end wiring demo](0006-temporary-wiring-demo.md) — **TEMP** FE→BE→ML (HTTP + Redis) with Postgres writes from both; to be removed.
+- [0007 — All DB schema changes go through migrations](0007-db-migrations-in-migration-folder.md) — schema changes live in versioned migration files, never ad-hoc in application code.

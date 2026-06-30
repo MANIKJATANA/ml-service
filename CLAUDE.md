@@ -8,6 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Keep this file current.** When architecture, commands, or conventions change, update CLAUDE.md in the same change.
 - **Never commit or push on your own.** Make and verify changes, but do not run `git commit`, `git push`, or open PRs until the user explicitly asks. Leave changes staged/unstaged for them to review.
 - **Self-review.** After making changes, review your own work and fix the issues you introduced before reporting done.
+- **All DB schema changes go through migrations.** Any change to the database schema (tables, columns, indexes, constraints, types) must be a versioned migration file in the migrations folder — never an ad-hoc schema change made directly in application code. Application code may only assume the schema a migration has already established.
 - **Never read `.env` files** (or any secrets files), and never store secrets in memory or in code.
 
 ## Repo shape: monorepo, 3 Docker images

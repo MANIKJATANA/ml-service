@@ -42,3 +42,10 @@ mypy_path = ["services/backend/src", "services/ml_service/src"]
 [[tool.mypy.overrides]]
 module = ["backend.demo", "ml_service.demo"]
 ignore_errors = true
+
+# Shared test-only doubles live in tests/ (not an importable package); they are
+# resolved at runtime via tests/conftest.py's sys.path insert. mypy still
+# type-checks fakes.py under its own path — this only silences the bare import.
+[[tool.mypy.overrides]]
+module = ["fakes"]
+ignore_missing_imports = true

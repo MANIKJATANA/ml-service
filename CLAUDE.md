@@ -23,7 +23,7 @@ This is **one repo** that builds **three images** (see [decisions/0003](decision
 
 Python is managed with **`uv` in workspace mode** — one root `pyproject.toml` + one `uv.lock` shared by the Python members (`backend`, `ml_service`); shared Python code goes in `packages/`. The Next.js frontend is a separate Node package. BE is the only caller of the ML service; the ML service never calls BE.
 
-The structure above is **scaffolded** (see [decisions/0004](decisions/0004-scaffold-monorepo.md)): each service is a runnable shell with `/healthz` + `/readyz` and a passing health test; no business logic yet.
+The structure above is **scaffolded** (see [decisions/0004](decisions/0004-scaffold-monorepo.md)): each service is a runnable shell with `/healthz` + `/readyz` and a passing health test. The ML service additionally has its implemented `domain/` + `orchestration/` core (Phase 1, [decisions/0008](decisions/0008-domain-core-design.md)); FE/BE remain shells.
 
 > **TEMP wiring demo present** (see [decisions/0006](decisions/0006-temporary-wiring-demo.md)): `demo.py` modules, `/temp/*` routes, a `demo_events` table, the FE demo at `app/temp/page.tsx` (route `/temp`) + `app/api/temp/`, and TEMP deps/env exist only to prove FE→BE→ML (HTTP + Redis) + Postgres wiring. The home page `/` is a clean placeholder. Everything is marked `TEMP` — delete it (removal checklist in 0006) when real features land.
 
@@ -50,9 +50,9 @@ Notes for future instances:
 - pytest uses `--import-mode=importlib` so same-named test files coexist across services — don't add `__init__.py` to `tests/` dirs.
 - New Python deps go in the **service's** `pyproject.toml`; shared dev tools in the root `[dependency-groups] dev`. Re-run `uv sync --all-packages` after.
 
-## Status: scaffolded, no business logic yet
+## Status: Phase 1 done (domain core + orchestration); real adapters next
 
-The repo is git-initialized (`main`) with a secrets-safe `.gitignore`. The two ML-service specs are the binding source of truth:
+The repo is git-initialized (`main`) with a secrets-safe `.gitignore`. The ML service is being built in reviewed phases. **Phase 1 is complete:** the pure `domain/` (models, the 9 ports, `apply_threshold_and_gap`, errors) and `orchestration/` (`EnrollmentService`, `InferenceService`) are implemented and unit-tested (33 tests; ruff/mypy clean; layering grep clean). Design docs with diagrams live in `services/ml_service/docs/`. Next: real adapters (Supabase media, InsightFace, faiss, Postgres, Redis), Alembic migrations, API/worker wiring, then Docker. The two ML-service specs remain the binding source of truth:
 
 - `ml-service-requirements.md` — locked v1 requirements (the "what"). Source of truth for functional/non-functional requirements, locked decisions (§8), interface contracts (§9), and data contracts (§10).
 - `ml-service-architecture.md` — v1 architecture (the "how"). Source of truth for module layout (§5), adapter choices + versions (§6), and the FAISS index lifecycle (§7).
@@ -63,14 +63,14 @@ When implementing, treat both docs as binding. The architecture doc's §5 module
 
 A multi-tenant face-recognition service for distributing event photos/videos to the students who appear in them. Two pipelines that share one embedding model version but are otherwise independent:
 
-- **Enrollment** (synchronous HTTP): detect face in reference photos → embed → upsert into a per-school vector index.
+- **Enrollment** (synchronous HTTP, student-id-triggered): resolve a student's reference-photo URIs → fetch → detect → embed → upsert into a per-school vector index (see [decisions/0009](decisions/0009-enrollment-contract.md)).
 - **Inference** (async, queue-driven workers): fetch media → (video) extract frames at fixed FPS → detect → embed → search the school's index → apply threshold/gap decision → dedupe → persist match records.
 
 ## Architecture: hexagonal (ports and adapters)
 
 The design exists to satisfy NFR-1/NFR-2 (swap ML stack or storage by config alone). The whole structure depends on strict layering:
 
-- `domain/` — pure, imports no third-party libs. Models, the 8 `Protocol` ports (req §9), and the pure `apply_threshold_and_gap()` decision function.
+- `domain/` — pure, imports no third-party libs. Models, the 9 `Protocol` ports (req §9 + `ReferencePhotoRepository`, see [decisions/0009](decisions/0009-enrollment-contract.md)), and the pure `apply_threshold_and_gap()` decision function.
 - `orchestration/` — `EnrollmentService` / `InferenceService`. Imports only `domain`.
 - `adapters/` — one subpackage per port; the only place concrete libs (faiss, insightface, azure, redis, sqlalchemy) are imported.
 - `api/`, `workers/`, `wiring/` — the only modules allowed to import adapters. `wiring/container.py` builds concrete adapters from config via a name→class registry and injects them into the services.

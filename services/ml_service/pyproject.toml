@@ -8,12 +8,26 @@ dependencies = [
     "uvicorn[standard]>=0.32",
     "pydantic>=2.9",
     "pydantic-settings>=2.5",
-    # TEMP (wiring demo) — Redis consumer + Postgres writes. Remove with demo.
-    "redis>=5.0",
+    # --- Phase 2 real adapters (architecture §6) ---
+    "numpy>=1.26",
+    "faiss-cpu>=1.8",           # VectorIndex: IndexFlatIP per school
+    "onnxruntime>=1.17",        # InsightFace ONNX runtime (CPU); GPU = onnxruntime-gpu
+    "opencv-python-headless>=4.9",  # image decode + OpenCV video-frame fallback
+    "supabase>=2.4",            # default MediaStore + FAISS index store (Storage)
+    "httpx>=0.27",              # MediaStore fetch of http(s) URIs
+    "sqlalchemy[asyncio]>=2.0", # Postgres repositories (async)
+    "asyncpg>=0.29",            # async Postgres driver (also used by Alembic env)
+    "alembic>=1.13",            # DB migrations
+    "redis>=5.0",               # JobQueue: Redis Streams (now a real adapter dep)
+    "anyio>=4.4",               # offload sync ML/IO work to threads inside adapters
+    # Linux-only heavy deps: no prebuilt Windows/py312 wheels. They run in the
+    # (Linux) Docker image; local Windows dev uses the OpenCV extractor + gated
+    # tests instead. See decisions/0010.
+    "insightface>=0.7.3; sys_platform == 'linux'",  # SCRFD detector + ArcFace embedder (buffalo_l)
+    "decord>=0.6; sys_platform == 'linux'",          # default VideoFrameExtractor
+    # TEMP (wiring demo) — Postgres writes from the demo path. Remove with demo.
     "psycopg[binary]>=3.2",
 ]
-# Heavy adapter deps (faiss-cpu, insightface, decord, redis, sqlalchemy, azure-*)
-# are added incrementally as each adapter is implemented — see architecture §6.
 
 [build-system]
 requires = ["hatchling"]

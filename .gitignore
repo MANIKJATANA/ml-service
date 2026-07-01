@@ -2,6 +2,8 @@
 .env
 .env.*
 *.env
+# keep the committed template (placeholders only, no secrets)
+!.env.example
 secrets/
 *.pem
 *.key

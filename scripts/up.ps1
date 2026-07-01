@@ -56,7 +56,19 @@ Write-Host "Starting backing services (kept running): $($infra -join ', ')" -For
 docker compose up -d @infra
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-# 2) App services. --no-deps so Compose won't also stop postgres/redis on Ctrl+C.
+# 2) DB migrations: one-shot, must finish before the apps start. Run explicitly
+# here because step 3 uses --no-deps (which would otherwise skip the dependency).
+Write-Host "Applying DB migrations (alembic upgrade head)..." -ForegroundColor Cyan
+$migrateArgs = @("compose", "run", "--rm")
+if (-not $NoBuild) { $migrateArgs += "--build" }
+$migrateArgs += "migrate"
+& docker @migrateArgs
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "Migrations failed - not starting apps." -ForegroundColor Red
+    exit $LASTEXITCODE
+}
+
+# 3) App services. --no-deps so Compose won't also stop postgres/redis on Ctrl+C.
 $appArgs = @("compose", "up", "--no-deps")
 if (-not $NoBuild) { $appArgs += "--build" }
 if ($Detached)     { $appArgs += "-d" }

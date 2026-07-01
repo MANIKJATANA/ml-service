@@ -37,6 +37,22 @@ python_version = "3.12"
 strict = true
 explicit_package_bases = true
 mypy_path = ["services/backend/src", "services/ml_service/src"]
+# Alembic migrations are hand-authored operational scripts (dynamic op/sa API);
+# they are reviewed by hand, not held to strict typing.
+exclude = ["db/migrations/"]
+
+# Native/ML libraries without type stubs. Only the adapters import these; the
+# pure layers are guarded by tests/test_layering.py, not mypy.
+[[tool.mypy.overrides]]
+module = [
+    "faiss",
+    "cv2",
+    "insightface.*",
+    "decord",
+    "supabase",
+    "storage3.*",
+]
+ignore_missing_imports = true
 
 # TEMP: the wiring-demo modules are throwaway; don't hold them to strict typing.
 [[tool.mypy.overrides]]

@@ -31,13 +31,21 @@ class PhotoStatus(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class FaceBox:
-    """A detected face's bounding box in pixel coordinates, with detector score."""
+    """A detected face's bounding box in pixel coordinates, with detector score.
+
+    ``landmarks`` carries the detector's 5-point facial landmarks (both eyes,
+    nose, mouth corners) when available. They ride inside ``FaceBox`` because the
+    ``FaceEmbedder.embed(image_bytes, face_box)`` port passes only the box, yet
+    ArcFace needs the landmarks to align the crop (see decisions/0013). Pure data
+    — no third-party types; the embedder adapter converts to its own array form.
+    """
 
     x1: float
     y1: float
     x2: float
     y2: float
     score: float
+    landmarks: tuple[tuple[float, float], ...] | None = None
 
     @property
     def area(self) -> float:

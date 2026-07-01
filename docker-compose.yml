@@ -34,11 +34,32 @@ services:
       ml-service:
         condition: service_started
 
+  # One-shot: apply pending ML DB migrations, then exit. The app services wait
+  # for this to finish successfully before starting (see their depends_on).
+  migrate:
+    build:
+      context: .
+      dockerfile: services/ml_service/Dockerfile
+    command: ["alembic", "-c", "services/ml_service/alembic.ini", "upgrade", "head"]
+    environment:
+      ML_DATABASE_URL: ${ML_DATABASE_URL:-postgresql+asyncpg://app:app@postgres:5432/app}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
   ml-service:
     build:
       context: .
       dockerfile: services/ml_service/Dockerfile
     environment:
+      ML_DATABASE_URL: ${ML_DATABASE_URL:-postgresql+asyncpg://app:app@postgres:5432/app}
+      ML_REDIS_URL: ${ML_REDIS_URL:-redis://redis:6379/0}
+      # Supabase (used from Phase 3). ML_SUPABASE_KEY is a secret — set it in .env.
+      ML_SUPABASE_URL: ${ML_SUPABASE_URL:-}
+      ML_SUPABASE_KEY: ${ML_SUPABASE_KEY:-}
+      ML_SUPABASE_BUCKET: ${ML_SUPABASE_BUCKET:-media}
+      ML_MODEL_DIR: ${ML_MODEL_DIR:-/models/buffalo_l}
       # TEMP (wiring demo)
       DATABASE_URL: postgresql://app:app@postgres:5432/app
       REDIS_URL: redis://redis:6379/0
@@ -49,6 +70,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
 
   postgres:
     image: postgres:16-alpine

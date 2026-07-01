@@ -38,6 +38,8 @@ uv run pytest services/ml_service   # a single service's tests
 uv run ruff check . && uv run mypy .
 uv run uvicorn ml_service.api.main:app --reload          # ML service  :8000
 uv run uvicorn backend.main:app --reload --port 8001     # backend     :8001
+# Apply ML DB migrations (URL from env, never committed):
+ML_DATABASE_URL=postgresql+asyncpg://... uv run alembic -c services/ml_service/alembic.ini upgrade head
 cd frontend && npm install && npm run dev                # frontend    :3000
 docker compose up --build           # all 3 images + Postgres + Redis (needs Docker running)
 ./scripts/up.ps1                    # helper: Postgres+Redis detached (stay up), apps in foreground; Ctrl+C stops only the apps
@@ -50,9 +52,9 @@ Notes for future instances:
 - pytest uses `--import-mode=importlib` so same-named test files coexist across services — don't add `__init__.py` to `tests/` dirs.
 - New Python deps go in the **service's** `pyproject.toml`; shared dev tools in the root `[dependency-groups] dev`. Re-run `uv sync --all-packages` after.
 
-## Status: Phase 1 done (domain core + orchestration); real adapters next
+## Status: Phase 2 done (real adapters + migrations); wiring/API/worker next
 
-The repo is git-initialized (`main`) with a secrets-safe `.gitignore`. The ML service is being built in reviewed phases. **Phase 1 is complete:** the pure `domain/` (models, the 9 ports, `apply_threshold_and_gap`, errors) and `orchestration/` (`EnrollmentService`, `InferenceService`) are implemented and unit-tested (33 tests; ruff/mypy clean; layering grep clean). Design docs with diagrams live in `services/ml_service/docs/`. Next: real adapters (Supabase media, InsightFace, faiss, Postgres, Redis), Alembic migrations, API/worker wiring, then Docker. The two ML-service specs remain the binding source of truth:
+The repo is git-initialized (`main`) with a secrets-safe `.gitignore`. The ML service is being built in reviewed phases. **Phase 1** delivered the pure `domain/` (models, the 9 ports, `apply_threshold_and_gap`, errors) + `orchestration/` (`EnrollmentService`, `InferenceService`). **Phase 2 is complete:** every port now has a real adapter under `adapters/` — `SCRFDDetector` + `ArcFaceEmbedder` (InsightFace `buffalo_l`, separate modules), `FaissPerSchoolVectorIndex` (+ pluggable index store, LRU cache), `SupabaseMediaStore`/`LocalFsMediaStore`, `DecordFrameExtractor`/`OpenCvFrameExtractor`, `PostgresMatchRepository`/`PostgresThresholdProvider`/`PostgresReferencePhotoRepository`, and `RedisStreamsJobQueue`/`InProcJobQueue` — plus the ML metadata schema in `db/` with Alembic (`0001_initial`). 71 tests pass (+5 gated on real Postgres/Redis/models); ruff/mypy/layering clean. Design docs with diagrams live in `services/ml_service/docs/`. Next: **Phase 3** wiring (settings/registry/container) + API routes + worker runner, then **Phase 4** Docker (bake `buffalo_l`) + observability + CI + TEMP-demo removal. The two ML-service specs remain the binding source of truth:
 
 - `ml-service-requirements.md` — locked v1 requirements (the "what"). Source of truth for functional/non-functional requirements, locked decisions (§8), interface contracts (§9), and data contracts (§10).
 - `ml-service-architecture.md` — v1 architecture (the "how"). Source of truth for module layout (§5), adapter choices + versions (§6), and the FAISS index lifecycle (§7).
@@ -100,6 +102,6 @@ File-backed index per school in blob storage (`index.faiss` + `id_map.json` + `m
 
 ## Planned stack (architecture §6)
 
-Python, hexagonal. FastAPI (CPU API pods) + GPU inference workers consuming Redis Streams. InsightFace (SCRFD detector + ArcFace embedder), faiss-cpu, decord for video frames, Azure Blob media store, Postgres via SQLAlchemy 2.x async (asyncpg), pydantic-settings for config. Observability: prometheus_client + structlog + OTel spans around port calls (never label metrics with `student_id` — cardinality bomb).
+Python, hexagonal. FastAPI (CPU API pods) + GPU inference workers consuming Redis Streams. InsightFace (SCRFD detector + ArcFace embedder), faiss-cpu, **Supabase Storage** media store (default; `local_fs` for dev — diverges from architecture §6's Azure default, see [decisions/0010](decisions/0010-supabase-media-store.md)), decord for video frames (OpenCV fallback), Postgres via SQLAlchemy 2.x async (asyncpg), pydantic-settings for config. Observability (Phase 4): prometheus_client + structlog + OTel spans around port calls (never label metrics with `student_id` — cardinality bomb).
 
-No build/test commands exist yet. When scaffolding, add them here.
+**Platform note:** `insightface` and `decord` have no Windows/py312 wheels, so they are declared Linux-only (`; sys_platform == 'linux'`) — they run in the Docker image; local Windows dev uses the OpenCV extractor and import-gated tests. All other heavy deps install cross-platform. See [decisions/0014](decisions/0014-queue-and-platform-adapters.md).

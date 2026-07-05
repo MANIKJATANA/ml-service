@@ -5,6 +5,7 @@ description = "Photo-distribution ML service: face enrollment + inference (hexag
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115",
+    "python-multipart>=0.0.9",  # multipart/form-data uploads (test UI file upload)
     "uvicorn[standard]>=0.32",
     "pydantic>=2.9",
     "pydantic-settings>=2.5",

@@ -24,6 +24,29 @@ class SupabaseMediaStore:
     async def fetch(self, media_uri: str) -> bytes:
         return await anyio.to_thread.run_sync(self._fetch_sync, media_uri)
 
+    async def upload(self, object_path: str, data: bytes, content_type: str) -> str:
+        """Upload bytes to the bucket (upsert) and return the bucket-relative path.
+
+        Not part of the ``MediaStore`` port — a convenience used by the dev test
+        UI (decisions/0019) so a browser-uploaded photo lands in Supabase before
+        enrollment fetches it back. Returns a URI ``fetch`` can round-trip.
+        """
+        path = self._object_path(object_path)
+        await anyio.to_thread.run_sync(self._upload_sync, path, data, content_type)
+        return path
+
+    def _upload_sync(self, path: str, data: bytes, content_type: str) -> None:
+        try:
+            self._client.storage.from_(self._bucket).upload(
+                path=path,
+                file=data,
+                file_options={"content-type": content_type, "upsert": "true"},
+            )
+        except Exception as exc:  # storage3 raises on transport/permission errors
+            raise MediaFetchError(
+                f"supabase upload failed for {path!r}: {exc}"
+            ) from exc
+
     def _fetch_sync(self, media_uri: str) -> bytes:
         if media_uri.startswith(("http://", "https://")):
             return self._fetch_http(media_uri)

@@ -45,6 +45,13 @@ services:
     build:
       context: .
       dockerfile: services/ml_service/Dockerfile
+    # Inject the whole .env into the container so ANY ML_* setting (thresholds,
+    # top_k, fps, …) takes effect from .env — compose's ${VAR} substitution only
+    # covers the vars listed below, not the rest. `environment:` still wins for
+    # the vars it names. Optional so the stack also runs with no .env present.
+    env_file:
+      - path: .env
+        required: false
     environment: &ml-env
       ML_DATABASE_URL: ${ML_DATABASE_URL:-postgresql+asyncpg://app:app@postgres:5432/app}
       ML_REDIS_URL: ${ML_REDIS_URL:-redis://redis:6379/0}
@@ -63,6 +70,8 @@ services:
       # and the worker (reads on inference) — see docs/06-faiss-lifecycle.md.
       ML_INDEX_STORE_DIR: /var/lib/ml-service/faiss
       ML_MEDIA_DIR: /var/lib/ml-service/media
+      # Dev-only browser test UI at GET /test (enroll + identify). On for local.
+      ML_ENABLE_TEST_UI: ${ML_ENABLE_TEST_UI:-true}
       # Observability: set an OTLP endpoint to enable tracing (off by default).
       ML_LOG_JSON: ${ML_LOG_JSON:-true}
       ML_OTEL_EXPORTER_OTLP_ENDPOINT: ${ML_OTEL_EXPORTER_OTLP_ENDPOINT:-}
@@ -86,6 +95,9 @@ services:
       context: .
       dockerfile: services/ml_service/Dockerfile
     command: ["python", "-m", "ml_service.workers.inference_worker"]
+    env_file:
+      - path: .env
+        required: false
     environment: *ml-env
     volumes:
       - faiss:/var/lib/ml-service/faiss

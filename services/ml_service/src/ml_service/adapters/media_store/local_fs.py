@@ -24,6 +24,22 @@ class LocalFsMediaStore:
     async def fetch(self, media_uri: str) -> bytes:
         return await anyio.to_thread.run_sync(self._fetch_sync, media_uri)
 
+    async def upload(self, object_path: str, data: bytes, content_type: str) -> str:
+        """Write bytes under ``base_dir`` and return the relative path (the local_fs
+        counterpart to Supabase upload, used by the dev test UI — decisions/0019).
+        ``content_type`` is ignored on disk."""
+        await anyio.to_thread.run_sync(self._upload_sync, object_path, data)
+        return object_path
+
+    def _upload_sync(self, object_path: str, data: bytes) -> None:
+        path = os.path.join(self._base, object_path)
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "wb") as f:
+                f.write(data)
+        except OSError as exc:
+            raise MediaFetchError(f"could not write media {object_path!r}: {exc}") from exc
+
     def _fetch_sync(self, media_uri: str) -> bytes:
         path = self._resolve(media_uri)
         try:

@@ -51,6 +51,10 @@ def create_app() -> FastAPI:
     app = FastAPI(title="ML Service", version=__version__, lifespan=lifespan)
     app.include_router(health.router)
     app.include_router(enrollment.router)
+    if settings.enable_test_ui:  # dev-only browser test harness (decisions/0019)
+        from ml_service.api.routes import dev_ui
+
+        app.include_router(dev_ui.router)
 
     @app.get("/metrics", tags=["observability"], include_in_schema=False)
     def prometheus_metrics() -> Response:

@@ -29,6 +29,11 @@ class Settings(BaseSettings):
     service_name: str = "ml-service"
     log_level: str = "INFO"
 
+    # --- test UI (dev only, decisions/0019) ------------------------------
+    # Serves a minimal browser page + /v1/test/* endpoints for hand-testing the
+    # enroll + identify pipelines. Off by default; compose turns it on for local.
+    enable_test_ui: bool = False
+
     # --- observability (Phase 4) -----------------------------------------
     log_json: bool = True  # False -> human-readable console logs for local dev
     # OTLP/HTTP trace endpoint (e.g. http://otel-collector:4318/v1/traces).

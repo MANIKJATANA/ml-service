@@ -85,7 +85,14 @@ class Container:
 
             with self._lock:
                 if self._redis is None:
-                    self._redis = Redis.from_url(self._s.redis_url)
+                    # socket_timeout must exceed the queue's XREADGROUP BLOCK
+                    # window; redis-py 8.x's 5s default collides with block_ms=5s
+                    # and raises TimeoutError on every idle poll (decisions/0018).
+                    self._redis = Redis.from_url(
+                        self._s.redis_url,
+                        socket_timeout=self._s.redis_socket_timeout_s,
+                        socket_keepalive=True,
+                    )
         return self._redis
 
     # ---- adapters (one memoized instance each) -------------------------

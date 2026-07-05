@@ -60,6 +60,11 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://app:app@postgres:5432/app"
     db_echo: bool = False
     redis_url: str = "redis://redis:6379/0"
+    # Redis socket read timeout. MUST exceed the queue's blocking-read window
+    # (RedisStreamsJobQueue.block_ms, 5s): redis-py 8.x defaults socket_timeout
+    # to 5s and does NOT extend it for XREADGROUP BLOCK, so a socket_timeout <=
+    # the block window makes every idle poll raise TimeoutError (see decisions/0018).
+    redis_socket_timeout_s: float = 30.0
 
     # FAISS index files (local_fs store = shared Docker volume in dev)
     index_store_dir: str = "/var/lib/ml-service/faiss"

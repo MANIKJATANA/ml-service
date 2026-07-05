@@ -49,7 +49,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 $infra = @("postgres", "redis")          # stay running in the background
-$apps  = @("frontend", "backend", "ml-service")
+$apps  = @("frontend", "backend", "ml-service", "ml-worker")
 
 # 1) Backing services: always detached so they survive Ctrl+C on the apps.
 Write-Host "Starting backing services (kept running): $($infra -join ', ')" -ForegroundColor Cyan

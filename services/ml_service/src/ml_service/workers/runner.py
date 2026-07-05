@@ -29,6 +29,7 @@ from ml_service.domain.errors import (
 )
 from ml_service.domain.models import InferenceJob, JobLease, JobOutcome
 from ml_service.domain.ports import JobQueue
+from ml_service.observability.tracing import span
 from ml_service.orchestration.inference import InferenceService
 
 log = logging.getLogger(__name__)
@@ -36,7 +37,7 @@ log = logging.getLogger(__name__)
 OutcomeSink = Callable[[InferenceJob, JobOutcome, float], None]
 
 
-def _log_outcome(job: InferenceJob, outcome: JobOutcome, latency_ms: float) -> None:
+def log_outcome(job: InferenceJob, outcome: JobOutcome, latency_ms: float) -> None:
     log.info(
         "inference job complete",
         extra={
@@ -67,7 +68,7 @@ class WorkerRunner:
         *,
         max_retries: int = 3,
         backoff_base_s: float = 0.5,
-        on_outcome: OutcomeSink = _log_outcome,
+        on_outcome: OutcomeSink = log_outcome,
     ) -> None:
         self._queue = queue
         self._service = service
@@ -99,7 +100,14 @@ class WorkerRunner:
         while True:
             started = time.perf_counter()
             try:
-                outcome = await self._service.process(job)
+                with span(
+                    "inference.process",
+                    school_id=job.school_id,
+                    media_id=job.media_id,
+                    media_type=job.media_type.value,
+                    attempt=attempt,
+                ):
+                    outcome = await self._service.process(job)
             except MediaDecodeError as exc:
                 # Permanent — a corrupt media item; mark complete, never loop.
                 log.warning(

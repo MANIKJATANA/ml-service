@@ -29,6 +29,12 @@ class Settings(BaseSettings):
     service_name: str = "ml-service"
     log_level: str = "INFO"
 
+    # --- observability (Phase 4) -----------------------------------------
+    log_json: bool = True  # False -> human-readable console logs for local dev
+    # OTLP/HTTP trace endpoint (e.g. http://otel-collector:4318/v1/traces).
+    # Empty -> tracing stays a no-op (no exporter, zero overhead).
+    otel_exporter_otlp_endpoint: str = ""
+
     # --- decision tunables (req §12 global defaults) ---------------------
     default_match_confidence_threshold: float = 0.65
     default_gap_threshold: float = 0.08

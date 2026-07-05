@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  # Lint, type-check, layering invariant, and the test suite. Runs on Linux so
+  # the Linux-only heavy deps (insightface/decord) are installed and exercised;
+  # the gated model/DB/Redis tests skip without those backends present.
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      # opencv (pulled in transitively via insightface) dlopens libGL at import.
+      - name: Install system libs for OpenCV
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libgl1 libglib2.0-0
+
+      - name: Sync workspace
+        run: uv sync --all-packages --frozen
+
+      - name: Ruff (lint)
+        run: uv run ruff check .
+
+      - name: Mypy (types)
+        run: uv run mypy .
+
+      # Layering invariant (architecture §5): the pure layers import no concrete
+      # ML/IO lib. Also covered by tests/test_layering.py; kept here as a fast,
+      # dependency-free gate that fails the build loudly.
+      - name: Layering invariant
+        run: |
+          if grep -rn "import faiss\|import cv2\|import insightface\|import boto3" \
+              services/ml_service/src/ml_service/domain \
+              services/ml_service/src/ml_service/orchestration; then
+            echo "::error::Concrete ML/IO import found in a pure layer" && exit 1
+          fi
+
+      - name: Pytest
+        run: uv run pytest
+
+  # Prove the deployment image builds and the buffalo_l bake succeeds. No push.
+  docker-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build ml-service image
+        run: docker build -f services/ml_service/Dockerfile -t ml-service:ci .

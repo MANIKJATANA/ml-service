@@ -54,11 +54,6 @@ module = [
 ]
 ignore_missing_imports = true
 
-# TEMP: the wiring-demo modules are throwaway; don't hold them to strict typing.
-[[tool.mypy.overrides]]
-module = ["backend.demo", "ml_service.demo"]
-ignore_errors = true
-
 # Shared test-only doubles live in tests/ (not an importable package); they are
 # resolved at runtime via tests/conftest.py's sys.path insert. mypy still
 # type-checks fakes.py under its own path — this only silences the bare import.

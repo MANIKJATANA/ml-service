@@ -14,11 +14,21 @@ from __future__ import annotations
 import asyncio
 import logging
 
+from ml_service.domain.models import InferenceJob, JobOutcome
+from ml_service.observability import metrics
+from ml_service.observability.logging import configure_logging
+from ml_service.observability.tracing import configure_tracing
 from ml_service.wiring.container import Container
 from ml_service.wiring.settings import settings
-from ml_service.workers.runner import WorkerRunner
+from ml_service.workers.runner import WorkerRunner, log_outcome
 
 log = logging.getLogger(__name__)
+
+
+def _emit_outcome(job: InferenceJob, outcome: JobOutcome, latency_ms: float) -> None:
+    """Fan a finished job's outcome out to both structured logs and Prometheus."""
+    log_outcome(job, outcome, latency_ms)
+    metrics.record_job_outcome(job, outcome, latency_ms)
 
 
 async def _run(container: Container) -> None:
@@ -30,6 +40,7 @@ async def _run(container: Container) -> None:
         service,
         max_retries=settings.worker_max_retries,
         backoff_base_s=settings.worker_backoff_base_s,
+        on_outcome=_emit_outcome,
     )
     log.info(
         "inference worker starting",
@@ -48,7 +59,8 @@ async def _amain(container: Container) -> None:
 
 
 def main() -> None:
-    logging.basicConfig(level=settings.log_level)
+    configure_logging(settings.log_level, json_output=settings.log_json)
+    configure_tracing(settings.service_name, otlp_endpoint=settings.otel_exporter_otlp_endpoint)
     container = Container(settings)
     try:
         asyncio.run(_amain(container))

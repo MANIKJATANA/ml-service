@@ -25,8 +25,11 @@ dependencies = [
     # tests instead. See decisions/0010.
     "insightface>=0.7.3; sys_platform == 'linux'",  # SCRFD detector + ArcFace embedder (buffalo_l)
     "decord>=0.6; sys_platform == 'linux'",          # default VideoFrameExtractor
-    # TEMP (wiring demo) — Postgres writes from the demo path. Remove with demo.
-    "psycopg[binary]>=3.2",
+    # --- Phase 4 observability (requirements §13, architecture §11) ---
+    "prometheus-client>=0.20",  # /metrics counters + latency histogram
+    "structlog>=24.1",          # structured JSON logging
+    "opentelemetry-sdk>=1.25",  # tracing (opt-in via ML_OTEL_EXPORTER_OTLP_ENDPOINT)
+    "opentelemetry-exporter-otlp-proto-http>=1.25",
 ]
 
 [build-system]

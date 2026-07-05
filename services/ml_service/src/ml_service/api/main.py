@@ -1,40 +1,37 @@
 """FastAPI app factory for the ML service.
 
-Mounts the health + enrollment routers and maps domain errors to HTTP status
-codes. At startup it wires the composition-root container onto ``app.state`` so
-``/readyz`` can probe dependencies; on shutdown it disposes the container.
-
-A TEMPORARY wiring demo (see ``ml_service.demo``) is still mounted — it and its
-Redis consumer are removed in Phase 4 once the real paths are exercised end to
-end (decisions/0006).
+Mounts the health + enrollment routers, exposes Prometheus metrics at
+``/metrics``, and maps domain errors to HTTP status codes. At startup it
+configures structured logging + (opt-in) tracing and wires the composition-root
+container onto ``app.state`` so ``/readyz`` can probe dependencies; on shutdown it
+disposes the container.
 """
 
-import contextlib
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
 
-from ml_service import __version__, demo
+from ml_service import __version__
 from ml_service.api.deps import get_container
 from ml_service.api.routes import enrollment, health
 from ml_service.domain.errors import EnrollmentError, MLServiceError
+from ml_service.observability import metrics
+from ml_service.observability.logging import configure_logging
+from ml_service.observability.tracing import configure_tracing
+from ml_service.wiring.settings import settings
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    configure_logging(settings.log_level, json_output=settings.log_json)
+    configure_tracing(settings.service_name, otlp_endpoint=settings.otel_exporter_otlp_endpoint)
     # Wire the container so /readyz can probe deps (cheap — no model load here).
     app.state.container = get_container()
-    # TEMP: set up the demo table and start the Redis consumer.
-    await demo.ensure_table()
-    task = demo.start_consumer()
     try:
         yield
     finally:
-        task.cancel()
-        with contextlib.suppress(Exception):
-            await task
         await app.state.container.aclose()
 
 
@@ -54,8 +51,13 @@ def create_app() -> FastAPI:
     app = FastAPI(title="ML Service", version=__version__, lifespan=lifespan)
     app.include_router(health.router)
     app.include_router(enrollment.router)
+
+    @app.get("/metrics", tags=["observability"], include_in_schema=False)
+    def prometheus_metrics() -> Response:
+        body, content_type = metrics.render_latest()
+        return Response(content=body, media_type=content_type)
+
     _register_error_handlers(app)
-    app.include_router(demo.router)  # TEMP
     return app
 
 

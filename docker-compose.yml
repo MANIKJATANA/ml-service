@@ -1,14 +1,15 @@
 # Local dev orchestration for the 3 app images + backing services.
 # Build contexts: Python images build from the repo root (uv workspace);
 # the frontend builds from ./frontend.
+#
+# The ML service image runs in three roles (API / worker / migrate) selected by
+# `command`; all three share one `image:` tag so it is built only once.
 
 services:
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    environment:
-      BACKEND_URL: http://backend:8000   # TEMP (wiring demo) — server-side proxy target
     ports:
       - "3000:3000"
     depends_on:
@@ -20,23 +21,13 @@ services:
       dockerfile: services/backend/Dockerfile
     environment:
       BE_ML_SERVICE_URL: http://ml-service:8000
-      # TEMP (wiring demo)
-      ML_SERVICE_URL: http://ml-service:8000
-      DATABASE_URL: postgresql://app:app@postgres:5432/app
-      REDIS_URL: redis://redis:6379/0
     ports:
       - "8001:8000"
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      ml-service:
-        condition: service_started
 
   # One-shot: apply pending ML DB migrations, then exit. The app services wait
   # for this to finish successfully before starting (see their depends_on).
   migrate:
+    image: ml-service:local
     build:
       context: .
       dockerfile: services/ml_service/Dockerfile
@@ -48,23 +39,57 @@ services:
         condition: service_healthy
     restart: "no"
 
+  # Shared env for the API + worker (they run the same image, same config).
   ml-service:
+    image: ml-service:local
     build:
       context: .
       dockerfile: services/ml_service/Dockerfile
-    environment:
+    environment: &ml-env
       ML_DATABASE_URL: ${ML_DATABASE_URL:-postgresql+asyncpg://app:app@postgres:5432/app}
       ML_REDIS_URL: ${ML_REDIS_URL:-redis://redis:6379/0}
-      # Supabase (used from Phase 3). ML_SUPABASE_KEY is a secret — set it in .env.
+      # Supabase MediaStore (key is a secret — set it in .env, never committed).
       ML_SUPABASE_URL: ${ML_SUPABASE_URL:-}
       ML_SUPABASE_KEY: ${ML_SUPABASE_KEY:-}
       ML_SUPABASE_BUCKET: ${ML_SUPABASE_BUCKET:-media}
       ML_MODEL_DIR: ${ML_MODEL_DIR:-/models/buffalo_l}
-      # TEMP (wiring demo)
-      DATABASE_URL: postgresql://app:app@postgres:5432/app
-      REDIS_URL: redis://redis:6379/0
+      # Adapter selectors (NFR-1/2). Defaults are the prod adapters; override in
+      # .env for a self-contained offline run, e.g. ML_MEDIA_STORE_IMPL=local_fs
+      # ML_VIDEO_EXTRACTOR_IMPL=opencv ML_QUEUE_IMPL=redis (queue stays Redis here).
+      ML_MEDIA_STORE_IMPL: ${ML_MEDIA_STORE_IMPL:-supabase}
+      ML_INDEX_STORE_IMPL: ${ML_INDEX_STORE_IMPL:-local_fs}
+      ML_VIDEO_EXTRACTOR_IMPL: ${ML_VIDEO_EXTRACTOR_IMPL:-decord}
+      # FAISS index files live on a volume shared by the API (writes on enroll)
+      # and the worker (reads on inference) — see docs/06-faiss-lifecycle.md.
+      ML_INDEX_STORE_DIR: /var/lib/ml-service/faiss
+      ML_MEDIA_DIR: /var/lib/ml-service/media
+      # Observability: set an OTLP endpoint to enable tracing (off by default).
+      ML_LOG_JSON: ${ML_LOG_JSON:-true}
+      ML_OTEL_EXPORTER_OTLP_ENDPOINT: ${ML_OTEL_EXPORTER_OTLP_ENDPOINT:-}
+    volumes:
+      - faiss:/var/lib/ml-service/faiss
+      - media:/var/lib/ml-service/media
     ports:
       - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  # Inference worker: same image, consume/ack/nack loop instead of the API.
+  ml-worker:
+    image: ml-service:local
+    build:
+      context: .
+      dockerfile: services/ml_service/Dockerfile
+    command: ["python", "-m", "ml_service.workers.inference_worker"]
+    environment: *ml-env
+    volumes:
+      - faiss:/var/lib/ml-service/faiss
+      - media:/var/lib/ml-service/media
     depends_on:
       postgres:
         condition: service_healthy
@@ -101,3 +126,5 @@ services:
 
 volumes:
   pgdata:
+  faiss:
+  media:

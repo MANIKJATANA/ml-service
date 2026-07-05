@@ -8,10 +8,6 @@ dependencies = [
     "uvicorn[standard]>=0.32",
     "pydantic>=2.9",
     "pydantic-settings>=2.5",
-    # TEMP (wiring demo) — HTTP call to ML service, Redis enqueue, Postgres writes.
-    "httpx>=0.27",
-    "redis>=5.0",
-    "psycopg[binary]>=3.2",
 ]
 
 [build-system]

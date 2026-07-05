@@ -27,3 +27,4 @@ Every change and decision made in this repo gets recorded here as a dated entry,
 - [0014 — Redis Streams queue + in-proc queue; Linux-only heavy deps](0014-queue-and-platform-adapters.md) — default Redis Streams `JobQueue` (+ real in-proc), OpenCV video fallback, `insightface`/`decord` gated to Linux wheels.
 - [0015 — Run DB migrations before the apps start](0015-run-migrations-before-apps.md) — one-shot `migrate` compose service (`alembic upgrade head`) gates the apps; `up.ps1` runs it between infra and apps.
 - [0016 — Phase 3: wiring + API + worker](0016-wiring-api-worker.md) — settings/registry/container composition root; enrollment routes + central error mapping; the inference worker consume/ack/nack loop.
+- [0017 — Phase 4: Docker, observability, CI, TEMP-demo removal](0017-docker-observability-ci.md) — one image/three roles + baked `buffalo_l`; `ml-worker` + shared FAISS volume; §13 metrics/structlog/OTel + `/metrics`; CI layering gate; TEMP demo removed.

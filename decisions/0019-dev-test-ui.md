@@ -2,6 +2,12 @@
 
 Date: 2026-07-06
 
+> **Amended by [0020](0020-identify-all-faces-and-per-frame.md):** the identify path
+> no longer picks the largest face. It now names **every** detected face (via the
+> shared `identify_in_frames` kernel) and accepts **video** (per-timestamp results).
+> The single-face `_identify_image` helper described below is replaced by
+> `_identify_media`; the enroll flow and the `upload` helper are unchanged.
+
 ## Context
 
 We wanted to hand-test the real ML pipeline from a browser: upload a reference

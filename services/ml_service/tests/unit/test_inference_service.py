@@ -342,3 +342,33 @@ def test_invalid_config_is_rejected() -> None:
         make_service(StubVectorIndex(), repo=StubMatchRepository(), top_k=1)
     with pytest.raises(ConfigurationError):
         make_service(StubVectorIndex(), repo=StubMatchRepository(), video_fps=0)
+
+
+async def test_multi_frame_multi_face_multi_person_dedupes_to_unique() -> None:
+    # Two frames, two faces each, mapping to different students across the video
+    # (F1: A,B; F2: C,A). The worker persists the UNIQUE people (A deduped across
+    # frames to its best); the per-frame detail is exercised in test_identify.py.
+    index = StubVectorIndex()
+    index.script(
+        [Candidate("A", 0.90)],  # frame 1, face 1
+        [Candidate("B", 0.80)],  # frame 1, face 2
+        [Candidate("C", 0.70)],  # frame 2, face 1
+        [Candidate("A", 0.95)],  # frame 2, face 2 (A again, higher confidence)
+    )
+    repo = StubMatchRepository()
+    frames = [Frame(b"f1", timestamp_ms=0), Frame(b"f2", timestamp_ms=1000)]
+    detector = StubDetector(mapping={b"f1": [box(), box()], b"f2": [box(), box()]})
+    svc = make_service(
+        index, repo=repo, detector=detector, extractor=StubFrameExtractor(frames)
+    )
+
+    outcome = await svc.process(video_job())
+
+    assert outcome.frames_processed == 2
+    assert outcome.faces_detected == 4
+    assert outcome.unknown_faces == 0
+    assert outcome.matches_emitted == 3  # A, B, C — A deduped across the two frames
+    saved = {r.student_id: r for r in repo.saved_batches[0]}
+    assert set(saved) == {"A", "B", "C"}
+    assert saved["A"].confidence_score == 0.95
+    assert saved["A"].frame_timestamp_ms == 1000  # A's best hit was in frame 2

@@ -1,4 +1,4 @@
-"""Dev-only test UI (decisions/0019) — hand-test enroll + identify from a browser.
+"""Dev-only test UI (decisions/0019, 0020) — hand-test enroll + identify.
 
 NOT a production surface. Mounted only when ``ML_ENABLE_TEST_UI=true``. It reuses
 the real composition-root container (same Supabase/DB/FAISS config as the app), so
@@ -7,14 +7,17 @@ what you see here is the real pipeline, not a mock:
 * ``POST /v1/test/enroll``     — uploads the photo to the media store (Supabase by
   default), then runs :class:`EnrollmentService` which fetches it back, detects,
   embeds, and upserts into the per-school vector index.
-* ``POST /v1/test/check``      — identify one uploaded photo against the school's
-  index (synchronous read; no DB write, no queue).
-* ``POST /v1/test/check-bulk`` — identify many photos in one request; returns a
-  per-file result so the UI can show each image with its identified student.
+* ``POST /v1/test/check``      — identify one uploaded **image or video** against the
+  school's index (synchronous read; no DB write, no queue).
+* ``POST /v1/test/check-bulk`` — identify many files in one request; returns a
+  per-file result so the UI can show each with its identified people.
 
-Identification uses the same :func:`apply_threshold_and_gap` decision the worker
-uses. ``student_id`` *is* the student's name/handle in this service; there is no
-separate name table. ``school_id`` defaults to a single hardcoded test tenant.
+Identification runs **every** detected face (``face → person``), not just the largest
+one, through the same :func:`~ml_service.orchestration.identify.identify_in_frames`
+kernel the worker uses — so a group photo lists everyone, and a video is reported
+**per sampled frame (timestamp)**: the faces in that frame and who each one is (not a
+globally-deduped set). ``student_id`` *is* the student's name/handle in this service;
+there is no separate name table. ``school_id`` defaults to a single hardcoded tenant.
 
 The module is named ``dev_ui`` (not ``test_ui``) so pytest does not collect it.
 """
@@ -27,13 +30,15 @@ from fastapi import APIRouter, Depends, File, Form, UploadFile
 from fastapi.responses import HTMLResponse
 from starlette.concurrency import run_in_threadpool
 
-from ml_service.domain.decision import apply_threshold_and_gap
+from ml_service.domain.models import FaceBox, Frame
+from ml_service.orchestration.identify import identify_in_frames
 from ml_service.wiring.container import Container
 from ml_service.wiring.settings import settings
 
 router = APIRouter(tags=["dev-ui"], include_in_schema=False)
 
 DEFAULT_SCHOOL_ID = "test-school"
+_VIDEO_EXTS = (".mp4", ".mov", ".avi", ".mkv", ".webm", ".m4v")
 
 
 class _Uploadable(Protocol):
@@ -52,46 +57,103 @@ def get_container() -> Container:
 ContainerDep = Annotated[Container, Depends(get_container)]
 
 
-async def _identify_image(
-    container: Container, school_id: str, data: bytes
-) -> dict[str, object]:
-    """Detect → embed → search → decide for one image. Reused by check + bulk.
+def _is_video(content_type: str | None, filename: str | None) -> bool:
+    if content_type and content_type.startswith("video/"):
+        return True
+    return (filename or "").lower().endswith(_VIDEO_EXTS)
 
-    The container's adapters are memoized singletons, so calling this per image
-    loads the models only once (on the first image), not per call.
+
+def _bbox_json(box: FaceBox) -> dict[str, float]:
+    return {"x1": box.x1, "y1": box.y1, "x2": box.x2, "y2": box.y2, "score": round(box.score, 4)}
+
+
+async def _identify_media(
+    container: Container,
+    school_id: str,
+    data: bytes,
+    *,
+    content_type: str | None,
+    filename: str | None,
+) -> dict[str, object]:
+    """Identify every face in one image or video against the school's index.
+
+    Reuses the worker's identify kernel, so the result is the real pipeline's:
+    per-frame / per-face detail plus a deduped people summary. Images are the
+    single-frame case; videos are sampled at ``settings.video_sample_fps`` and
+    reported per timestamp. The container's adapters are memoized singletons, so
+    the models load only once (on the first call), not per image.
     """
     detector = await run_in_threadpool(container.detector)
     embedder = await run_in_threadpool(container.embedder)
     index = await run_in_threadpool(container.vector_index)
     thresholds_provider = await run_in_threadpool(container.threshold_provider)
-
-    boxes = await detector.detect(data)
-    if not boxes:
-        return {"match": None, "reason": "no_face_detected", "candidates": []}
-    box = max(boxes, key=lambda b: b.area)
-    embedding = await embedder.embed(data, box)
-
-    try:
-        candidates = await index.search(school_id, embedding, settings.top_k)
-    except Exception as exc:  # empty/absent index for this school, model mismatch…
-        return {"match": None, "reason": f"index_search_failed: {exc}", "candidates": []}
-
     thresholds = await thresholds_provider.get_thresholds(school_id)
-    emissions = apply_threshold_and_gap(candidates, thresholds)
-    all_candidates = [
-        {"student_id": c.student_id, "score": round(c.score, 4)} for c in candidates
-    ]
-    if not emissions:
-        return {"match": None, "reason": "no_match_above_threshold", "candidates": all_candidates}
-    matches = [
-        {
-            "student_id": e.candidate.student_id,
-            "score": round(e.candidate.score, 4),
-            "needs_review": e.needs_review,
+
+    is_video = _is_video(content_type, filename)
+    try:
+        if is_video:
+            extractor = await run_in_threadpool(container.extractor)
+            # decord/opencv decode lazily on iteration; materialize off the loop.
+            frames: list[Frame] = await run_in_threadpool(
+                lambda: list(extractor.extract(data, settings.video_sample_fps))
+            )
+        else:
+            frames = [Frame(data)]
+        result = await identify_in_frames(
+            frames,
+            school_id=school_id,
+            detector=detector,
+            embedder=embedder,
+            index=index,
+            thresholds=thresholds,
+            top_k=settings.top_k,
+        )
+    except Exception as exc:  # corrupt media, empty/absent index, model mismatch…
+        return {
+            "media_type": "video" if is_video else "image",
+            "error": f"identify_failed: {exc}",
+            "faces_detected": 0,
+            "frames": [],
+            "people_summary": [],
         }
-        for e in emissions
-    ]
-    return {"match": matches[0], "matches": matches, "candidates": all_candidates}
+
+    return {
+        "media_type": "video" if is_video else "image",
+        "faces_detected": result.faces_detected,
+        "frames_processed": result.frames_processed,
+        "unknown_faces": result.unknown_faces,
+        # Per-frame / per-face timeline (the UI renders this; a future
+        # match_detections table would persist it — decisions/0020).
+        "frames": [
+            {
+                "frame_timestamp_ms": fr.frame_timestamp_ms,
+                "faces": [
+                    {
+                        "bbox": _bbox_json(face.bbox),
+                        "people": [
+                            {
+                                "student_id": p.student_id,
+                                "score": round(p.score, 4),
+                                "needs_review": p.needs_review,
+                            }
+                            for p in face.people
+                        ],
+                    }
+                    for face in fr.faces
+                ],
+            }
+            for fr in result.frames
+        ],
+        # Unique people across the whole media (best score per student).
+        "people_summary": [
+            {
+                "student_id": p.student_id,
+                "score": round(p.score, 4),
+                "needs_review": p.needs_review,
+            }
+            for p in sorted(result.people.values(), key=lambda h: h.score, reverse=True)
+        ],
+    }
 
 
 @router.post("/v1/test/enroll")
@@ -132,8 +194,11 @@ async def identify_upload(
     file: Annotated[UploadFile, File()],
     school_id: Annotated[str, Form()] = DEFAULT_SCHOOL_ID,
 ) -> dict[str, object]:
-    """Identify the face in a single uploaded photo against the school's index."""
-    return await _identify_image(container, school_id, await file.read())
+    """Identify every face in one uploaded image or video against the index."""
+    data = await file.read()
+    return await _identify_media(
+        container, school_id, data, content_type=file.content_type, filename=file.filename
+    )
 
 
 @router.post("/v1/test/check-bulk")
@@ -142,10 +207,13 @@ async def identify_bulk(
     files: Annotated[list[UploadFile], File()],
     school_id: Annotated[str, Form()] = DEFAULT_SCHOOL_ID,
 ) -> dict[str, object]:
-    """Identify many photos in one request; results are returned in upload order."""
+    """Identify many files in one request; results are returned in upload order."""
     results: list[dict[str, object]] = []
     for f in files:
-        outcome = await _identify_image(container, school_id, await f.read())
+        data = await f.read()
+        outcome = await _identify_media(
+            container, school_id, data, content_type=f.content_type, filename=f.filename
+        )
         results.append({"filename": f.filename, **outcome})
     return {"count": len(results), "results": results}
 
@@ -171,22 +239,27 @@ _PAGE = """<!doctype html>
   button { margin-top: .9rem; padding: .55rem 1.1rem; border-radius: 8px; border: 0; background: #3b82f6; color: #fff; font-size: 1rem; cursor: pointer; }
   button:disabled { opacity: .5; cursor: default; }
   pre { background: #8881; padding: .8rem; border-radius: 8px; overflow: auto; font-size: .8rem; white-space: pre-wrap; }
-  .name { font-size: 1.2rem; font-weight: 700; }
+  .name { font-size: 1.1rem; font-weight: 650; }
   .muted { opacity: .7; font-size: .85rem; }
   img.preview { max-height: 160px; border-radius: 8px; margin-top: .5rem; display: none; }
   .results { margin-top: 1rem; display: flex; flex-direction: column; gap: .6rem; }
-  .result-item { display: flex; align-items: center; gap: 1rem; border: 1px solid #8883; border-radius: 8px; padding: .5rem .7rem; }
-  .result-item img { height: 72px; width: 72px; object-fit: cover; border-radius: 6px; flex: none; }
-  .result-item .rlabel { min-width: 0; }
+  .result-item { display: flex; align-items: flex-start; gap: 1rem; border: 1px solid #8883; border-radius: 8px; padding: .5rem .7rem; }
+  .result-item img, .result-item video { height: 72px; width: 72px; object-fit: cover; border-radius: 6px; flex: none; background: #8882; }
+  .result-item .rlabel { min-width: 0; flex: 1; }
   .result-item .fname { font-size: .75rem; opacity: .6; word-break: break-all; }
-  .result-item .cands { font-size: .75rem; margin-top: .25rem; opacity: .85; }
-  .result-item .cands b { font-weight: 600; }
+  .result-item .detail { margin-top: .4rem; }
+  .chip { display: inline-block; font-size: .8rem; padding: .15rem .55rem; border-radius: 999px; border: 1px solid #8884; margin: .15rem .2rem 0 0; }
+  .chip.ok { color: #16a34a; border-color: #16a34a66; }
+  .chip.no { color: #ef4444; border-color: #ef444466; }
+  .chip.rev { color: #d97706; border-color: #d9770666; }
+  .trow { font-size: .85rem; margin: .15rem 0; }
+  .trow .ts { display: inline-block; min-width: 3.4rem; opacity: .65; font-variant-numeric: tabular-nums; }
   .ok { color: #16a34a; } .no { color: #ef4444; } .rev { color: #d97706; }
 </style>
 </head>
 <body>
   <h1>ML Service — Test UI</h1>
-  <p class="muted">Enroll students' photos, then identify one or many photos against the index.</p>
+  <p class="muted">Enroll students' photos, then identify one or many images/videos against the index.</p>
 
   <label for="school">School ID (hardcoded default is fine)</label>
   <input id="school" type="text" value="test-school"/>
@@ -203,9 +276,9 @@ _PAGE = """<!doctype html>
   </div>
 
   <div class="card">
-    <h2>2. Identify (bulk)</h2>
-    <label for="checkFile">Photos to identify — select one or more</label>
-    <input id="checkFile" type="file" accept="image/*" multiple/>
+    <h2>2. Identify (bulk — images or video)</h2>
+    <label for="checkFile">Images or videos to identify — select one or more</label>
+    <input id="checkFile" type="file" accept="image/*,video/*" multiple/>
     <button id="checkBtn">Identify all</button>
     <div id="results" class="results"></div>
   </div>
@@ -213,6 +286,14 @@ _PAGE = """<!doctype html>
 <script>
 const $ = (id) => document.getElementById(id);
 const school = () => $("school").value.trim() || "test-school";
+const VIDEO_RE = /\\.(mp4|mov|avi|mkv|webm|m4v)$/i;
+const isVideoFile = (f) => (f.type || "").startsWith("video/") || VIDEO_RE.test(f.name);
+const fmtTs = (ms) => (ms == null ? "" : (ms / 1000).toFixed(1) + "s");
+const personText = (p) => p.student_id + " (" + p.score + (p.needs_review ? ", review" : "") + ")";
+// One detected face -> its person(s). Two people = ambiguous (both need review).
+const faceText = (face) => (!face.people || !face.people.length)
+  ? "unknown"
+  : face.people.map(personText).join(" / ");
 
 $("enrollFile").addEventListener("change", () => {
   const f = $("enrollFile").files[0], img = $("enrollPrev");
@@ -234,20 +315,58 @@ $("enrollBtn").onclick = async () => {
   finally { $("enrollBtn").disabled = false; }
 };
 
+function renderResult(item, r) {
+  const status = item.querySelector(".status");
+  const detail = item.querySelector(".detail");
+  if (r.error) {
+    status.className = "status";
+    status.innerHTML = '<span class="name no">Error</span> <span class="muted">' + r.error + '</span>';
+    return;
+  }
+  const nPeople = (r.people_summary || []).length;
+  const summary = r.faces_detected + " face" + (r.faces_detected === 1 ? "" : "s") +
+    " → " + nPeople + " " + (nPeople === 1 ? "person" : "people");
+  status.className = "status";
+  status.innerHTML = '<span class="name">' + summary + "</span>" +
+    (r.media_type === "video" ? ' <span class="muted">' + r.frames_processed + " frames sampled</span>" : "");
+
+  if (r.media_type === "video") {
+    // Per-timestamp timeline: which faces (and who) appear in each sampled frame.
+    const rows = (r.frames || [])
+      .filter((fr) => fr.faces && fr.faces.length)
+      .map((fr) => '<div class="trow"><span class="ts">t=' + fmtTs(fr.frame_timestamp_ms) +
+        '</span> ' + fr.faces.map(faceText).join(", ") + "</div>");
+    detail.innerHTML = rows.length ? rows.join("") : '<span class="muted">no faces detected</span>';
+  } else {
+    // Image: one chip per detected face.
+    const faces = (r.frames && r.frames[0] && r.frames[0].faces) || [];
+    detail.innerHTML = faces.length
+      ? faces.map((face) => {
+          const unknown = !face.people || !face.people.length;
+          const review = !unknown && face.people.some((p) => p.needs_review);
+          const cls = unknown ? "no" : (review ? "rev" : "ok");
+          return '<span class="chip ' + cls + '">' + faceText(face) + "</span>";
+        }).join(" ")
+      : '<span class="muted">no faces detected</span>';
+  }
+}
+
 $("checkBtn").onclick = async () => {
   const files = [...$("checkFile").files];
-  if (!files.length) { alert("Pick one or more photos to identify."); return; }
+  if (!files.length) { alert("Pick one or more images/videos to identify."); return; }
   const results = $("results");
   results.innerHTML = "";
-  const labels = files.map((f) => {
+  const items = files.map((f) => {
     const item = document.createElement("div");
     item.className = "result-item";
-    item.innerHTML =
-      '<img src="' + URL.createObjectURL(f) + '"/>' +
-      '<div class="rlabel"><div class="muted status">…identifying (first call loads models ~20s)</div>' +
-      '<div class="fname">' + f.name + '</div></div>';
+    const media = isVideoFile(f)
+      ? '<video src="' + URL.createObjectURL(f) + '" muted playsinline preload="metadata"></video>'
+      : '<img src="' + URL.createObjectURL(f) + '"/>';
+    item.innerHTML = media +
+      '<div class="rlabel"><div class="status muted">…identifying (first call loads models ~20s)</div>' +
+      '<div class="fname">' + f.name + '</div><div class="detail"></div></div>';
     results.appendChild(item);
-    return item.querySelector(".status");
+    return item;
   });
 
   $("checkBtn").disabled = true;
@@ -257,25 +376,7 @@ $("checkBtn").onclick = async () => {
     fd.append("school_id", school());
     const res = await fetch("/v1/test/check-bulk", { method: "POST", body: fd });
     const json = await res.json();
-    (json.results || []).forEach((r, i) => {
-      const el = labels[i];
-      if (!el) return;
-      if (r.match) {
-        const rev = r.match.needs_review;
-        el.innerHTML =
-          '<span class="name ' + (rev ? "rev" : "ok") + '">' + r.match.student_id + '</span>' +
-          ' <span class="muted">score ' + r.match.score + (rev ? ' — needs review' : '') + '</span>';
-      } else {
-        el.innerHTML = '<span class="name no">No match</span> <span class="muted">' + (r.reason || '') + '</span>';
-      }
-      const cands = r.candidates || [];
-      const cline = cands.length
-        ? '<b>top-' + cands.length + ':</b> ' + cands.map((c) => c.student_id + ' (' + c.score + ')').join(', ')
-        : '<b>top-K:</b> —';
-      let cdiv = el.parentElement.querySelector(".cands");
-      if (!cdiv) { cdiv = document.createElement("div"); cdiv.className = "cands"; el.parentElement.appendChild(cdiv); }
-      cdiv.innerHTML = cline;
-    });
+    (json.results || []).forEach((r, i) => { if (items[i]) renderResult(items[i], r); });
   } catch (e) {
     results.innerHTML = "Request failed: " + e;
   } finally { $("checkBtn").disabled = false; }

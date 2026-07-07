@@ -1,24 +1,22 @@
 """InferenceService — the inference pipeline (requirements §4.2).
 
-Depends only on domain ports + the pure decision function. Thresholds are
-resolved once per job; the model versions used are snapshotted once and stamped
-on every record (NFR-4); detections are deduped per ``(student_id, media_id)``
-keeping the highest-confidence hit (FR-I6); search is strictly scoped to the
-job's ``school_id`` (FR-I4/NFR-3). ``save_batch`` is the only write path. Metrics
-are returned as a ``JobOutcome`` for the worker to emit, so this layer stays
-import-pure.
+Depends only on domain ports + the shared identify kernel. Thresholds are resolved
+once per job; the model versions used are snapshotted once and stamped on every
+record (NFR-4). The per-frame "for every face, who is it?" work lives in
+:func:`~ml_service.orchestration.identify.identify_in_frames` (shared with the dev
+test UI so the two can never drift). This service reduces that pass's deduped
+``people`` map — best hit per ``(student_id, media_id)`` (FR-I6) — into match
+records; ``save_batch`` is the only write path. Search is strictly scoped to the
+job's ``school_id`` (FR-I4/NFR-3). Metrics come back as a ``JobOutcome`` for the
+worker to emit, so this layer stays import-pure.
 """
 
 from __future__ import annotations
 
-import logging
 from collections.abc import Iterable
-from dataclasses import dataclass
 
-from ml_service.domain.decision import apply_threshold_and_gap
 from ml_service.domain.errors import ConfigurationError
 from ml_service.domain.models import (
-    FaceBox,
     Frame,
     InferenceJob,
     JobOutcome,
@@ -34,18 +32,7 @@ from ml_service.domain.ports import (
     VectorIndex,
     VideoFrameExtractor,
 )
-
-log = logging.getLogger(__name__)
-
-
-@dataclass(frozen=True, slots=True)
-class _Best:
-    """The best detection seen so far for one ``(student_id, media_id)`` key."""
-
-    score: float
-    needs_review: bool
-    bbox: FaceBox
-    frame_timestamp_ms: int | None
+from ml_service.orchestration.identify import identify_in_frames
 
 
 class InferenceService:
@@ -84,8 +71,10 @@ class InferenceService:
         """Process one media item end to end, returning a ``JobOutcome``.
 
         Thresholds and the detector/embedder model versions are snapshotted once
-        per job (NFR-4); detections are deduped per ``(student_id, media_id)``
-        keeping the highest-confidence hit; ``save_batch`` is the only write path.
+        per job (NFR-4). The per-frame identify pass yields the full timeline plus
+        the deduped best-per-student map; this method persists only the deduped map
+        (one row per ``(student_id, media_id)``, highest confidence — the locked
+        idempotency contract, NFR-5). ``save_batch`` is the only write path.
         """
         media_bytes = await self._media_store.fetch(job.media_uri)
         thresholds = await self._thresholds.get_thresholds(job.school_id)  # once per job
@@ -97,65 +86,47 @@ class InferenceService:
         else:
             frames = [Frame(media_bytes)]
 
-        best: dict[tuple[str, str], _Best] = {}
-        faces_detected = 0
-        candidates_above_threshold = 0
-        unknown_faces = 0
-        frames_processed = 0
+        result = await identify_in_frames(
+            frames,
+            school_id=job.school_id,
+            detector=self._detector,
+            embedder=self._embedder,
+            index=self._index,
+            thresholds=thresholds,
+            top_k=self._top_k,
+        )
 
-        for frame in frames:
-            frames_processed += 1
-            boxes = await self._detector.detect(frame.image_bytes)
-            faces_detected += len(boxes)
-            for box in boxes:
-                embedding = await self._embedder.embed(frame.image_bytes, box)
-                candidates = await self._index.search(job.school_id, embedding, self._top_k)
-                candidates_above_threshold += len(
-                    {c.student_id for c in candidates if thresholds.clears(c.score)}
-                )
-                emissions = apply_threshold_and_gap(candidates, thresholds)
-                if not emissions:  # unknown face — log only, no record (FR-I8)
-                    unknown_faces += 1
-                    continue
-                for emission in emissions:
-                    key = (emission.candidate.student_id, job.media_id)
-                    current = best.get(key)
-                    if current is None or emission.candidate.score > current.score:
-                        best[key] = _Best(
-                            emission.candidate.score,
-                            emission.needs_review,
-                            box,
-                            frame.timestamp_ms,
-                        )
-
+        # result.frames carries the full per-frame/per-face timeline; the worker
+        # persists only the deduped best-per-student (locked matches contract). The
+        # per-frame detail is the hook for a future match_detections table (0020).
         records = [
             MatchRecord(
                 school_id=job.school_id,
                 event_id=job.event_id,
                 student_id=student_id,
-                media_id=media_id,
+                media_id=job.media_id,
                 media_type=job.media_type,
-                confidence_score=entry.score,
-                needs_review=entry.needs_review,
+                confidence_score=hit.score,
+                needs_review=hit.needs_review,
                 embedding_model_version=embedding_version,
                 detector_model_version=detector_version,
                 threshold_used=thresholds.match_confidence,
                 gap_threshold_used=thresholds.gap,
-                bbox=entry.bbox,
-                frame_timestamp_ms=entry.frame_timestamp_ms,
+                bbox=hit.bbox,
+                frame_timestamp_ms=hit.frame_timestamp_ms,
             )
-            for (student_id, media_id), entry in best.items()
+            for student_id, hit in result.people.items()
         ]
         if records:
             await self._repo.save_batch(records)  # only write path (architecture §3.4)
 
         return JobOutcome(
-            faces_detected=faces_detected,
-            candidates_above_threshold=candidates_above_threshold,
+            faces_detected=result.faces_detected,
+            candidates_above_threshold=result.candidates_above_threshold,
             matches_emitted=len(records),
             ambiguous_matches=sum(1 for r in records if r.needs_review),
-            unknown_faces=unknown_faces,
-            frames_processed=frames_processed,
+            unknown_faces=result.unknown_faces,
+            frames_processed=result.frames_processed,
             detector_version=detector_version,
             embedding_model_version=embedding_version,
         )

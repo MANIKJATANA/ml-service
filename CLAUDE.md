@@ -79,7 +79,7 @@ A multi-tenant face-recognition service for distributing event photos/videos to 
 The design exists to satisfy NFR-1/NFR-2 (swap ML stack or storage by config alone). The whole structure depends on strict layering:
 
 - `domain/` — pure, imports no third-party libs. Models, the 9 `Protocol` ports (req §9 + `ReferencePhotoRepository`, see [decisions/0009](decisions/0009-enrollment-contract.md)), and the pure `apply_threshold_and_gap()` decision function.
-- `orchestration/` — `EnrollmentService` / `InferenceService`. Imports only `domain`.
+- `orchestration/` — `EnrollmentService` / `InferenceService`, plus the shared `identify_in_frames` kernel (`identify.py` — the per-frame `face → person` loop used by both the worker and the dev test UI, [decisions/0020](decisions/0020-identify-all-faces-and-per-frame.md)). Imports only `domain`.
 - `adapters/` — one subpackage per port; the only place concrete libs (faiss, insightface, azure, redis, sqlalchemy) are imported.
 - `api/`, `workers/`, `wiring/` — the only modules allowed to import adapters. `wiring/container.py` builds concrete adapters from config via a name→class registry and injects them into the services.
 
@@ -98,6 +98,7 @@ These come straight from the specs and are the easy things to get subtly wrong:
 - **Reproducibility (NFR-4):** each match record persists `embedding_model_version`, `detector_model_version`, `threshold_used`, `gap_threshold_used` — the values actually used at decision time, not re-read at write time.
 - **Two-layer idempotency (NFR-5):** in-memory worker dedupe keyed on `(student_id, media_id)` first; DB unique constraint on `(media_id, student_id)` as the second line of defence. `save_batch` is the only DB write path and uses `INSERT ... ON CONFLICT` where higher confidence wins.
 - **Decision logic (req §6.2):** top-K=2. ≥threshold filter; 0 → unknown (log only, no record, FR-I8); 1 → emit; 2 → emit top-1 alone if `(top1-top2) > gap`, else emit both with `needs_review=true`.
+- **Identification is per-face (`face → person`), across every frame.** `identify_in_frames` (`orchestration/identify.py`) detects **every** face in **every** frame and decides each independently — a group photo names everyone; one frame can match several students. The worker persists only the deduped best per `(student_id, media_id)` (the two-layer idempotency above), but the kernel *also* returns the full per-frame/per-face timeline (`frames[]`), which the dev test UI renders for video (per timestamp, **not** globally deduped). Persisting that timeline (a `match_detections` table) is designed-for but **deferred** — see [decisions/0020](decisions/0020-identify-all-faces-and-per-frame.md).
 - **Embedding convention:** 512-dim ArcFace, L2-normalized; cosine similarity via FAISS `IndexFlatIP`. Lock `EMBEDDING_DIM=512` / `SIMILARITY_METRIC="cosine"` in `domain/models.py`; every adapter must emit normalized vectors.
 - **Detector and embedder stay in separate adapter modules** even though both ship in the `buffalo_l` bundle — sharing the import breaks NFR-1.
 - **Enrollment is replace-not-append (FR-E3);** per-photo failures don't abort the request (FR-E4).

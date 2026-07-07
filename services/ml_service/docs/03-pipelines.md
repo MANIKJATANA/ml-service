@@ -78,7 +78,7 @@ sequenceDiagram
     opt media_type == video
         IS->>VX: extract(bytes, fps)
     end
-    loop each frame -> each detected face
+    loop each frame -> each detected face  (identify_in_frames kernel)
         IS->>DT: detect(frame)
         IS->>EM: embed(frame, box)
         IS->>VI: search(school_id, emb, top_k)
@@ -97,6 +97,27 @@ Invariants:
 - **Tenant isolation (FR-I4/NFR-3):** every `search` is scoped to `job.school_id`.
 - **Config validated at construction:** `InferenceService` rejects `top_k < 2` (the gap decision needs two candidates) and `video_fps <= 0` with `ConfigurationError`.
 - **`save_batch` is the only write path** — and is skipped entirely when there are zero records.
+
+## Shared identify kernel (`identify_in_frames`)
+
+The per-frame "for every face, who is it?" loop lives in one place —
+`orchestration/identify.py` — shared by `InferenceService` **and** the dev test UI
+(decisions/0020), so what the worker persists can never drift from what the UI shows.
+It is pure orchestration (imports only `domain`) and returns **two views of one
+pass**:
+
+- `frames` — the full **per-frame / per-face** timeline: each sampled frame (its
+  `frame_timestamp_ms`, `None` for a still image), the faces detected in it, and the
+  person(s) each face matched (`[]` = unknown, 1 = match, 2 = ambiguous with
+  `needs_review`). This is what the test UI renders for video (per timestamp, **not**
+  a globally-deduped set — a person in 5 frames appears at all 5 timestamps).
+- `people` — the media collapsed to the **best hit per student**, which is what the
+  worker persists (the deduped `matches` rows, one per `(student_id, media_id)`).
+
+**Per-frame persistence is designed-for but deferred.** The worker currently ignores
+`result.frames`; a future `match_detections` table (`media_id, student_id,
+frame_timestamp_ms, bbox, score`) would just also write those rows — purely additive,
+no kernel change (decisions/0020).
 
 ## `JobOutcome` → metrics (req §13)
 

@@ -23,7 +23,7 @@ This is **one repo** that builds **three images** (see [decisions/0003](decision
 
 Python is managed with **`uv` in workspace mode** — one root `pyproject.toml` + one `uv.lock` shared by the Python members (`backend`, `ml_service`); shared Python code goes in `packages/`. The Next.js frontend is a separate Node package. BE is the only caller of the ML service; the ML service never calls BE.
 
-The structure above is **scaffolded** (see [decisions/0004](decisions/0004-scaffold-monorepo.md)): each service is a runnable shell with `/healthz` + `/readyz` and a passing health test. The ML service additionally has its implemented `domain/` + `orchestration/` core (Phase 1, [decisions/0008](decisions/0008-domain-core-design.md)); FE/BE remain shells.
+The structure above is **scaffolded** (see [decisions/0004](decisions/0004-scaffold-monorepo.md)): each service is a runnable shell with `/healthz` + `/readyz` and a passing health test. The ML service additionally has its implemented `domain/` + `orchestration/` core (Phase 1, [decisions/0008](decisions/0008-domain-core-design.md)); the **backend build-out is now underway** — its architecture + scope are locked in [decisions/0022](decisions/0022-backend-architecture-and-scope.md) (layered routers→services→repositories, roll-our-own JWT, reads ML results from the shared DB, docs-first phases `0023`–`0029`; reference in `services/backend/docs/`), though no backend feature code has landed yet. FE remains a shell.
 
 > The TEMP wiring demo (decisions/0006) has been **removed** in Phase 4
 > ([decisions/0017](decisions/0017-docker-observability-ci.md)): the `demo.py`

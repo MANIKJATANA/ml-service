@@ -8,6 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Keep this file current.** When architecture, commands, or conventions change, update CLAUDE.md in the same change.
 - **Never commit or push on your own.** Make and verify changes, but do not run `git commit`, `git push`, or open PRs until the user explicitly asks. Leave changes staged/unstaged for them to review.
 - **Self-review.** After making changes, review your own work and fix the issues you introduced before reporting done.
+- **Review→fix loop (2×) after each phase.** After implementing a phase, run a *review agent → apply fixes* cycle **twice** — distinct focus per round (round 1: correctness / bugs / async / error-handling; round 2: edge cases / quality / simplification / test-coverage gaps) — verifying the gate (ruff + mypy + pytest + layering) is green after each round, **before** presenting the phase. Then stop for the user's review/approval before starting the next phase.
 - **All DB schema changes go through migrations.** Any change to the database schema (tables, columns, indexes, constraints, types) must be a versioned migration file in the migrations folder — never an ad-hoc schema change made directly in application code. Application code may only assume the schema a migration has already established.
 - **Never read `.env` files** (or any secrets files), and never store secrets in memory or in code.
 
@@ -23,7 +24,7 @@ This is **one repo** that builds **three images** (see [decisions/0003](decision
 
 Python is managed with **`uv` in workspace mode** — one root `pyproject.toml` + one `uv.lock` shared by the Python members (`backend`, `ml_service`); shared Python code goes in `packages/`. The Next.js frontend is a separate Node package. BE is the only caller of the ML service; the ML service never calls BE.
 
-The structure above is **scaffolded** (see [decisions/0004](decisions/0004-scaffold-monorepo.md)): each service is a runnable shell with `/healthz` + `/readyz` and a passing health test. The ML service additionally has its implemented `domain/` + `orchestration/` core (Phase 1, [decisions/0008](decisions/0008-domain-core-design.md)); the **backend build-out is now underway** — its architecture + scope are locked in [decisions/0022](decisions/0022-backend-architecture-and-scope.md) (layered routers→services→repositories, roll-our-own JWT, reads ML results from the shared DB, docs-first phases `0023`–`0029`; reference in `services/backend/docs/`), though no backend feature code has landed yet. FE remains a shell.
+The structure above is **scaffolded** (see [decisions/0004](decisions/0004-scaffold-monorepo.md)): each service is a runnable shell with `/healthz` + `/readyz` and a passing health test. The ML service additionally has its implemented `domain/` + `orchestration/` core (Phase 1, [decisions/0008](decisions/0008-domain-core-design.md)); the **backend build-out is underway** — architecture + scope locked in [decisions/0022](decisions/0022-backend-architecture-and-scope.md) (ports + adapters like the ML service, roll-our-own JWT, reads ML results from the shared DB; docs-first phases, reference in `services/backend/docs/`). **Phase 1 (foundations) has landed** ([decisions/0023](decisions/0023-backend-db-schema.md)): settings, the backend DB + its **own** Alembic chain (`schools`/`users`, migration `0001`, distinct version table `alembic_version_backend`), the ports/registry/container skeleton, structlog, and dep-probing `/readyz`. Phases `0024`–`0029` follow. FE remains a shell.
 
 > The TEMP wiring demo (decisions/0006) has been **removed** in Phase 4
 > ([decisions/0017](decisions/0017-docker-observability-ci.md)): the `demo.py`
@@ -46,6 +47,8 @@ uv run python -m ml_service.workers.inference_worker      # ML inference worker
 uv run uvicorn backend.main:app --reload --port 8001     # backend     :8001
 # Apply ML DB migrations (URL from env, never committed):
 ML_DATABASE_URL=postgresql+asyncpg://... uv run alembic -c services/ml_service/alembic.ini upgrade head
+# Apply backend DB migrations (separate chain, version table alembic_version_backend):
+BE_DATABASE_URL=postgresql+asyncpg://... uv run alembic -c services/backend/alembic.ini upgrade head
 cd frontend && npm install && npm run dev                # frontend    :3000
 docker compose up --build           # all 3 images + Postgres + Redis (needs Docker running)
 ./scripts/up.ps1                    # helper: Postgres+Redis detached (stay up), apps in foreground; Ctrl+C stops only the apps

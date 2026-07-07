@@ -1,0 +1,27 @@
+"""Backend domain error hierarchy — pure, no third-party imports.
+
+The API maps these to HTTP status codes centrally (``api`` layer), so services and
+repositories raise domain errors rather than HTTP exceptions.
+"""
+
+from __future__ import annotations
+
+
+class BackendError(Exception):
+    """Base class for all backend domain errors."""
+
+
+class NotFoundError(BackendError):
+    """A requested resource does not exist (maps to HTTP 404)."""
+
+
+class ConflictError(BackendError):
+    """A uniqueness/state conflict, e.g. duplicate email (maps to HTTP 409)."""
+
+
+class ValidationError(BackendError):
+    """Invalid input that business rules reject (maps to HTTP 400)."""
+
+
+class ConfigurationError(BackendError):
+    """Invalid or missing wiring/configuration (maps to HTTP 500)."""

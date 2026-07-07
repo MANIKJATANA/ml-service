@@ -1,26 +1,66 @@
 """FastAPI app factory for the backend / core system.
 
-Health probes only for now — the real upload/storage/notification/distribution
-surface lands in a later phase.
+Mounts the health router, maps domain errors to HTTP status codes, and at startup
+configures structured logging and wires the composition-root container onto
+``app.state`` so ``/readyz`` can probe dependencies; on shutdown it disposes the
+container. Feature routers (auth, platform, staff, students, events, media,
+galleries, me) land in later phases.
 """
 
-from fastapi import FastAPI
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 
 from backend import __version__
+from backend.api.routers import health
+from backend.deps import get_container
+from backend.domain.errors import (
+    BackendError,
+    ConflictError,
+    NotFoundError,
+    ValidationError,
+)
+from backend.observability.logging import configure_logging
 from backend.settings import settings
 
 
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    configure_logging(settings.log_level, json_output=settings.log_json)
+    # Wire the container so /readyz can probe deps (cheap — no connections here).
+    app.state.container = get_container()
+    try:
+        yield
+    finally:
+        await app.state.container.aclose()
+
+
+def _register_error_handlers(app: FastAPI) -> None:
+    async def on_not_found(_: Request, exc: NotFoundError) -> JSONResponse:
+        return JSONResponse(status_code=404, content={"detail": str(exc)})
+
+    async def on_conflict(_: Request, exc: ConflictError) -> JSONResponse:
+        return JSONResponse(status_code=409, content={"detail": str(exc)})
+
+    async def on_validation(_: Request, exc: ValidationError) -> JSONResponse:
+        return JSONResponse(status_code=400, content={"detail": str(exc)})
+
+    async def on_backend_error(_: Request, exc: BackendError) -> JSONResponse:
+        # Base fallback — config/unclassified domain failures surface as 500.
+        return JSONResponse(status_code=500, content={"detail": str(exc)})
+
+    app.add_exception_handler(NotFoundError, on_not_found)  # type: ignore[arg-type]
+    app.add_exception_handler(ConflictError, on_conflict)  # type: ignore[arg-type]
+    app.add_exception_handler(ValidationError, on_validation)  # type: ignore[arg-type]
+    app.add_exception_handler(BackendError, on_backend_error)  # type: ignore[arg-type]
+
+
 def create_app() -> FastAPI:
-    app = FastAPI(title="Backend", version=__version__)
-
-    @app.get("/healthz", tags=["health"])
-    def healthz() -> dict[str, str]:
-        return {"status": "ok", "service": settings.service_name}
-
-    @app.get("/readyz", tags=["health"])
-    def readyz() -> dict[str, str]:
-        return {"status": "ready"}
-
+    app = FastAPI(title="Backend", version=__version__, lifespan=lifespan)
+    app.include_router(health.router)
+    _register_error_handlers(app)
     return app
 
 

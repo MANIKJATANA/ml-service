@@ -46,6 +46,22 @@ if ($hits) {
     exit 1
 }
 
+# Backend layering (decisions/0022): no concrete IO lib in backend domain/services.
+# tests/test_layering.py is the thorough AST gate; this is the fast-fail mirror.
+$bePureDirs = @(
+    "services/backend/src/backend/domain",
+    "services/backend/src/backend/services"
+) | Where-Object { Test-Path $_ }
+if ($bePureDirs) {
+    $beHits = Select-String -Path (Get-ChildItem -Recurse -Filter *.py -Path $bePureDirs).FullName `
+        -Pattern '(from|import)\s+(sqlalchemy|asyncpg|redis|httpx|supabase|fastapi)'
+    if ($beHits) {
+        Write-Host "FAILED: concrete IO import found in a backend pure layer" -ForegroundColor Red
+        $beHits | ForEach-Object { Write-Host $_.Line }
+        exit 1
+    }
+}
+
 Invoke-Step "pytest" { uv run pytest }
 
 Write-Host "All checks passed." -ForegroundColor Green

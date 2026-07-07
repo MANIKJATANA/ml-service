@@ -1,0 +1,46 @@
+"""Adapter registry — flat ``name -> "module:Class"`` tables, one per port
+(mirrors the ML service's ``wiring/registry.py``).
+
+The single source of truth mapping a ``settings.*_impl`` name to a concrete adapter
+class. The container reads a selector (e.g. ``settings.repository_impl == "postgres"``),
+calls :func:`resolve` to import the class, and constructs it. Adding a backend (e.g.
+an S3 object store, an in-proc queue) is a one-line entry here plus a construction
+branch in the container — no change to ``domain``/``services`` (decisions/0022).
+"""
+
+from __future__ import annotations
+
+import importlib
+
+from backend.domain.errors import ConfigurationError
+
+SCHOOL_REPO_REGISTRY: dict[str, str] = {
+    "postgres": "backend.adapters.repositories.postgres_schools:PostgresSchoolRepository",
+}
+
+USER_REPO_REGISTRY: dict[str, str] = {
+    "postgres": "backend.adapters.repositories.postgres_users:PostgresUserRepository",
+}
+
+
+def resolve(registry: dict[str, str], name: str) -> type:
+    """Look ``name`` up in ``registry`` and import the referenced class.
+
+    Raises :class:`ConfigurationError` for an unknown name or an unimportable /
+    malformed target, so a misconfigured ``*_impl`` fails loud at wiring time.
+    """
+    target = registry.get(name)
+    if target is None:
+        raise ConfigurationError(
+            f"unknown adapter impl {name!r}; known: {sorted(registry)}"
+        )
+    module_path, _, class_name = target.partition(":")
+    if not class_name:
+        raise ConfigurationError(
+            f"malformed registry target {target!r} (need module:Class)"
+        )
+    try:
+        module = importlib.import_module(module_path)
+        return getattr(module, class_name)  # type: ignore[no-any-return]
+    except (ImportError, AttributeError) as exc:
+        raise ConfigurationError(f"cannot import {target!r}: {exc}") from exc

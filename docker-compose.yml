@@ -16,13 +16,39 @@ services:
       - backend
 
   backend:
+    image: backend:local
     build:
       context: .
       dockerfile: services/backend/Dockerfile
+    env_file:
+      - path: .env
+        required: false
     environment:
       BE_ML_SERVICE_URL: http://ml-service:8000
+      BE_DATABASE_URL: ${BE_DATABASE_URL:-postgresql+asyncpg://app:app@postgres:5432/app}
     ports:
       - "8001:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      backend-migrate:
+        condition: service_completed_successfully
+
+  # One-shot: apply pending backend DB migrations, then exit. The backend waits for
+  # this to finish successfully before starting. Own Alembic chain (version table
+  # alembic_version_backend) so it coexists with the ML `migrate` in the same DB.
+  backend-migrate:
+    image: backend:local
+    build:
+      context: .
+      dockerfile: services/backend/Dockerfile
+    command: ["alembic", "-c", "services/backend/alembic.ini", "upgrade", "head"]
+    environment:
+      BE_DATABASE_URL: ${BE_DATABASE_URL:-postgresql+asyncpg://app:app@postgres:5432/app}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
 
   # One-shot: apply pending ML DB migrations, then exit. The app services wait
   # for this to finish successfully before starting (see their depends_on).

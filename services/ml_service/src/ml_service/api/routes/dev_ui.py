@@ -1,4 +1,4 @@
-"""Dev-only test UI (decisions/0019, 0020) — hand-test enroll + identify.
+"""Dev-only test UI (decisions/0019, 0020, 0021) — hand-test enroll + identify.
 
 NOT a production surface. Mounted only when ``ML_ENABLE_TEST_UI=true``. It reuses
 the real composition-root container (same Supabase/DB/FAISS config as the app), so
@@ -30,8 +30,8 @@ from fastapi import APIRouter, Depends, File, Form, UploadFile
 from fastapi.responses import HTMLResponse
 from starlette.concurrency import run_in_threadpool
 
-from ml_service.domain.models import FaceBox, Frame
-from ml_service.orchestration.identify import identify_in_frames
+from ml_service.domain.models import FaceBox, Frame, Thresholds
+from ml_service.orchestration.identify import FaceResult, identify_in_frames
 from ml_service.wiring.container import Container
 from ml_service.wiring.settings import settings
 
@@ -65,6 +65,42 @@ def _is_video(content_type: str | None, filename: str | None) -> bool:
 
 def _bbox_json(box: FaceBox) -> dict[str, float]:
     return {"x1": box.x1, "y1": box.y1, "x2": box.x2, "y2": box.y2, "score": round(box.score, 4)}
+
+
+def _face_json(face: FaceResult, thresholds: Thresholds) -> dict[str, object]:
+    """One detected face's full audit: box, outcome, emitted people, and the raw
+    top-k candidates (each flagged cleared-threshold / emitted) — the same detail the
+    worker persists as ``face_detections`` + ``face_detection_candidates`` (0021)."""
+    emitted_ids = {p.student_id for p in face.people}
+    if len(face.people) >= 2:
+        outcome = "ambiguous"
+    elif len(face.people) == 1:
+        outcome = "match"
+    else:
+        outcome = "unknown"
+    return {
+        "bbox": _bbox_json(face.bbox),
+        "detection_score": round(face.bbox.score, 4),
+        "outcome": outcome,
+        "people": [
+            {
+                "student_id": p.student_id,
+                "score": round(p.score, 4),
+                "needs_review": p.needs_review,
+            }
+            for p in face.people
+        ],
+        "candidates": [
+            {
+                "student_id": c.student_id,
+                "score": round(c.score, 4),
+                "rank": rank,
+                "cleared_threshold": thresholds.clears(c.score),
+                "emitted": c.student_id in emitted_ids,
+            }
+            for rank, c in enumerate(face.candidates, start=1)
+        ],
+    }
 
 
 async def _identify_media(
@@ -122,25 +158,17 @@ async def _identify_media(
         "faces_detected": result.faces_detected,
         "frames_processed": result.frames_processed,
         "unknown_faces": result.unknown_faces,
-        # Per-frame / per-face timeline (the UI renders this; a future
-        # match_detections table would persist it — decisions/0020).
+        "top_k": settings.top_k,
+        "thresholds": {
+            "match_confidence": round(thresholds.match_confidence, 4),
+            "gap": round(thresholds.gap, 4),
+        },
+        # Per-frame / per-face timeline with each face's full top-k audit — the same
+        # detail the worker now persists as the detection tables (decisions/0021).
         "frames": [
             {
                 "frame_timestamp_ms": fr.frame_timestamp_ms,
-                "faces": [
-                    {
-                        "bbox": _bbox_json(face.bbox),
-                        "people": [
-                            {
-                                "student_id": p.student_id,
-                                "score": round(p.score, 4),
-                                "needs_review": p.needs_review,
-                            }
-                            for p in face.people
-                        ],
-                    }
-                    for face in fr.faces
-                ],
+                "faces": [_face_json(face, thresholds) for face in fr.faces],
             }
             for fr in result.frames
         ],
@@ -255,6 +283,10 @@ _PAGE = """<!doctype html>
   .trow { font-size: .85rem; margin: .15rem 0; }
   .trow .ts { display: inline-block; min-width: 3.4rem; opacity: .65; font-variant-numeric: tabular-nums; }
   .ok { color: #16a34a; } .no { color: #ef4444; } .rev { color: #d97706; }
+  .face { border-top: 1px solid #8883; padding: .4rem 0; }
+  .face:first-child { border-top: 0; padding-top: .1rem; }
+  .fhead { font-size: .9rem; }
+  .cands { margin-top: .25rem; }
 </style>
 </head>
 <body>
@@ -294,6 +326,28 @@ const personText = (p) => p.student_id + " (" + p.score + (p.needs_review ? ", r
 const faceText = (face) => (!face.people || !face.people.length)
   ? "unknown"
   : face.people.map(personText).join(" / ");
+// One top-k candidate chip: green = emitted (written to matches), amber = cleared
+// the threshold but not chosen, red = below threshold.
+const candHtml = (c, ambiguous) => {
+  const cls = c.emitted ? (ambiguous ? "rev" : "ok") : (c.cleared_threshold ? "rev" : "no");
+  const mark = c.emitted ? " ✓" : (c.cleared_threshold ? " ·cleared" : " ·below");
+  return '<span class="chip ' + cls + '">#' + c.rank + " " + c.student_id + " " + c.score + mark + "</span>";
+};
+// One detected face: outcome + detector box + its full raw top-k list.
+const faceHtml = (face, idx) => {
+  const outClass = face.outcome === "match" ? "ok" : (face.outcome === "ambiguous" ? "rev" : "no");
+  const amb = face.outcome === "ambiguous";
+  const cands = (face.candidates || []).map((c) => candHtml(c, amb)).join(" ");
+  const b = face.bbox;
+  const boxStr = b ? "[" + Math.round(b.x1) + "," + Math.round(b.y1) + " → " +
+    Math.round(b.x2) + "," + Math.round(b.y2) + "]" : "";
+  return '<div class="face"><div class="fhead"><b>Face ' + (idx + 1) + "</b> · " +
+    '<span class="' + outClass + '">' + face.outcome + "</span> " +
+    '<span class="muted">det ' + (face.detection_score != null ? face.detection_score : "?") +
+    " · " + boxStr + "</span></div>" +
+    '<div class="cands">' + (cands || '<span class="muted">no candidates in index</span>') +
+    "</div></div>";
+};
 
 $("enrollFile").addEventListener("change", () => {
   const f = $("enrollFile").files[0], img = $("enrollPrev");
@@ -327,8 +381,12 @@ function renderResult(item, r) {
   const summary = r.faces_detected + " face" + (r.faces_detected === 1 ? "" : "s") +
     " → " + nPeople + " " + (nPeople === 1 ? "person" : "people");
   status.className = "status";
+  const th = r.thresholds
+    ? ' <span class="muted">· match≥' + r.thresholds.match_confidence +
+      ", gap>" + r.thresholds.gap + ", top_k=" + r.top_k + "</span>"
+    : "";
   status.innerHTML = '<span class="name">' + summary + "</span>" +
-    (r.media_type === "video" ? ' <span class="muted">' + r.frames_processed + " frames sampled</span>" : "");
+    (r.media_type === "video" ? ' <span class="muted">' + r.frames_processed + " frames sampled</span>" : "") + th;
 
   if (r.media_type === "video") {
     // Per-timestamp timeline: which faces (and who) appear in each sampled frame.
@@ -338,15 +396,10 @@ function renderResult(item, r) {
         '</span> ' + fr.faces.map(faceText).join(", ") + "</div>");
     detail.innerHTML = rows.length ? rows.join("") : '<span class="muted">no faces detected</span>';
   } else {
-    // Image: one chip per detected face.
+    // Image: full per-face detail — outcome + box + the raw top-k candidates.
     const faces = (r.frames && r.frames[0] && r.frames[0].faces) || [];
     detail.innerHTML = faces.length
-      ? faces.map((face) => {
-          const unknown = !face.people || !face.people.length;
-          const review = !unknown && face.people.some((p) => p.needs_review);
-          const cls = unknown ? "no" : (review ? "rev" : "ok");
-          return '<span class="chip ' + cls + '">' + faceText(face) + "</span>";
-        }).join(" ")
+      ? faces.map((face, i) => faceHtml(face, i)).join("")
       : '<span class="muted">no faces detected</span>';
   }
 }

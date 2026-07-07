@@ -8,9 +8,10 @@ between "what the worker persists" and "what the UI shows".
 It returns **two views of the same pass** so each caller takes what it needs:
 
 * ``frames`` — the full **per-frame / per-face** timeline: every sampled frame
-  (its ``frame_timestamp_ms``), the faces detected in it, and the person(s) each
-  face matched (or none = unknown). This is what the test UI renders for video,
-  and the hook a future ``match_detections`` table would persist (decisions/0020).
+  (its ``frame_timestamp_ms``), the faces detected in it, each face's raw top-k
+  ``candidates``, and the person(s) it matched (or none = unknown). The test UI
+  renders this for video, and the worker persists it as the detection audit
+  (decisions/0021).
 * ``people`` — the media collapsed to the **best hit per student** (highest score
   wins). This reproduces the worker's locked ``(student_id, media_id)`` dedupe
   exactly (``media_id`` is constant within a job), so it stays the sole input to
@@ -27,7 +28,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 
 from ml_service.domain.decision import apply_threshold_and_gap
-from ml_service.domain.models import FaceBox, Frame, Thresholds
+from ml_service.domain.models import Candidate, FaceBox, Frame, Thresholds
 from ml_service.domain.ports import FaceDetector, FaceEmbedder, VectorIndex
 
 
@@ -48,10 +49,13 @@ class FaceResult:
 
     ``people`` holds 0 hits (unknown face — below threshold / no match), 1 hit (a
     confident match), or 2 hits (ambiguous: both carry ``needs_review=True``).
+    ``candidates`` is the raw top-k search result for this face (score desc, one per
+    student), retained so the worker can persist the full per-face audit (0021).
     """
 
     bbox: FaceBox
     people: list[PersonHit]
+    candidates: list[Candidate]
 
 
 @dataclass(frozen=True, slots=True)
@@ -110,7 +114,9 @@ async def identify_in_frames(
             emissions = apply_threshold_and_gap(candidates, thresholds)
             if not emissions:  # unknown face — recorded as a face with no people
                 unknown_faces += 1
-                face_results.append(FaceResult(bbox=box, people=[]))
+                face_results.append(
+                    FaceResult(bbox=box, people=[], candidates=candidates)
+                )
                 continue
             hits = [
                 PersonHit(
@@ -122,7 +128,7 @@ async def identify_in_frames(
                 )
                 for e in emissions
             ]
-            face_results.append(FaceResult(bbox=box, people=hits))
+            face_results.append(FaceResult(bbox=box, people=hits, candidates=candidates))
             for hit in hits:  # dedupe to the best hit per student (highest score)
                 current = best.get(hit.student_id)
                 if current is None or hit.score > current.score:

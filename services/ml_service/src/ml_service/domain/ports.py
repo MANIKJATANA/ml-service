@@ -20,6 +20,7 @@ from ml_service.domain.models import (
     InferenceJob,
     JobLease,
     MatchRecord,
+    MediaDetectionRecord,
     Thresholds,
 )
 
@@ -94,6 +95,18 @@ class MatchRepository(Protocol):
     async def save_batch(self, records: list[MatchRecord]) -> None: ...
 
     async def exists(self, media_id: str, student_id: str) -> bool: ...
+
+
+class DetectionRepository(Protocol):
+    """Persists the full per-face detection audit for a media (decisions/0021).
+
+    ``save_detections`` replaces every row for the media (delete + insert in one
+    transaction, FK cascade) — the per-media detection set is regenerated
+    deterministically. Kept separate from ``MatchRepository`` so that repo's
+    "``save_batch`` is the only write path" invariant stays intact.
+    """
+
+    async def save_detections(self, detection: MediaDetectionRecord) -> None: ...
 
 
 class ThresholdProvider(Protocol):

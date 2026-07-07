@@ -54,6 +54,7 @@ class PostgresMatchRepository:
                 "detector_model_version": stmt.excluded.detector_model_version,
                 "threshold_used": stmt.excluded.threshold_used,
                 "gap_threshold_used": stmt.excluded.gap_threshold_used,
+                "frames_matched": stmt.excluded.frames_matched,
             },
             # Only overwrite when reprocessing found a higher-confidence match.
             where=stmt.excluded.confidence_score > Match.confidence_score,
@@ -87,4 +88,5 @@ class PostgresMatchRepository:
             "detector_model_version": r.detector_model_version,
             "threshold_used": r.threshold_used,
             "gap_threshold_used": r.gap_threshold_used,
+            "frames_matched": r.frames_matched,
         }

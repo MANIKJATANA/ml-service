@@ -11,14 +11,32 @@ import os
 
 import pytest
 import pytest_asyncio
+from ml_service.adapters.repository.postgres_detections import (
+    PostgresDetectionRepository,
+)
 from ml_service.adapters.repository.postgres_matches import PostgresMatchRepository
 from ml_service.adapters.repository.postgres_reference_photos import (
     PostgresReferencePhotoRepository,
 )
 from ml_service.adapters.repository.postgres_thresholds import PostgresThresholdProvider
 from ml_service.db.base import Base
-from ml_service.db.models import Match, SchoolThreshold
-from ml_service.domain.models import MatchRecord, MediaType
+from ml_service.db.models import (
+    FaceDetection,
+    FaceDetectionCandidate,
+    Match,
+    MediaDetection,
+    SchoolThreshold,
+)
+from ml_service.domain.models import (
+    DetectionCandidate,
+    DetectionOutcome,
+    FaceBox,
+    FaceDetectionRecord,
+    FrameDetectionRecord,
+    MatchRecord,
+    MediaDetectionRecord,
+    MediaType,
+)
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
@@ -118,3 +136,62 @@ async def test_reference_photos_replace_and_delete(
     assert await repo.get("s1", "alice") == ["only"]
     await repo.delete("s1", "alice")
     assert await repo.get("s1", "alice") == []
+
+
+def _detection_record(media_id: str, students: list[str]) -> MediaDetectionRecord:
+    faces = tuple(
+        FaceDetectionRecord(
+            face_index=i,
+            box=FaceBox(0.0, 0.0, 10.0, 10.0, 0.99),
+            outcome=DetectionOutcome.MATCH,
+            candidates=(DetectionCandidate(s, 0.9, 1, True, True, False),),
+        )
+        for i, s in enumerate(students)
+    )
+    frame = FrameDetectionRecord(frame_index=0, frame_timestamp_ms=None, faces=faces)
+    return MediaDetectionRecord(
+        school_id="s1",
+        event_id="e1",
+        media_id=media_id,
+        media_type=MediaType.IMAGE,
+        media_uri="u",
+        video_fps=None,
+        frames_sampled=1,
+        faces_detected=len(students),
+        candidates_above_threshold=len(students),
+        unknown_faces=0,
+        matches_emitted=len(students),
+        ambiguous_matches=0,
+        top_k=2,
+        match_confidence_threshold=0.5,
+        gap_threshold=0.1,
+        embedding_model_version="ev",
+        detector_model_version="dv",
+        processing_ms=5,
+        frames=(frame,),
+    )
+
+
+async def _count(sm: async_sessionmaker[AsyncSession], model: type) -> int:
+    async with sm() as session:
+        return len((await session.execute(select(model))).scalars().all())
+
+
+async def test_detection_replace_by_media_and_cascade(
+    sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    repo = PostgresDetectionRepository(sessionmaker)
+    await repo.save_detections(_detection_record("m1", ["alice", "bob"]))
+    assert await _count(sessionmaker, MediaDetection) == 1
+    assert await _count(sessionmaker, FaceDetection) == 2
+    assert await _count(sessionmaker, FaceDetectionCandidate) == 2
+
+    # Reprocess with a different result: replace-by-media (FK cascade wipes the old
+    # tree), never a duplicate media row.
+    await repo.save_detections(_detection_record("m1", ["carol"]))
+    assert await _count(sessionmaker, MediaDetection) == 1
+    assert await _count(sessionmaker, FaceDetection) == 1
+    assert await _count(sessionmaker, FaceDetectionCandidate) == 1
+    async with sessionmaker() as session:
+        rows = (await session.execute(select(FaceDetectionCandidate))).scalars().all()
+    assert rows[0].student_id == "carol"

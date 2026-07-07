@@ -45,6 +45,10 @@ class Settings(BaseSettings):
     default_gap_threshold: float = 0.08
     video_sample_fps: float = 1.0
     top_k: int = 2
+    # Persist the full per-face detection audit (media_detections + children,
+    # decisions/0021). Default on; turn off to skip the detection write (matches is
+    # unaffected) if per-frame volume becomes a problem.
+    persist_detections: bool = True
 
     # --- adapter selectors (name -> class via wiring/registry.py) --------
     detector_impl: str = "scrfd"
@@ -54,6 +58,7 @@ class Settings(BaseSettings):
     media_store_impl: str = "supabase"  # supabase (default, 0010) | local_fs (dev)
     video_extractor_impl: str = "decord"  # decord (default) | opencv (fallback)
     match_repo_impl: str = "postgres"
+    detection_repo_impl: str = "postgres"
     threshold_provider_impl: str = "postgres"
     reference_photo_repo_impl: str = "postgres"
     queue_impl: str = "redis"  # redis (default) | inproc (single-process/dev)

@@ -127,6 +127,83 @@ class MatchRecord:
     gap_threshold_used: float
     bbox: FaceBox | None = None
     frame_timestamp_ms: int | None = None
+    frames_matched: int = 1  # distinct frames this student was emitted in (1 = image)
+
+
+class DetectionOutcome(StrEnum):
+    """The threshold/gap decision for one detected face (req §6.2)."""
+
+    UNKNOWN = "unknown"  # 0 emissions — matched nobody
+    MATCH = "match"  # 1 emission — a confident match
+    AMBIGUOUS = "ambiguous"  # 2 emissions — top-2 within the gap, needs review
+
+
+@dataclass(frozen=True, slots=True)
+class DetectionCandidate:
+    """One raw vector-search hit for a face, with how the decision treated it.
+
+    Captures the top-k result as returned (student, score, ``rank``) plus the
+    threshold/gap flags, so the stored candidates are a full audit of the decision
+    — including below-threshold hits and the closest-but-missed on an unknown face.
+    """
+
+    student_id: str
+    score: float
+    rank: int  # 1-based position in the top-k (1 = best)
+    cleared_threshold: bool
+    emitted: bool
+    needs_review: bool
+
+
+@dataclass(frozen=True, slots=True)
+class FaceDetectionRecord:
+    """One detected face: its box, the decision outcome, and its top-k candidates."""
+
+    face_index: int
+    box: FaceBox
+    outcome: DetectionOutcome
+    candidates: tuple[DetectionCandidate, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class FrameDetectionRecord:
+    """One sampled frame (or the single still image) and the faces found in it."""
+
+    frame_index: int
+    frame_timestamp_ms: int | None
+    faces: tuple[FaceDetectionRecord, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class MediaDetectionRecord:
+    """The full per-face detection audit for one media (decisions/0021).
+
+    The media-level summary + the per-frame / per-face / per-candidate tree the
+    ``DetectionRepository`` persists (replace-by-media). Versions, thresholds, and
+    ``top_k`` are the values used at decision time (NFR-4); ids/``created_at`` are
+    assigned by the database. ``matches`` stays the deduped conclusion — this is the
+    additive evidence.
+    """
+
+    school_id: str
+    event_id: str
+    media_id: str
+    media_type: MediaType
+    media_uri: str
+    video_fps: float | None
+    frames_sampled: int
+    faces_detected: int
+    candidates_above_threshold: int
+    unknown_faces: int
+    matches_emitted: int
+    ambiguous_matches: int
+    top_k: int
+    match_confidence_threshold: float
+    gap_threshold: float
+    embedding_model_version: str
+    detector_model_version: str
+    processing_ms: int | None
+    frames: tuple[FrameDetectionRecord, ...]
 
 
 @dataclass(frozen=True, slots=True)

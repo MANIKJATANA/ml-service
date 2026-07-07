@@ -20,6 +20,7 @@ from ml_service.domain.models import (
     FaceBox,
     Frame,
     MatchRecord,
+    MediaDetectionRecord,
     Thresholds,
 )
 
@@ -171,6 +172,18 @@ class StubMatchRepository:
 
     async def exists(self, media_id: str, student_id: str) -> bool:
         return (media_id, student_id) in self.rows
+
+
+class StubDetectionRepository:
+    """In-memory DetectionRepository mirroring replace-by-media (last write wins)."""
+
+    def __init__(self) -> None:
+        self.by_media: dict[str, MediaDetectionRecord] = {}
+        self.save_calls = 0
+
+    async def save_detections(self, detection: MediaDetectionRecord) -> None:
+        self.save_calls += 1
+        self.by_media[detection.media_id] = detection
 
 
 class StubThresholdProvider:

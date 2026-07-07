@@ -25,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from ml_service.adapters.repository._engine import make_engine, make_sessionmaker
 from ml_service.domain.errors import ConfigurationError
 from ml_service.domain.ports import (
+    DetectionRepository,
     FaceDetector,
     FaceEmbedder,
     JobQueue,
@@ -63,6 +64,7 @@ class Container:
         self._media_store: MediaStore | None = None
         self._extractor: VideoFrameExtractor | None = None
         self._match_repo: MatchRepository | None = None
+        self._detection_repo: DetectionRepository | None = None
         self._threshold_provider: ThresholdProvider | None = None
         self._reference_photos: ReferencePhotoRepository | None = None
         self._queue: JobQueue | None = None
@@ -181,6 +183,16 @@ class Container:
                     self._match_repo = cls(self.sessionmaker())
         return self._match_repo
 
+    def detection_repo(self) -> DetectionRepository:
+        if self._detection_repo is None:
+            with self._lock:
+                if self._detection_repo is None:
+                    cls = registry.resolve(
+                        registry.DETECTION_REPO_REGISTRY, self._s.detection_repo_impl
+                    )
+                    self._detection_repo = cls(self.sessionmaker())
+        return self._detection_repo
+
     def threshold_provider(self) -> ThresholdProvider:
         if self._threshold_provider is None:
             with self._lock:
@@ -256,8 +268,10 @@ class Container:
                         index=self.vector_index(),
                         repo=self.match_repo(),
                         thresholds=self.threshold_provider(),
+                        detection_repo=self.detection_repo(),
                         top_k=self._s.top_k,
                         video_fps=self._s.video_sample_fps,
+                        persist_detections=self._s.persist_detections,
                     )
         return self._inference
 
@@ -275,6 +289,7 @@ class Container:
         checks: dict[str, bool] = {}
         uses_postgres = "postgres" in (
             self._s.match_repo_impl,
+            self._s.detection_repo_impl,
             self._s.threshold_provider_impl,
             self._s.reference_photo_repo_impl,
         )

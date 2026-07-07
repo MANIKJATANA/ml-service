@@ -127,3 +127,20 @@ async def test_frame_with_no_faces_is_still_recorded() -> None:
     assert result.frames[0].frame_timestamp_ms == 500
     assert result.frames[0].faces == []
     assert result.people == {}
+
+
+async def test_face_results_retain_raw_candidates() -> None:
+    index = StubVectorIndex()
+    index.script(
+        [Candidate("a", 0.9), Candidate("b", 0.85)],  # face 1: ambiguous
+        [Candidate("c", 0.3)],  # face 2: unknown (below 0.5)
+    )
+    detector = StubDetector(mapping={b"img": [box(), box()]})
+
+    result = await _run([Frame(b"img")], index, detector=detector)
+
+    f1, f2 = result.frames[0].faces
+    # raw top-k retained verbatim (score desc) so the worker can audit — even for
+    # the unknown face (its closest-but-missed candidate).
+    assert [(c.student_id, c.score) for c in f1.candidates] == [("a", 0.9), ("b", 0.85)]
+    assert [(c.student_id, c.score) for c in f2.candidates] == [("c", 0.3)]

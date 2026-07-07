@@ -68,6 +68,7 @@ sequenceDiagram
     participant EM as FaceEmbedder
     participant VI as VectorIndex
     participant MR as MatchRepository
+    participant DR as DetectionRepository
 
     BE->>Q: enqueue(job)
     W->>Q: consume -> lease
@@ -85,7 +86,11 @@ sequenceDiagram
         Note over IS: apply_threshold_and_gap (§6.2)<br/>dedupe (student_id, media_id), keep best score
     end
     IS->>MR: save_batch(records)
-    Note over MR: only write path; INSERT..ON CONFLICT, higher confidence wins
+    Note over MR: only matches write path; INSERT..ON CONFLICT, higher confidence wins
+    opt persist_detections
+        IS->>DR: save_detections(media detection tree)
+        Note over DR: replace-by-media (advisory lock; FK cascade)
+    end
     IS-->>W: JobOutcome
     W->>Q: ack(lease)
 ```
@@ -96,7 +101,8 @@ Invariants:
 - **In-memory dedupe (FR-I6):** detections are buffered by `(student_id, media_id)` keeping the highest-confidence hit and its bbox/frame timestamp; the DB unique key `(media_id, student_id)` is the second line of defence (NFR-5).
 - **Tenant isolation (FR-I4/NFR-3):** every `search` is scoped to `job.school_id`.
 - **Config validated at construction:** `InferenceService` rejects `top_k < 2` (the gap decision needs two candidates) and `video_fps <= 0` with `ConfigurationError`.
-- **`save_batch` is the only write path** — and is skipped entirely when there are zero records.
+- **`save_batch` is the only `matches` write path** — and is skipped entirely when there are zero records.
+- **Detection audit (decisions/0021):** when `persist_detections` is on, the worker also persists the full per-face evidence (`media_detections` + children, replace-by-media) via a separate `DetectionRepository` — independent of the `matches` write and each idempotent, so a partial failure self-heals on retry.
 
 ## Shared identify kernel (`identify_in_frames`)
 
@@ -114,10 +120,12 @@ pass**:
 - `people` — the media collapsed to the **best hit per student**, which is what the
   worker persists (the deduped `matches` rows, one per `(student_id, media_id)`).
 
-**Per-frame persistence is designed-for but deferred.** The worker currently ignores
-`result.frames`; a future `match_detections` table (`media_id, student_id,
-frame_timestamp_ms, bbox, score`) would just also write those rows — purely additive,
-no kernel change (decisions/0020).
+**Per-frame persistence is implemented** (decisions/0021). The worker maps `result.frames`
+into a media-centric detection audit — `media_detections → media_frames → face_detections
+→ face_detection_candidates` (every face, every frame, each face's raw top-k candidates) —
+written via a `DetectionRepository` (replace-by-media). `matches` stays the deduped summary
+(plus a `frames_matched` count); the `student_media_appearances` view bridges the two. See
+docs/05-data-model.md.
 
 ## `JobOutcome` → metrics (req §13)
 

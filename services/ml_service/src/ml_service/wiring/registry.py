@@ -50,6 +50,13 @@ MATCH_REPO_REGISTRY: dict[str, str] = {
     "postgres": "ml_service.adapters.repository.postgres_matches:PostgresMatchRepository",
 }
 
+DETECTION_REPO_REGISTRY: dict[str, str] = {
+    "postgres": (
+        "ml_service.adapters.repository.postgres_detections"
+        ":PostgresDetectionRepository"
+    ),
+}
+
 THRESHOLD_PROVIDER_REGISTRY: dict[str, str] = {
     "postgres": "ml_service.adapters.repository.postgres_thresholds:PostgresThresholdProvider",
 }

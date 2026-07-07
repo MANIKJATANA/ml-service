@@ -2,6 +2,12 @@
 
 Date: 2026-07-07
 
+> **Per-frame persistence implemented by [0021](0021-persist-per-frame-detections.md).**
+> The "designed for, deferred" section below is now built: the `media_detections` /
+> `media_frames` / `face_detections` / `face_detection_candidates` tables + the
+> `student_media_appearances` view, and the kernel's `FaceResult` now carries the raw
+> candidates so the audit is complete.
+
 ## Context
 
 Identification's unit of work is **`face → person`**, not `image → person`. One

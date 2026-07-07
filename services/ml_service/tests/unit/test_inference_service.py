@@ -2,6 +2,7 @@
 
 import pytest
 from fakes import (
+    StubDetectionRepository,
     StubDetector,
     StubEmbedder,
     StubFrameExtractor,
@@ -13,7 +14,13 @@ from fakes import (
     normalized,
 )
 from ml_service.domain.errors import ConfigurationError, MediaFetchError
-from ml_service.domain.models import Candidate, Frame, InferenceJob, MediaType
+from ml_service.domain.models import (
+    Candidate,
+    DetectionOutcome,
+    Frame,
+    InferenceJob,
+    MediaType,
+)
 from ml_service.orchestration.inference import InferenceService
 
 
@@ -26,8 +33,10 @@ def make_service(
     embedder: StubEmbedder | None = None,
     media: StubMediaStore | None = None,
     extractor: StubFrameExtractor | None = None,
+    detection_repo: StubDetectionRepository | None = None,
     top_k: int = 2,
     video_fps: float = 1.0,
+    persist_detections: bool = True,
 ) -> InferenceService:
     return InferenceService(
         media or StubMediaStore({"u": b"img", "v": b"vid"}),
@@ -37,8 +46,10 @@ def make_service(
         index,
         repo,
         thresholds or StubThresholdProvider(0.5, 0.1),
+        detection_repo or StubDetectionRepository(),
         top_k=top_k,
         video_fps=video_fps,
+        persist_detections=persist_detections,
     )
 
 
@@ -372,3 +383,88 @@ async def test_multi_frame_multi_face_multi_person_dedupes_to_unique() -> None:
     assert set(saved) == {"A", "B", "C"}
     assert saved["A"].confidence_score == 0.95
     assert saved["A"].frame_timestamp_ms == 1000  # A's best hit was in frame 2
+
+
+async def test_detections_persist_full_audit() -> None:
+    # One image, two faces: face-1 a confident match (alice), face-2 unknown.
+    index = StubVectorIndex()
+    index.script(
+        [Candidate("alice", 0.95), Candidate("bob", 0.40)],  # face 1 -> match alice
+        [Candidate("carol", 0.30)],  # face 2 -> unknown (below 0.5)
+    )
+    det = StubDetectionRepository()
+    detector = StubDetector(mapping={b"img": [box(), box()]})
+    svc = make_service(
+        index, repo=StubMatchRepository(), detector=detector, detection_repo=det
+    )
+
+    await svc.process(image_job())
+
+    assert det.save_calls == 1
+    record = det.by_media["media1"]
+    assert record.media_type == MediaType.IMAGE
+    assert record.video_fps is None  # image
+    assert (record.frames_sampled, record.faces_detected, record.unknown_faces) == (1, 2, 1)
+    assert record.matches_emitted == 1
+    assert record.top_k == 2
+    assert record.match_confidence_threshold == 0.5
+    (frame,) = record.frames
+    assert (frame.frame_index, frame.frame_timestamp_ms) == (0, None)
+    face1, face2 = frame.faces
+    assert face1.outcome is DetectionOutcome.MATCH
+    assert face2.outcome is DetectionOutcome.UNKNOWN
+    # face-1 raw top-k: alice cleared+emitted (rank 1), bob below threshold (rank 2).
+    alice, bob = face1.candidates
+    assert (alice.student_id, alice.rank, alice.cleared_threshold, alice.emitted) == (
+        "alice", 1, True, True,
+    )
+    assert (bob.student_id, bob.rank, bob.cleared_threshold, bob.emitted) == (
+        "bob", 2, False, False,
+    )
+    # the unknown face still keeps its closest-but-missed candidate.
+    (carol,) = face2.candidates
+    assert carol.student_id == "carol"
+    assert (carol.cleared_threshold, carol.emitted) == (False, False)
+
+
+async def test_detections_can_be_disabled() -> None:
+    index = StubVectorIndex()
+    index.script([Candidate("alice", 0.95)])
+    repo = StubMatchRepository()
+    det = StubDetectionRepository()
+    svc = make_service(
+        index, repo=repo, detection_repo=det, persist_detections=False
+    )
+
+    await svc.process(image_job())
+
+    assert repo.save_calls == 1  # matches still written
+    assert det.save_calls == 0  # detection write skipped
+
+
+async def test_detections_video_frames_matched_and_timeline() -> None:
+    index = StubVectorIndex()
+    index.script([Candidate("A", 0.80)], [Candidate("A", 0.95)])  # A in both frames
+    repo = StubMatchRepository()
+    det = StubDetectionRepository()
+    frames = [Frame(b"f1", timestamp_ms=0), Frame(b"f2", timestamp_ms=1000)]
+    detector = StubDetector(mapping={b"f1": [box()], b"f2": [box()]})
+    svc = make_service(
+        index,
+        repo=repo,
+        detector=detector,
+        detection_repo=det,
+        extractor=StubFrameExtractor(frames),
+    )
+
+    await svc.process(video_job())
+
+    # matches: A once, emitted in both frames -> frames_matched == 2.
+    (rec,) = repo.saved_batches[0]
+    assert rec.student_id == "A"
+    assert rec.frames_matched == 2
+    # detection: full per-frame timeline, video_fps recorded.
+    record = det.by_media["media1"]
+    assert record.video_fps == 1.0
+    assert [f.frame_timestamp_ms for f in record.frames] == [0, 1000]
+    assert all(len(f.faces) == 1 for f in record.frames)

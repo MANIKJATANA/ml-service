@@ -51,6 +51,7 @@ def test_postgres_repos_share_one_sessionmaker() -> None:
     c = Container(_cpu_settings())
     # Instantiating the repos is lazy — no DB connection is opened here.
     assert c.match_repo() is c.match_repo()
+    assert c.detection_repo() is c.detection_repo()
     sm = c.sessionmaker()
     assert c.threshold_provider() is not None
     assert c.reference_photos() is not None

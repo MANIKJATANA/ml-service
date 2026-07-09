@@ -66,5 +66,5 @@ ignore_missing_imports = true
 # resolved at runtime via tests/conftest.py's sys.path insert. mypy still
 # type-checks fakes.py under its own path — this only silences the bare import.
 [[tool.mypy.overrides]]
-module = ["fakes"]
+module = ["fakes", "backend_fakes"]
 ignore_missing_imports = true

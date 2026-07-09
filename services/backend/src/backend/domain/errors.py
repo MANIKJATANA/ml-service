@@ -19,6 +19,10 @@ class ConflictError(BackendError):
     """A uniqueness/state conflict, e.g. duplicate email (maps to HTTP 409)."""
 
 
+class LimitExceededError(BackendError):
+    """A quota/limit is reached, e.g. a school's teacher cap (maps to HTTP 409)."""
+
+
 class ValidationError(BackendError):
     """Invalid input that business rules reject (maps to HTTP 400)."""
 

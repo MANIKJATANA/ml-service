@@ -128,3 +128,35 @@ async def test_user_must_change_password_and_set_password(
             password_hash="x",
             must_change_password=False,
         )
+
+
+async def test_count_and_list_by_school_and_role(
+    sm: async_sessionmaker[AsyncSession],
+) -> None:
+    schools = PostgresSchoolRepository(sm)
+    users = PostgresUserRepository(sm)
+    a = await schools.create(name="A", max_teachers=5)
+    b = await schools.create(name="B", max_teachers=5)
+
+    await users.create(
+        school_id=a.id, email="admin@a.io", password_hash="h", role=Role.SCHOOL_ADMIN
+    )
+    await users.create(
+        school_id=a.id, email="t1@a.io", password_hash="h", role=Role.TEACHER
+    )
+    await users.create(
+        school_id=a.id, email="t2@a.io", password_hash="h", role=Role.TEACHER
+    )
+    await users.create(
+        school_id=b.id, email="t@b.io", password_hash="h", role=Role.TEACHER
+    )
+
+    # Scoped to one school + role; the admin is not counted as a teacher.
+    assert await users.count_by_school_and_role(a.id, Role.TEACHER) == 2
+    assert await users.count_by_school_and_role(a.id, Role.SCHOOL_ADMIN) == 1
+    assert await users.count_by_school_and_role(b.id, Role.TEACHER) == 1
+    assert await users.count_by_school_and_role("not-a-uuid", Role.TEACHER) == 0
+
+    listed = await users.list_by_school_and_role(a.id, Role.TEACHER)
+    assert {u.email for u in listed} == {"t1@a.io", "t2@a.io"}
+    assert await users.list_by_school_and_role("not-a-uuid", Role.TEACHER) == []

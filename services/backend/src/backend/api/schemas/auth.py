@@ -9,7 +9,6 @@ from __future__ import annotations
 
 from pydantic import BaseModel, EmailStr, Field
 
-from backend.domain.models import Role, User, UserStatus
 from backend.domain.tokens import TokenPair
 
 # argon2 (unlike bcrypt) has no input-length cap, so it hashes the full string —
@@ -49,24 +48,4 @@ class TokenResponse(BaseModel):
             token_type=pair.token_type,
             expires_in=pair.expires_in,
             must_change_password=must_change_password,
-        )
-
-
-class MeResponse(BaseModel):
-    id: str
-    email: str
-    role: Role
-    school_id: str | None
-    status: UserStatus
-    must_change_password: bool
-
-    @classmethod
-    def from_user(cls, user: User) -> MeResponse:
-        return cls(
-            id=user.id,
-            email=user.email,
-            role=user.role,
-            school_id=user.school_id,
-            status=user.status,
-            must_change_password=user.must_change_password,
         )

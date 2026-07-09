@@ -27,6 +27,7 @@ from backend.domain.ports import (
     UserRepository,
 )
 from backend.services.auth_service import AuthService
+from backend.services.onboarding_service import OnboardingService
 from backend.settings import Settings
 from backend.wiring import registry
 
@@ -47,6 +48,7 @@ class Container:
         self._token_service: TokenService | None = None
         self._permission_resolver: PermissionResolver | None = None
         self._auth_service: AuthService | None = None
+        self._onboarding_service: OnboardingService | None = None
 
     # ---- shared resources ----------------------------------------------
 
@@ -132,6 +134,17 @@ class Container:
                         self.token_service(),
                     )
         return self._auth_service
+
+    def onboarding_service(self) -> OnboardingService:
+        if self._onboarding_service is None:
+            with self._lock:
+                if self._onboarding_service is None:
+                    self._onboarding_service = OnboardingService(
+                        self.school_repo(),
+                        self.user_repo(),
+                        self.password_hasher(),
+                    )
+        return self._onboarding_service
 
     # ---- lifecycle -----------------------------------------------------
 

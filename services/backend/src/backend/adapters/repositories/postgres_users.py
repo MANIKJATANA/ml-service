@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -88,3 +88,27 @@ class PostgresUserRepository:
             # ORM mutation → flush on commit; also trips updated_at's onupdate.
             row.password_hash = password_hash
             row.must_change_password = must_change_password
+
+    async def count_by_school_and_role(self, school_id: str, role: Role) -> int:
+        key = opt_uuid(school_id)
+        if key is None:
+            return 0  # malformed id -> no such tenant
+        async with self._sessionmaker() as session:
+            result = await session.execute(
+                select(func.count())
+                .select_from(UserRow)
+                .where(UserRow.school_id == key, UserRow.role == role.value)
+            )
+            return result.scalar_one()
+
+    async def list_by_school_and_role(self, school_id: str, role: Role) -> list[User]:
+        key = opt_uuid(school_id)
+        if key is None:
+            return []
+        async with self._sessionmaker() as session:
+            result = await session.execute(
+                select(UserRow)
+                .where(UserRow.school_id == key, UserRow.role == role.value)
+                .order_by(UserRow.created_at, UserRow.id)  # stable when ties
+            )
+            return [_to_user(r) for r in result.scalars().all()]

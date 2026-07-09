@@ -37,6 +37,10 @@ class UserRepository(Protocol):
     async def set_password(
         self, user_id: str, *, password_hash: str, must_change_password: bool
     ) -> None: ...
+    async def count_by_school_and_role(self, school_id: str, role: Role) -> int: ...
+    async def list_by_school_and_role(
+        self, school_id: str, role: Role
+    ) -> list[User]: ...
 
 
 class PasswordHasher(Protocol):

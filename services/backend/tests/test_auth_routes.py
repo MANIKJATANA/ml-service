@@ -7,95 +7,35 @@ permission-gated route exercises ``require_permissions``.
 
 from __future__ import annotations
 
-from dataclasses import replace
-from datetime import UTC, datetime
 from typing import Annotated
 
 from backend.adapters.security.argon2_hasher import Argon2PasswordHasher
 from backend.api.deps import get_container_dep, require_permissions
-from backend.domain.errors import NotFoundError
 from backend.domain.models import Role, User, UserStatus
 from backend.domain.permissions import Permission
-from backend.domain.ports import UserRepository
 from backend.main import create_app
-from backend.settings import Settings
-from backend.wiring.container import Container
+from backend_fakes import FakeUserRepo, SeededContainer, make_user
 from fastapi import Depends
 from fastapi.testclient import TestClient
-from pydantic import SecretStr
 
-_NOW = datetime(2026, 1, 1, tzinfo=UTC)
 _HASHER = Argon2PasswordHasher()
 
 
 def _user(*, id: str, role: Role, password: str, school_id: str | None) -> User:
-    return User(
+    # Real argon2 hash so the live hasher in the container verifies it.
+    user: User = make_user(
         id=id,
         school_id=school_id,
         email=f"{id}@x.io",
         password_hash=_HASHER.hash(password),
         role=role,
-        status=UserStatus.ACTIVE,
-        must_change_password=False,
-        created_at=_NOW,
-        updated_at=_NOW,
     )
-
-
-class FakeUserRepo:
-    def __init__(self, users: list[User]) -> None:
-        self._by_email = {u.email: u for u in users}
-        self._by_id = {u.id: u for u in users}
-
-    async def create(
-        self,
-        *,
-        school_id: str | None,
-        email: str,
-        password_hash: str,
-        role: Role,
-        must_change_password: bool = False,
-    ) -> User:  # pragma: no cover - unused
-        raise NotImplementedError
-
-    async def get(self, user_id: str) -> User | None:
-        return self._by_id.get(user_id)
-
-    async def get_by_email(self, email: str) -> User | None:
-        return self._by_email.get(email)
-
-    async def set_password(
-        self, user_id: str, *, password_hash: str, must_change_password: bool
-    ) -> None:
-        user = self._by_id.get(user_id)
-        if user is None:
-            raise NotFoundError(user_id)
-        self.mutate(user_id, password_hash=password_hash, must_change_password=must_change_password)
-
-    def mutate(self, user_id: str, **changes: object) -> None:
-        """Test helper: replace a stored user's fields (simulate out-of-band change)."""
-        user = self._by_id[user_id]
-        updated = replace(user, **changes)  # type: ignore[arg-type]
-        self._by_id[user_id] = updated
-        self._by_email[user.email] = updated
-
-
-class _SeededContainer(Container):
-    """Container with a pre-seeded user repo; JWT/argon2/RBAC stay real."""
-
-    def __init__(self, settings: Settings, repo: UserRepository) -> None:
-        super().__init__(settings)
-        self._seed_repo = repo
-
-    def user_repo(self) -> UserRepository:
-        return self._seed_repo
+    return user
 
 
 def _build(users: list[User]) -> tuple[TestClient, FakeUserRepo]:
     repo = FakeUserRepo(users)
-    container = _SeededContainer(
-        Settings(jwt_secret=SecretStr("test-signing-key-0123456789abcdef0123")), repo
-    )
+    container = SeededContainer(repo)
     app = create_app()
 
     @app.get("/_admin_only")

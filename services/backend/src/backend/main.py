@@ -1,10 +1,10 @@
 """FastAPI app factory for the backend / core system.
 
-Mounts the health router, maps domain errors to HTTP status codes, and at startup
-configures structured logging and wires the composition-root container onto
-``app.state`` so ``/readyz`` can probe dependencies; on shutdown it disposes the
-container. Feature routers (auth, platform, staff, students, events, media,
-galleries, me) land in later phases.
+Mounts the health, auth, and onboarding (schools/staff) routers, maps domain errors
+to HTTP status codes, and at startup configures structured logging and wires the
+composition-root container onto ``app.state`` so ``/readyz`` can probe dependencies;
+on shutdown it disposes the container. Feature routers for students, events, media,
+and galleries land in later phases.
 """
 
 from collections.abc import AsyncIterator
@@ -14,13 +14,14 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from backend import __version__
-from backend.api.routers import auth, health
+from backend.api.routers import auth, health, schools, staff
 from backend.deps import get_container
 from backend.domain.errors import (
     AuthenticationError,
     AuthorizationError,
     BackendError,
     ConflictError,
+    LimitExceededError,
     NotFoundError,
     ValidationError,
 )
@@ -46,6 +47,9 @@ def _register_error_handlers(app: FastAPI) -> None:
     async def on_conflict(_: Request, exc: ConflictError) -> JSONResponse:
         return JSONResponse(status_code=409, content={"detail": str(exc)})
 
+    async def on_limit_exceeded(_: Request, exc: LimitExceededError) -> JSONResponse:
+        return JSONResponse(status_code=409, content={"detail": str(exc)})
+
     async def on_validation(_: Request, exc: ValidationError) -> JSONResponse:
         return JSONResponse(status_code=400, content={"detail": str(exc)})
 
@@ -66,6 +70,7 @@ def _register_error_handlers(app: FastAPI) -> None:
 
     app.add_exception_handler(NotFoundError, on_not_found)  # type: ignore[arg-type]
     app.add_exception_handler(ConflictError, on_conflict)  # type: ignore[arg-type]
+    app.add_exception_handler(LimitExceededError, on_limit_exceeded)  # type: ignore[arg-type]
     app.add_exception_handler(ValidationError, on_validation)  # type: ignore[arg-type]
     app.add_exception_handler(AuthenticationError, on_authentication)  # type: ignore[arg-type]
     app.add_exception_handler(AuthorizationError, on_authorization)  # type: ignore[arg-type]
@@ -76,6 +81,8 @@ def create_app() -> FastAPI:
     app = FastAPI(title="Backend", version=__version__, lifespan=lifespan)
     app.include_router(health.router)
     app.include_router(auth.router)
+    app.include_router(schools.router)
+    app.include_router(staff.router)
     _register_error_handlers(app)
     return app
 

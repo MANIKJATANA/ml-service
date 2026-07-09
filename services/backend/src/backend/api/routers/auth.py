@@ -13,10 +13,10 @@ from backend.api.deps import ContainerDep, CurrentUser
 from backend.api.schemas.auth import (
     ChangePasswordRequest,
     LoginRequest,
-    MeResponse,
     RefreshRequest,
     TokenResponse,
 )
+from backend.api.schemas.users import UserResponse
 
 router = APIRouter(prefix="/v1/auth", tags=["auth"])
 
@@ -51,6 +51,6 @@ async def change_password(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-@router.get("/me", response_model=MeResponse)
-async def me(user: CurrentUser) -> MeResponse:
-    return MeResponse.from_user(user)
+@router.get("/me", response_model=UserResponse)
+async def me(user: CurrentUser) -> UserResponse:
+    return UserResponse.from_user(user)

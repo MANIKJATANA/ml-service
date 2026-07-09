@@ -10,6 +10,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Self-review.** After making changes, review your own work and fix the issues you introduced before reporting done.
 - **Review→fix loop (2×) after each phase.** After implementing a phase, run a *review agent → apply fixes* cycle **twice** — distinct focus per round (round 1: correctness / bugs / async / error-handling; round 2: edge cases / quality / simplification / test-coverage gaps) — verifying the gate (ruff + mypy + pytest + layering) is green after each round, **before** presenting the phase. Then stop for the user's review/approval before starting the next phase.
 - **All DB schema changes go through migrations.** Any change to the database schema (tables, columns, indexes, constraints, types) must be a versioned migration file in the migrations folder — never an ad-hoc schema change made directly in application code. Application code may only assume the schema a migration has already established.
+- **Every new env var goes in `.env.example`.** Whenever code introduces a new environment variable — a new `Settings`/pydantic-settings field, an `os.environ`/`os.getenv` read, or a `${VAR}` in `docker-compose.yml` — add it to `.env.example` in the **same** change, documented with its default or a placeholder (**never a real secret**). `.env.example` must always list the full env surface the code supports. Do **not** touch `.env` for this (it's gitignored and holds real values).
 - **Never read `.env` files** (or any secrets files), and never store secrets in memory or in code.
 
 ## Repo shape: monorepo, 3 Docker images
@@ -54,6 +55,7 @@ BE_DATABASE_URL=postgresql+asyncpg://... uv run python -m backend.cli.bootstrap_
 cd frontend && npm install && npm run dev                # frontend    :3000
 docker compose up --build           # all 3 images + Postgres + Redis (needs Docker running)
 ./scripts/up.ps1                    # helper: Postgres+Redis detached (stay up), apps in foreground; Ctrl+C stops only the apps
+./scripts/sync-env.ps1              # add keys present in .env.example but missing from .env (prints what it added); -Check = dry run (up.ps1 runs this advisory-check)
 ```
 
 Helper scripts live in `scripts/` (see `scripts/README.md`).

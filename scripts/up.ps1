@@ -36,6 +36,14 @@ param(
 $repoRoot = Split-Path -Parent $PSScriptRoot
 Set-Location -Path $repoRoot -ErrorAction Stop
 
+# Warn (do not block) if .env is missing keys that .env.example documents — a new
+# env var may have landed in code + .env.example without reaching this local .env.
+# Compose still runs (unset vars fall back to their defaults), so this is advisory.
+& (Join-Path $PSScriptRoot 'sync-env.ps1') -Check
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "  (continuing; compose uses defaults for unset vars — run the command above to add them)" -ForegroundColor DarkGray
+}
+
 # Force Compose's classic builder. Its "bake" delegation can fail with
 # 'failed to solve: image "...": already exists' when rebuilding images that
 # already exist in Docker Desktop's containerd image store.

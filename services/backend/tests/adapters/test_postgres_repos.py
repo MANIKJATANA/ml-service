@@ -20,7 +20,7 @@ from backend.adapters.repositories.postgres_schools import PostgresSchoolReposit
 from backend.adapters.repositories.postgres_users import PostgresUserRepository
 from backend.db.base import Base
 from backend.db.session import make_engine, make_sessionmaker
-from backend.domain.errors import ConflictError
+from backend.domain.errors import ConflictError, NotFoundError
 from backend.domain.models import Role
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -79,7 +79,52 @@ async def test_user_create_get_by_email_and_conflict(
     assert fetched is not None and fetched.id == teacher.id
     assert await users.get_by_email("missing@x.io") is None
 
+    # Email is a case-insensitive identifier: lookup is case-insensitive and a
+    # case-variant duplicate still conflicts (decisions/0024).
+    assert (await users.get_by_email("T@X.IO")) is not None
+    with pytest.raises(ConflictError):
+        await users.create(
+            school_id=school.id, email="T@X.io", password_hash="h", role=Role.TEACHER
+        )
+
     with pytest.raises(ConflictError):
         await users.create(
             school_id=school.id, email="t@x.io", password_hash="h", role=Role.TEACHER
+        )
+
+
+async def test_user_must_change_password_and_set_password(
+    sm: async_sessionmaker[AsyncSession],
+) -> None:
+    schools = PostgresSchoolRepository(sm)
+    users = PostgresUserRepository(sm)
+    school = await schools.create(name="Springfield Elementary", max_teachers=5)
+
+    # Default is False; a temp-password account is provisioned True.
+    normal = await users.create(
+        school_id=school.id, email="a@x.io", password_hash="h1", role=Role.TEACHER
+    )
+    assert normal.must_change_password is False
+    temp = await users.create(
+        school_id=school.id,
+        email="b@x.io",
+        password_hash="h2",
+        role=Role.STUDENT,
+        must_change_password=True,
+    )
+    assert temp.must_change_password is True
+
+    # set_password rewrites the hash and clears the flag.
+    await users.set_password(temp.id, password_hash="h2-new", must_change_password=False)
+    reloaded = await users.get(temp.id)
+    assert reloaded is not None
+    assert reloaded.password_hash == "h2-new"
+    assert reloaded.must_change_password is False
+
+    # A missing user is a NotFoundError, not a silent no-op.
+    with pytest.raises(NotFoundError):
+        await users.set_password(
+            "00000000-0000-0000-0000-000000000000",
+            password_hash="x",
+            must_change_password=False,
         )

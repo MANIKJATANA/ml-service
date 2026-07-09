@@ -13,6 +13,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     DateTime,
     ForeignKey,
@@ -75,6 +76,11 @@ class User(Base):
     role: Mapped[str] = mapped_column(String, nullable=False)
     status: Mapped[str] = mapped_column(
         String, nullable=False, server_default=text("'active'")
+    )
+    # True until a staff-provisioned / temp-password account sets its own password
+    # (migration 0002, decisions/0024).
+    must_change_password: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

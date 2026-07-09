@@ -5,15 +5,31 @@ No live DB — building the engine/sessionmaker/repos is lazy and does not conne
 
 from __future__ import annotations
 
+import pytest
+from backend.domain.errors import ConfigurationError
 from backend.settings import Settings
 from backend.wiring.container import Container
+from pydantic import SecretStr
 
 
 async def test_container_memoizes_and_closes() -> None:
-    container = Container(Settings())
+    container = Container(Settings(jwt_secret=SecretStr("x" * 32)))
     assert container.sessionmaker() is container.sessionmaker()
     assert container.school_repo() is container.school_repo()
     assert container.user_repo() is container.user_repo()
+    assert container.password_hasher() is container.password_hasher()
+    assert container.token_service() is container.token_service()
+    assert container.permission_resolver() is container.permission_resolver()
+    assert container.auth_service() is container.auth_service()
+    await container.aclose()
+
+
+async def test_token_service_fails_loud_without_secret() -> None:
+    # The real deploy path: no BE_JWT_SECRET -> building the token service (and thus
+    # the auth service) fails loud rather than minting tokens with an empty key.
+    container = Container(Settings(jwt_secret=SecretStr("")))
+    with pytest.raises(ConfigurationError):
+        container.token_service()
     await container.aclose()
 
 

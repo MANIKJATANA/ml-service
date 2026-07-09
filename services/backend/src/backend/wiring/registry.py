@@ -22,6 +22,18 @@ USER_REPO_REGISTRY: dict[str, str] = {
     "postgres": "backend.adapters.repositories.postgres_users:PostgresUserRepository",
 }
 
+PASSWORD_HASHER_REGISTRY: dict[str, str] = {
+    "argon2": "backend.adapters.security.argon2_hasher:Argon2PasswordHasher",
+}
+
+TOKEN_SERVICE_REGISTRY: dict[str, str] = {
+    "jwt": "backend.adapters.security.jwt_tokens:JwtTokenService",
+}
+
+PERMISSION_RESOLVER_REGISTRY: dict[str, str] = {
+    "static": "backend.adapters.security.static_permissions:StaticPermissionResolver",
+}
+
 
 def resolve(registry: dict[str, str], name: str) -> type:
     """Look ``name`` up in ``registry`` and import the referenced class.

@@ -47,5 +47,9 @@ class User:
     password_hash: str
     role: Role
     status: UserStatus
+    # True for staff-provisioned / temp-password accounts until they set their own
+    # password on first login (decisions/0024). login surfaces it; change-password
+    # clears it.
+    must_change_password: bool
     created_at: datetime
     updated_at: datetime

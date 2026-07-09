@@ -56,6 +56,9 @@ module = [
     "decord",
     "supabase",
     "storage3.*",
+    # passlib ships no type stubs; only the argon2 adapter imports it (the pure
+    # layers are guarded by tests/test_layering.py, not mypy).
+    "passlib.*",
 ]
 ignore_missing_imports = true
 

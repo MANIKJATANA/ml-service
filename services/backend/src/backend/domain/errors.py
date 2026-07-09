@@ -25,3 +25,11 @@ class ValidationError(BackendError):
 
 class ConfigurationError(BackendError):
     """Invalid or missing wiring/configuration (maps to HTTP 500)."""
+
+
+class AuthenticationError(BackendError):
+    """Missing/invalid credentials or token — who are you? (maps to HTTP 401)."""
+
+
+class AuthorizationError(BackendError):
+    """Authenticated but not permitted — you may not do this (maps to HTTP 403)."""

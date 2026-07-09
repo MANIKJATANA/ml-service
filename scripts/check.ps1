@@ -54,7 +54,7 @@ $bePureDirs = @(
 ) | Where-Object { Test-Path $_ }
 if ($bePureDirs) {
     $beHits = Select-String -Path (Get-ChildItem -Recurse -Filter *.py -Path $bePureDirs).FullName `
-        -Pattern '(from|import)\s+(sqlalchemy|asyncpg|redis|httpx|supabase|fastapi)'
+        -Pattern '(from|import)\s+(sqlalchemy|asyncpg|redis|httpx|supabase|fastapi|passlib|jwt|argon2)'
     if ($beHits) {
         Write-Host "FAILED: concrete IO import found in a backend pure layer" -ForegroundColor Red
         $beHits | ForEach-Object { Write-Host $_.Line }

@@ -19,7 +19,14 @@ import threading
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from backend.db.session import make_engine, make_sessionmaker
-from backend.domain.ports import SchoolRepository, UserRepository
+from backend.domain.ports import (
+    PasswordHasher,
+    PermissionResolver,
+    SchoolRepository,
+    TokenService,
+    UserRepository,
+)
+from backend.services.auth_service import AuthService
 from backend.settings import Settings
 from backend.wiring import registry
 
@@ -36,6 +43,10 @@ class Container:
         self._sessionmaker: async_sessionmaker[AsyncSession] | None = None
         self._school_repo: SchoolRepository | None = None
         self._user_repo: UserRepository | None = None
+        self._password_hasher: PasswordHasher | None = None
+        self._token_service: TokenService | None = None
+        self._permission_resolver: PermissionResolver | None = None
+        self._auth_service: AuthService | None = None
 
     # ---- shared resources ----------------------------------------------
 
@@ -70,6 +81,57 @@ class Container:
                     )
                     self._user_repo = cls(self.sessionmaker())
         return self._user_repo
+
+    # ---- auth (decisions/0024) -----------------------------------------
+
+    def password_hasher(self) -> PasswordHasher:
+        if self._password_hasher is None:
+            with self._lock:
+                if self._password_hasher is None:
+                    cls = registry.resolve(
+                        registry.PASSWORD_HASHER_REGISTRY, self._s.password_hasher_impl
+                    )
+                    self._password_hasher = cls()
+        return self._password_hasher
+
+    def token_service(self) -> TokenService:
+        if self._token_service is None:
+            with self._lock:
+                if self._token_service is None:
+                    cls = registry.resolve(
+                        registry.TOKEN_SERVICE_REGISTRY, self._s.token_service_impl
+                    )
+                    # Fails loud here if BE_JWT_SECRET is empty (decisions/0024).
+                    self._token_service = cls(
+                        secret=self._s.jwt_secret.get_secret_value(),
+                        algorithm=self._s.jwt_algorithm,
+                        issuer=self._s.jwt_issuer,
+                        access_ttl_s=self._s.access_token_ttl_s,
+                        refresh_ttl_s=self._s.refresh_token_ttl_s,
+                    )
+        return self._token_service
+
+    def permission_resolver(self) -> PermissionResolver:
+        if self._permission_resolver is None:
+            with self._lock:
+                if self._permission_resolver is None:
+                    cls = registry.resolve(
+                        registry.PERMISSION_RESOLVER_REGISTRY,
+                        self._s.permission_resolver_impl,
+                    )
+                    self._permission_resolver = cls()
+        return self._permission_resolver
+
+    def auth_service(self) -> AuthService:
+        if self._auth_service is None:
+            with self._lock:
+                if self._auth_service is None:
+                    self._auth_service = AuthService(
+                        self.user_repo(),
+                        self.password_hasher(),
+                        self.token_service(),
+                    )
+        return self._auth_service
 
     # ---- lifecycle -----------------------------------------------------
 

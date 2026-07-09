@@ -18,6 +18,10 @@ dependencies = [
     "passlib[argon2]>=1.7",
     "pyjwt>=2.9",
     "email-validator>=2.1",
+    # Phase 4 (decisions/0026): ML enrollment client (httpx) + reference-photo
+    # signed upload URLs (supabase). Both cross-platform.
+    "httpx>=0.27",
+    "supabase>=2.0",
 ]
 
 [build-system]

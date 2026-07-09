@@ -3,8 +3,8 @@
 These mirror the Alembic migrations exactly; application code never issues DDL — it
 assumes the schema a migration already established (working rule; decisions/0007).
 Backend table names never collide with the ML-owned tables in the same database
-(decisions/0022). Phase 1 defines the two identity tables; students/events/media
-land with their phases.
+(decisions/0022). Phase 1 defined the two identity tables; Phase 4 adds ``students``
+(decisions/0026); events/media land with their phases.
 """
 
 from __future__ import annotations
@@ -109,5 +109,52 @@ class User(Base):
             "(role = 'platform_admin' AND school_id IS NULL) "
             "OR (role <> 'platform_admin' AND school_id IS NOT NULL)",
             name="ck_users_school_role",
+        ),
+    )
+
+
+class Student(Base):
+    """A student profile (decisions/0026). ``id`` (as a string) is the ML
+    ``student_id``. Deleting the linked ``users`` row cascades this row away —
+    the delete-student mechanism."""
+
+    __tablename__ = "students"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    school_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("schools.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    reference_photo_path: Mapped[str] = mapped_column(String, nullable=False)
+    enrollment_status: Mapped[str] = mapped_column(
+        String, nullable=False, server_default=text("'pending'")
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        UniqueConstraint("user_id", name="uq_students_user"),
+        Index("ix_students_school", "school_id"),
+        # Lockstep with the EnrollmentStatus domain enum (repos do
+        # EnrollmentStatus(row.enrollment_status)); widen enum + CHECK together.
+        CheckConstraint(
+            "enrollment_status IN ('pending', 'enrolled', 'failed')",
+            name="ck_students_enrollment_status",
         ),
     )

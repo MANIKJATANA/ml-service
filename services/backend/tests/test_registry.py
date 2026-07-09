@@ -6,13 +6,36 @@ import pytest
 from backend.domain.errors import ConfigurationError
 from backend.wiring import registry
 
-ALL_REGISTRIES = [registry.SCHOOL_REPO_REGISTRY, registry.USER_REPO_REGISTRY]
+POSTGRES_REGISTRIES = [
+    registry.SCHOOL_REPO_REGISTRY,
+    registry.USER_REPO_REGISTRY,
+    registry.STUDENT_REPO_REGISTRY,
+]
+
+# Every (registry, impl) target must import to a class — a rename/typo fails loud here
+# rather than at runtime wiring.
+ALL_TARGETS = [
+    (table, impl)
+    for table in (
+        registry.SCHOOL_REPO_REGISTRY,
+        registry.USER_REPO_REGISTRY,
+        registry.STUDENT_REPO_REGISTRY,
+        registry.OBJECT_STORE_REGISTRY,
+        registry.ML_ENROLLMENT_CLIENT_REGISTRY,
+    )
+    for impl in table
+]
 
 
-@pytest.mark.parametrize("table", ALL_REGISTRIES)
+@pytest.mark.parametrize("table", POSTGRES_REGISTRIES)
 def test_resolve_postgres_impl(table: dict[str, str]) -> None:
     cls = registry.resolve(table, "postgres")
     assert isinstance(cls, type)
+
+
+@pytest.mark.parametrize("table,impl", ALL_TARGETS)
+def test_every_registered_target_imports(table: dict[str, str], impl: str) -> None:
+    assert isinstance(registry.resolve(table, impl), type)
 
 
 def test_resolve_unknown_raises() -> None:

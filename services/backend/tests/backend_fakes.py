@@ -7,13 +7,31 @@ don't re-hand-roll them.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import replace
 from datetime import UTC, datetime
 
 from backend.domain.emails import normalize_email
 from backend.domain.errors import ConflictError, NotFoundError
-from backend.domain.models import Role, School, SchoolStatus, User, UserStatus
-from backend.domain.ports import SchoolRepository, UserRepository
+from backend.domain.models import (
+    EnrollmentOutcome,
+    EnrollmentStatus,
+    PhotoResult,
+    Role,
+    School,
+    SchoolStatus,
+    SignedUpload,
+    Student,
+    User,
+    UserStatus,
+)
+from backend.domain.ports import (
+    MlEnrollmentClient,
+    ObjectStore,
+    SchoolRepository,
+    StudentRepository,
+    UserRepository,
+)
 from backend.domain.tokens import TokenClaims, TokenPair, TokenType
 from backend.settings import Settings
 from backend.wiring.container import Container
@@ -58,6 +76,27 @@ def make_school(
         name=name,
         max_teachers=max_teachers,
         status=status,
+        created_at=_NOW,
+        updated_at=_NOW,
+    )
+
+
+def make_student(
+    *,
+    id: str = "student-1",
+    school_id: str = "school-1",
+    user_id: str = "user-1",
+    name: str = "Bart Simpson",
+    reference_photo_path: str = "reference-photos/school-1/photo.jpg",
+    enrollment_status: EnrollmentStatus = EnrollmentStatus.PENDING,
+) -> Student:
+    return Student(
+        id=id,
+        school_id=school_id,
+        user_id=user_id,
+        name=name,
+        reference_photo_path=reference_photo_path,
+        enrollment_status=enrollment_status,
         created_at=_NOW,
         updated_at=_NOW,
     )
@@ -108,6 +147,12 @@ class FakeUserRepo:
         self._by_email: dict[str, User] = {u.email: u for u in seed}
         self.set_calls: list[tuple[str, str, bool]] = []
         self._seq = 0
+        # Simulates the students.user_id ON DELETE CASCADE (0026): when linked to a
+        # FakeStudentRepo, deleting a user also removes its student profile.
+        self._cascade: Callable[[str], None] | None = None
+
+    def link_cascade(self, cascade: Callable[[str], None]) -> None:
+        self._cascade = cascade
 
     async def create(
         self,
@@ -149,6 +194,13 @@ class FakeUserRepo:
         self.mutate(
             user_id, password_hash=password_hash, must_change_password=must_change_password
         )
+
+    async def delete(self, user_id: str) -> None:
+        user = self._by_id.pop(user_id, None)
+        if user is not None:
+            self._by_email.pop(user.email, None)
+        if self._cascade is not None:
+            self._cascade(user_id)  # cascade the linked student profile
 
     async def count_by_school_and_role(self, school_id: str, role: Role) -> int:
         return sum(
@@ -192,6 +244,103 @@ class FakeSchoolRepo:
         return list(self._by_id.values())
 
 
+class FakeStudentRepo:
+    def __init__(self, students: list[Student] | None = None) -> None:
+        self._by_id: dict[str, Student] = {s.id: s for s in (students or [])}
+        self._seq = 0
+        # Set to raise from create() to exercise the compensating-delete path (0026).
+        self.fail_create: bool = False
+
+    async def create(
+        self, *, school_id: str, user_id: str, name: str, reference_photo_path: str
+    ) -> Student:
+        if self.fail_create:
+            raise RuntimeError("simulated students-insert failure")
+        self._seq += 1
+        student = make_student(
+            id=f"stu-{self._seq}",
+            school_id=school_id,
+            user_id=user_id,
+            name=name,
+            reference_photo_path=reference_photo_path,
+            enrollment_status=EnrollmentStatus.PENDING,
+        )
+        self._by_id[student.id] = student
+        return student
+
+    async def get(self, school_id: str, student_id: str) -> Student | None:
+        student = self._by_id.get(student_id)
+        # Tenant-scoped: a foreign school never sees the row (mirrors the query).
+        if student is None or student.school_id != school_id:
+            return None
+        return student
+
+    async def list_by_school(self, school_id: str) -> list[Student]:
+        return [s for s in self._by_id.values() if s.school_id == school_id]
+
+    async def set_enrollment(
+        self, student_id: str, *, status: EnrollmentStatus
+    ) -> None:
+        if student_id not in self._by_id:
+            raise NotFoundError(student_id)
+        self._by_id[student_id] = replace(
+            self._by_id[student_id], enrollment_status=status
+        )
+
+    def remove_by_user(self, user_id: str) -> None:
+        """Cascade hook for FakeUserRepo.delete (students.user_id ON DELETE CASCADE)."""
+        for sid, s in list(self._by_id.items()):
+            if s.user_id == user_id:
+                del self._by_id[sid]
+
+
+class FakeObjectStore:
+    """ObjectStore double: returns a deterministic signed upload for any key."""
+
+    async def create_signed_upload_url(self, object_path: str) -> SignedUpload:
+        return SignedUpload(
+            upload_url=f"https://uploads.test/{object_path}",
+            object_path=object_path,
+            token="fake-token",
+        )
+
+
+class FakeMlClient:
+    """MlEnrollmentClient double: records calls; configurable outcome/failure."""
+
+    def __init__(
+        self,
+        *,
+        embeddings_stored: int = 1,
+        raise_on_enroll: Exception | None = None,
+        raise_on_delete: Exception | None = None,
+    ) -> None:
+        self._embeddings = embeddings_stored
+        self._raise = raise_on_enroll
+        self._raise_delete = raise_on_delete
+        self.enroll_calls: list[tuple[str, str, list[str]]] = []
+        self.delete_calls: list[tuple[str, str]] = []
+
+    async def enroll(
+        self, *, school_id: str, student_id: str, photo_uris: list[str]
+    ) -> EnrollmentOutcome:
+        self.enroll_calls.append((school_id, student_id, list(photo_uris)))
+        if self._raise is not None:
+            raise self._raise
+        return EnrollmentOutcome(
+            embeddings_stored=self._embeddings,
+            photo_results=tuple(
+                PhotoResult(index=i, status="enrolled")
+                for i in range(len(photo_uris))
+            ),
+        )
+
+    async def delete(self, *, school_id: str, student_id: str) -> None:
+        if self._raise_delete is not None:
+            raise self._raise_delete
+        self.delete_calls.append((school_id, student_id))
+
+
 class SeededContainer(Container):
     """Container with pre-seeded repos; JWT/argon2/RBAC/services stay real.
 
@@ -204,14 +353,34 @@ class SeededContainer(Container):
         users: UserRepository,
         schools: SchoolRepository | None = None,
         *,
+        students: StudentRepository | None = None,
+        object_store: ObjectStore | None = None,
+        ml_client: MlEnrollmentClient | None = None,
         jwt_secret: str = _TEST_JWT_SECRET,
     ) -> None:
         super().__init__(Settings(jwt_secret=SecretStr(jwt_secret)))
         self._seed_users = users
         self._seed_schools: SchoolRepository = schools or FakeSchoolRepo()
+        self._seed_students: StudentRepository = students or FakeStudentRepo()
+        self._seed_object_store: ObjectStore = object_store or FakeObjectStore()
+        self._seed_ml_client: MlEnrollmentClient = ml_client or FakeMlClient()
+        # Wire the FK-cascade simulation so delete-student removes the profile too.
+        if isinstance(self._seed_users, FakeUserRepo) and isinstance(
+            self._seed_students, FakeStudentRepo
+        ):
+            self._seed_users.link_cascade(self._seed_students.remove_by_user)
 
     def user_repo(self) -> UserRepository:
         return self._seed_users
 
     def school_repo(self) -> SchoolRepository:
         return self._seed_schools
+
+    def student_repo(self) -> StudentRepository:
+        return self._seed_students
+
+    def object_store(self) -> ObjectStore:
+        return self._seed_object_store
+
+    def ml_enrollment_client(self) -> MlEnrollmentClient:
+        return self._seed_ml_client

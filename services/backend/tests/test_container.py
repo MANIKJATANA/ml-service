@@ -24,6 +24,23 @@ async def test_container_memoizes_and_closes() -> None:
     await container.aclose()
 
 
+async def test_container_builds_and_memoizes_student_stack() -> None:
+    # local_fs + fake build without Supabase/ML creds and exercise the non-default
+    # branches of object_store()/ml_enrollment_client() (decisions/0026).
+    container = Container(
+        Settings(
+            jwt_secret=SecretStr("x" * 32),
+            object_store_impl="local_fs",
+            ml_enrollment_client_impl="fake",
+        )
+    )
+    assert container.student_repo() is container.student_repo()
+    assert container.object_store() is container.object_store()
+    assert container.ml_enrollment_client() is container.ml_enrollment_client()
+    assert container.student_service() is container.student_service()
+    await container.aclose()
+
+
 async def test_token_service_fails_loud_without_secret() -> None:
     # The real deploy path: no BE_JWT_SECRET -> building the token service (and thus
     # the auth service) fails loud rather than minting tokens with an empty key.

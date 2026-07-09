@@ -37,3 +37,8 @@ class AuthenticationError(BackendError):
 
 class AuthorizationError(BackendError):
     """Authenticated but not permitted — you may not do this (maps to HTTP 403)."""
+
+
+class UpstreamError(BackendError):
+    """A downstream dependency (e.g. the ML service) failed or was unreachable
+    (maps to HTTP 502). The request is well-formed; retrying later may succeed."""

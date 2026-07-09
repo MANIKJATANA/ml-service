@@ -7,8 +7,8 @@ are built once and memoized: the DB engine/sessionmaker is shared across reposit
 Nothing is built until first requested. Secrets (the DB password in the DSN) come
 from ``settings`` (the environment) and are never stored in code.
 
-The surface grows per phase; Phase 1 wires the DB sessionmaker and the two identity
-repositories, plus the ``/readyz`` probe and shutdown disposal.
+The surface grows per phase; Phase 4 adds the student repository, the object store,
+the ML enrollment client, and the student service (decisions/0026).
 """
 
 from __future__ import annotations
@@ -20,14 +20,18 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from backend.db.session import make_engine, make_sessionmaker
 from backend.domain.ports import (
+    MlEnrollmentClient,
+    ObjectStore,
     PasswordHasher,
     PermissionResolver,
     SchoolRepository,
+    StudentRepository,
     TokenService,
     UserRepository,
 )
 from backend.services.auth_service import AuthService
 from backend.services.onboarding_service import OnboardingService
+from backend.services.student_service import StudentService
 from backend.settings import Settings
 from backend.wiring import registry
 
@@ -44,11 +48,20 @@ class Container:
         self._sessionmaker: async_sessionmaker[AsyncSession] | None = None
         self._school_repo: SchoolRepository | None = None
         self._user_repo: UserRepository | None = None
+        self._student_repo: StudentRepository | None = None
+        self._object_store: ObjectStore | None = None
+        self._ml_enrollment_client: MlEnrollmentClient | None = None
         self._password_hasher: PasswordHasher | None = None
         self._token_service: TokenService | None = None
         self._permission_resolver: PermissionResolver | None = None
         self._auth_service: AuthService | None = None
         self._onboarding_service: OnboardingService | None = None
+        self._student_service: StudentService | None = None
+
+    @property
+    def settings(self) -> Settings:
+        """The active settings (read-only; routes read e.g. max_upload_mb)."""
+        return self._s
 
     # ---- shared resources ----------------------------------------------
 
@@ -83,6 +96,52 @@ class Container:
                     )
                     self._user_repo = cls(self.sessionmaker())
         return self._user_repo
+
+    def student_repo(self) -> StudentRepository:
+        if self._student_repo is None:
+            with self._lock:
+                if self._student_repo is None:
+                    cls = registry.resolve(
+                        registry.STUDENT_REPO_REGISTRY, self._s.repository_impl
+                    )
+                    self._student_repo = cls(self.sessionmaker())
+        return self._student_repo
+
+    # ---- students: object store + ML client (decisions/0026) -----------
+
+    def object_store(self) -> ObjectStore:
+        if self._object_store is None:
+            with self._lock:
+                if self._object_store is None:
+                    cls = registry.resolve(
+                        registry.OBJECT_STORE_REGISTRY, self._s.object_store_impl
+                    )
+                    if self._s.object_store_impl == "supabase":
+                        self._object_store = cls(
+                            self._s.supabase_url,
+                            self._s.supabase_key.get_secret_value(),
+                            self._s.supabase_bucket,
+                        )
+                    else:  # local_fs (credential-free dev)
+                        self._object_store = cls(self._s.object_store_dir)
+        return self._object_store
+
+    def ml_enrollment_client(self) -> MlEnrollmentClient:
+        if self._ml_enrollment_client is None:
+            with self._lock:
+                if self._ml_enrollment_client is None:
+                    cls = registry.resolve(
+                        registry.ML_ENROLLMENT_CLIENT_REGISTRY,
+                        self._s.ml_enrollment_client_impl,
+                    )
+                    if self._s.ml_enrollment_client_impl == "http":
+                        self._ml_enrollment_client = cls(
+                            self._s.ml_service_url,
+                            timeout_s=self._s.ml_http_timeout_s,
+                        )
+                    else:  # fake (offline dev)
+                        self._ml_enrollment_client = cls()
+        return self._ml_enrollment_client
 
     # ---- auth (decisions/0024) -----------------------------------------
 
@@ -145,6 +204,21 @@ class Container:
                         self.password_hasher(),
                     )
         return self._onboarding_service
+
+    def student_service(self) -> StudentService:
+        if self._student_service is None:
+            with self._lock:
+                if self._student_service is None:
+                    self._student_service = StudentService(
+                        self.student_repo(),
+                        self.user_repo(),
+                        self.school_repo(),
+                        self.password_hasher(),
+                        self.object_store(),
+                        self.ml_enrollment_client(),
+                        reference_photo_prefix=self._s.reference_photo_prefix,
+                    )
+        return self._student_service
 
     # ---- lifecycle -----------------------------------------------------
 

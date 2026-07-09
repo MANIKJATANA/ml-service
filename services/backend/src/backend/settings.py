@@ -23,8 +23,22 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     log_json: bool = True  # False -> human-readable console logs for local dev
 
-    # --- ML service (HTTP enrollment API base URL) -----------------------
+    # --- ML service (HTTP enrollment API) --------------------------------
     ml_service_url: str = "http://ml-service:8000"
+    ml_http_timeout_s: float = 30.0  # enroll fetches+detects+embeds — allow slack
+
+    # --- object store (reference-photo signed upload URLs, decisions/0026) -
+    # supabase mints direct-to-Supabase upload URLs; local_fs is a credential-free
+    # dev stub (pair with ml_enrollment_client_impl=fake to run without either).
+    object_store_impl: str = "supabase"
+    ml_enrollment_client_impl: str = "http"
+    supabase_url: str = ""  # e.g. https://<project-ref>.supabase.co
+    supabase_key: SecretStr = SecretStr("")  # SECRET: service/access key
+    # Must equal ML_SUPABASE_BUCKET — the backend uploads where ML reads (0022).
+    supabase_bucket: str = "media"
+    reference_photo_prefix: str = "reference-photos"  # object-key prefix (0022)
+    max_upload_mb: int = 30  # advertised to the FE; enforced client-side in v1
+    object_store_dir: str = "/var/lib/backend/objects"  # local_fs dev target
 
     # --- database (shared Postgres; backend owns its own tables + chain) --
     database_url: str = "postgresql+asyncpg://app:app@postgres:5432/app"

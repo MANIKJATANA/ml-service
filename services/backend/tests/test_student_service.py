@@ -1,0 +1,299 @@
+"""StudentService use-cases with fakes (decisions/0026)."""
+
+from __future__ import annotations
+
+import pytest
+from backend.domain.errors import (
+    ConflictError,
+    NotFoundError,
+    UpstreamError,
+    ValidationError,
+)
+from backend.domain.models import EnrollmentStatus, Role, School, SchoolStatus, User
+from backend.services.student_service import StudentService
+from backend_fakes import (
+    FakeHasher,
+    FakeMlClient,
+    FakeObjectStore,
+    FakeSchoolRepo,
+    FakeStudentRepo,
+    FakeUserRepo,
+    make_school,
+)
+
+_PW = "temp-pw-123"
+_S1 = "s1"
+_PATH = "reference-photos/s1/photo.jpg"
+
+
+def _svc(
+    *,
+    schools: list[School] | None = None,
+    users: list[User] | None = None,
+    ml_client: FakeMlClient | None = None,
+) -> tuple[StudentService, FakeStudentRepo, FakeUserRepo, FakeMlClient]:
+    srepo = FakeSchoolRepo(schools or [make_school(id=_S1, max_teachers=5)])
+    urepo = FakeUserRepo(users or [])
+    strepo = FakeStudentRepo()
+    urepo.link_cascade(strepo.remove_by_user)  # mirror the FK cascade
+    ml = ml_client or FakeMlClient()
+    svc = StudentService(
+        strepo,
+        urepo,
+        srepo,
+        FakeHasher(),
+        FakeObjectStore(),
+        ml,
+        reference_photo_prefix="reference-photos",
+    )
+    return svc, strepo, urepo, ml
+
+
+# ---- upload url --------------------------------------------------------
+
+
+async def test_create_upload_url_is_under_tenant_prefix() -> None:
+    svc, _, _, _ = _svc()
+    signed = await svc.create_upload_url(school_id=_S1)
+    assert signed.object_path.startswith("reference-photos/s1/")
+    assert signed.upload_url  # a target the FE can upload to
+
+
+# ---- create + enroll ---------------------------------------------------
+
+
+async def test_create_student_provisions_login_and_enrolls() -> None:
+    svc, strepo, urepo, ml = _svc()
+    student = await svc.create_student(
+        school_id=_S1, name="  Bart ", email="Bart@X.io", password=_PW,
+        reference_photo_path=_PATH,
+    )
+    assert student.name == "Bart"  # trimmed
+    assert student.school_id == _S1
+    assert student.enrollment_status is EnrollmentStatus.ENROLLED
+
+    # A login account was created: role=student, temp password, normalized email.
+    user = await urepo.get(student.user_id)
+    assert user is not None
+    assert user.role is Role.STUDENT and user.must_change_password is True
+    assert user.email == "bart@x.io"
+    assert user.password_hash == f"hash:{_PW}"  # hashed, never the raw password
+
+    # Enrollment used exactly the stored reference photo path.
+    assert ml.enroll_calls == [(_S1, student.id, [_PATH])]
+
+
+async def test_zero_embeddings_marks_failed() -> None:
+    svc, _, _, _ = _svc(ml_client=FakeMlClient(embeddings_stored=0))
+    student = await svc.create_student(
+        school_id=_S1, name="Lisa", email="lisa@x.io", password=_PW,
+        reference_photo_path=_PATH,
+    )
+    assert student.enrollment_status is EnrollmentStatus.FAILED
+
+
+async def test_ml_outage_still_creates_student_as_failed() -> None:
+    # An ML outage must NOT block account creation (0026).
+    ml = FakeMlClient(raise_on_enroll=UpstreamError("ml down"))
+    svc, strepo, urepo, _ = _svc(ml_client=ml)
+    student = await svc.create_student(
+        school_id=_S1, name="Milhouse", email="m@x.io", password=_PW,
+        reference_photo_path=_PATH,
+    )
+    assert student.enrollment_status is EnrollmentStatus.FAILED
+    assert await urepo.get(student.user_id) is not None  # login persisted
+    assert await strepo.get(_S1, student.id) is not None  # profile persisted
+
+
+async def test_path_outside_tenant_prefix_rejected_before_any_write() -> None:
+    svc, strepo, urepo, ml = _svc()
+    with pytest.raises(ValidationError):
+        await svc.create_student(
+            school_id=_S1, name="X", email="x@x.io", password=_PW,
+            reference_photo_path="reference-photos/other-school/photo.jpg",
+        )
+    # Nothing was written and no enrollment attempted.
+    assert await urepo.get_by_email("x@x.io") is None
+    assert not await strepo.list_by_school(_S1)
+    assert ml.enroll_calls == []
+
+
+async def test_create_for_missing_school_rejected() -> None:
+    svc, _, _, _ = _svc(schools=[])
+    with pytest.raises(ValidationError):
+        await svc.create_student(
+            school_id="nope", name="X", email="x@x.io", password=_PW,
+            reference_photo_path="reference-photos/nope/p.jpg",
+        )
+
+
+async def test_create_for_suspended_school_rejected() -> None:
+    svc, _, _, _ = _svc(
+        schools=[make_school(id=_S1, status=SchoolStatus.SUSPENDED)]
+    )
+    with pytest.raises(ValidationError):
+        await svc.create_student(
+            school_id=_S1, name="X", email="x@x.io", password=_PW,
+            reference_photo_path=_PATH,
+        )
+
+
+async def test_duplicate_email_conflicts_and_creates_no_student() -> None:
+    svc, strepo, _, ml = _svc()
+    await svc.create_student(
+        school_id=_S1, name="A", email="dup@x.io", password=_PW,
+        reference_photo_path=_PATH,
+    )
+    with pytest.raises(ConflictError):
+        await svc.create_student(
+            school_id=_S1, name="B", email="DUP@x.io", password=_PW,
+            reference_photo_path=_PATH,
+        )
+    assert len(await strepo.list_by_school(_S1)) == 1  # no orphan profile
+
+
+async def test_empty_name_rejected() -> None:
+    svc, _, _, _ = _svc()
+    with pytest.raises(ValidationError):
+        await svc.create_student(
+            school_id=_S1, name="   ", email="x@x.io", password=_PW,
+            reference_photo_path=_PATH,
+        )
+
+
+async def test_profile_insert_failure_compensates_by_deleting_login() -> None:
+    # If the students insert fails after the login is created, the orphan login is
+    # removed (compensating action, 0026).
+    svc, strepo, urepo, _ = _svc()
+    strepo.fail_create = True
+    with pytest.raises(RuntimeError):
+        await svc.create_student(
+            school_id=_S1, name="X", email="orphan@x.io", password=_PW,
+            reference_photo_path=_PATH,
+        )
+    assert await urepo.get_by_email("orphan@x.io") is None  # login rolled back
+
+
+async def test_compensating_delete_failure_preserves_original_error() -> None:
+    # If the compensating delete itself blows up, the ORIGINAL profile-insert error
+    # must still propagate (not be masked by the delete's error) (0026 review r1).
+    svc, strepo, urepo, _ = _svc()
+    strepo.fail_create = True
+
+    async def _boom_delete(user_id: str) -> None:
+        raise RuntimeError("delete blew up")
+
+    urepo.delete = _boom_delete  # shadow the method for this test
+    with pytest.raises(RuntimeError, match="simulated students-insert failure"):
+        await svc.create_student(
+            school_id=_S1, name="X", email="x@x.io", password=_PW,
+            reference_photo_path=_PATH,
+        )
+
+
+# ---- re-enroll ---------------------------------------------------------
+
+
+async def test_reenroll_retries_with_stored_path_and_updates_status() -> None:
+    ml = FakeMlClient(embeddings_stored=0)
+    svc, _, _, _ = _svc(ml_client=ml)
+    created = await svc.create_student(
+        school_id=_S1, name="R", email="r@x.io", password=_PW,
+        reference_photo_path=_PATH,
+    )
+    assert created.enrollment_status is EnrollmentStatus.FAILED
+
+    ml._embeddings = 1  # ML now succeeds on retry
+    refreshed = await svc.enroll_student(school_id=_S1, student_id=created.id)
+    assert refreshed.enrollment_status is EnrollmentStatus.ENROLLED
+    # Re-enroll reused the stored reference path.
+    assert ml.enroll_calls[-1] == (_S1, created.id, [_PATH])
+
+
+async def test_reenroll_missing_student_raises() -> None:
+    svc, _, _, _ = _svc()
+    with pytest.raises(NotFoundError):
+        await svc.enroll_student(school_id=_S1, student_id="ghost")
+
+
+async def test_reload_read_miss_falls_back_to_computed_status() -> None:
+    # If the post-write re-read misses (row vanished), the returned Student still
+    # reflects the enrollment status just computed (via _reload's fallback).
+    svc, strepo, _, _ = _svc()
+
+    async def _miss(school_id: str, student_id: str) -> None:
+        return None
+
+    strepo.get = _miss  # force the read-miss branch
+    student = await svc.create_student(
+        school_id=_S1, name="M", email="m@x.io", password=_PW,
+        reference_photo_path=_PATH,
+    )
+    assert student.enrollment_status is EnrollmentStatus.ENROLLED
+
+
+# ---- reads + tenant isolation -----------------------------------------
+
+
+async def test_get_student_is_tenant_scoped() -> None:
+    svc, _, _, _ = _svc(
+        schools=[make_school(id=_S1), make_school(id="s2")]
+    )
+    student = await svc.create_student(
+        school_id=_S1, name="T", email="t@x.io", password=_PW,
+        reference_photo_path=_PATH,
+    )
+    # Another school cannot fetch it.
+    with pytest.raises(NotFoundError):
+        await svc.get_student(school_id="s2", student_id=student.id)
+
+
+async def test_list_students_returns_only_own_school() -> None:
+    svc, _, _, _ = _svc(schools=[make_school(id=_S1), make_school(id="s2")])
+    await svc.create_student(
+        school_id=_S1, name="A", email="a@x.io", password=_PW,
+        reference_photo_path=_PATH,
+    )
+    await svc.create_student(
+        school_id="s2", name="B", email="b@x.io", password=_PW,
+        reference_photo_path="reference-photos/s2/p.jpg",
+    )
+    assert {s.name for s in await svc.list_students(school_id=_S1)} == {"A"}
+
+
+# ---- delete ------------------------------------------------------------
+
+
+async def test_delete_removes_ml_login_and_profile() -> None:
+    svc, strepo, urepo, ml = _svc()
+    student = await svc.create_student(
+        school_id=_S1, name="D", email="d@x.io", password=_PW,
+        reference_photo_path=_PATH,
+    )
+    await svc.delete_student(school_id=_S1, student_id=student.id)
+    assert ml.delete_calls == [(_S1, student.id)]
+    assert await urepo.get(student.user_id) is None  # login gone
+    assert await strepo.get(_S1, student.id) is None  # profile cascaded
+
+
+async def test_delete_missing_student_raises_before_ml_call() -> None:
+    svc, _, _, ml = _svc()
+    with pytest.raises(NotFoundError):
+        await svc.delete_student(school_id=_S1, student_id="ghost")
+    assert ml.delete_calls == []
+
+
+async def test_delete_keeps_local_rows_when_ml_delete_fails() -> None:
+    # ML delete must succeed before we remove local rows, so we never orphan
+    # embeddings; on failure everything stays for a retry (0026).
+    svc, strepo, urepo, _ = _svc(
+        ml_client=FakeMlClient(raise_on_delete=UpstreamError("ml down"))
+    )
+    student = await svc.create_student(
+        school_id=_S1, name="K", email="k@x.io", password=_PW,
+        reference_photo_path=_PATH,
+    )
+    with pytest.raises(UpstreamError):
+        await svc.delete_student(school_id=_S1, student_id=student.id)
+    assert await urepo.get(student.user_id) is not None
+    assert await strepo.get(_S1, student.id) is not None

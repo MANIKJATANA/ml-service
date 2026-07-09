@@ -11,9 +11,8 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, status
 
-from backend.api.deps import ContainerDep, require_permissions
+from backend.api.deps import ContainerDep, require_permissions, tenant_of
 from backend.api.schemas.users import CreateUserRequest, UserResponse
-from backend.domain.errors import AuthorizationError
 from backend.domain.models import User
 from backend.domain.permissions import Permission
 
@@ -22,12 +21,9 @@ router = APIRouter(prefix="/v1/staff", tags=["staff"])
 # Resolves the caller AND enforces the permission in one dependency.
 StaffManager = Annotated[User, Depends(require_permissions(Permission.STAFF_MANAGE))]
 
-
-def _tenant(user: User) -> str:
-    # Non-platform roles always have a school (DB CHECK), but fail closed anyway.
-    if user.school_id is None:
-        raise AuthorizationError("account is not scoped to a school")
-    return user.school_id
+# The shared tenant-from-token helper (one implementation, decisions/0026). Kept
+# under this name so existing imports (tests) still resolve.
+_tenant = tenant_of
 
 
 @router.post("", status_code=status.HTTP_201_CREATED, response_model=UserResponse)

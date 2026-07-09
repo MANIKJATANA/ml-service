@@ -1,10 +1,10 @@
 """FastAPI app factory for the backend / core system.
 
-Mounts the health, auth, and onboarding (schools/staff) routers, maps domain errors
-to HTTP status codes, and at startup configures structured logging and wires the
+Mounts the health, auth, onboarding (schools/staff), and student routers, maps domain
+errors to HTTP status codes, and at startup configures structured logging and wires the
 composition-root container onto ``app.state`` so ``/readyz`` can probe dependencies;
-on shutdown it disposes the container. Feature routers for students, events, media,
-and galleries land in later phases.
+on shutdown it disposes the container. Feature routers for events, media, and galleries
+land in later phases.
 """
 
 from collections.abc import AsyncIterator
@@ -14,7 +14,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from backend import __version__
-from backend.api.routers import auth, health, schools, staff
+from backend.api.routers import auth, health, schools, staff, students
 from backend.deps import get_container
 from backend.domain.errors import (
     AuthenticationError,
@@ -23,6 +23,7 @@ from backend.domain.errors import (
     ConflictError,
     LimitExceededError,
     NotFoundError,
+    UpstreamError,
     ValidationError,
 )
 from backend.observability.logging import configure_logging
@@ -64,6 +65,10 @@ def _register_error_handlers(app: FastAPI) -> None:
     async def on_authorization(_: Request, exc: AuthorizationError) -> JSONResponse:
         return JSONResponse(status_code=403, content={"detail": str(exc)})
 
+    async def on_upstream(_: Request, exc: UpstreamError) -> JSONResponse:
+        # A downstream dep (ML service) failed/unreachable — 502 Bad Gateway.
+        return JSONResponse(status_code=502, content={"detail": str(exc)})
+
     async def on_backend_error(_: Request, exc: BackendError) -> JSONResponse:
         # Base fallback — config/unclassified domain failures surface as 500.
         return JSONResponse(status_code=500, content={"detail": str(exc)})
@@ -74,6 +79,7 @@ def _register_error_handlers(app: FastAPI) -> None:
     app.add_exception_handler(ValidationError, on_validation)  # type: ignore[arg-type]
     app.add_exception_handler(AuthenticationError, on_authentication)  # type: ignore[arg-type]
     app.add_exception_handler(AuthorizationError, on_authorization)  # type: ignore[arg-type]
+    app.add_exception_handler(UpstreamError, on_upstream)  # type: ignore[arg-type]
     app.add_exception_handler(BackendError, on_backend_error)  # type: ignore[arg-type]
 
 
@@ -83,6 +89,7 @@ def create_app() -> FastAPI:
     app.include_router(auth.router)
     app.include_router(schools.router)
     app.include_router(staff.router)
+    app.include_router(students.router)
     _register_error_handlers(app)
     return app
 

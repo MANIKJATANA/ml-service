@@ -22,6 +22,20 @@ USER_REPO_REGISTRY: dict[str, str] = {
     "postgres": "backend.adapters.repositories.postgres_users:PostgresUserRepository",
 }
 
+STUDENT_REPO_REGISTRY: dict[str, str] = {
+    "postgres": "backend.adapters.repositories.postgres_students:PostgresStudentRepository",
+}
+
+OBJECT_STORE_REGISTRY: dict[str, str] = {
+    "supabase": "backend.adapters.object_store.supabase_store:SupabaseObjectStore",
+    "local_fs": "backend.adapters.object_store.local_fs_store:LocalFsObjectStore",
+}
+
+ML_ENROLLMENT_CLIENT_REGISTRY: dict[str, str] = {
+    "http": "backend.adapters.ml_client.http_enrollment:HttpMlEnrollmentClient",
+    "fake": "backend.adapters.ml_client.fake_enrollment:FakeMlEnrollmentClient",
+}
+
 PASSWORD_HASHER_REGISTRY: dict[str, str] = {
     "argon2": "backend.adapters.security.argon2_hasher:Argon2PasswordHasher",
 }

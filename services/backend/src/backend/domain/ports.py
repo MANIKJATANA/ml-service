@@ -3,15 +3,23 @@
 Concrete implementations live under ``adapters/`` and are selected by config via
 ``wiring/registry.py`` (decisions/0022). Keeping services import-pure against these
 Protocols (no SQLAlchemy/httpx/redis/supabase) is enforced by
-``tests/test_layering.py``. The surface grows per phase; Phase 1 defines only the
-repositories for the two identity tables.
+``tests/test_layering.py``. The surface grows per phase; Phase 4 adds the student
+repository, the object store, and the ML enrollment client (decisions/0026).
 """
 
 from __future__ import annotations
 
 from typing import Protocol
 
-from backend.domain.models import Role, School, User
+from backend.domain.models import (
+    EnrollmentOutcome,
+    EnrollmentStatus,
+    Role,
+    School,
+    SignedUpload,
+    Student,
+    User,
+)
 from backend.domain.permissions import Permission
 from backend.domain.tokens import TokenClaims, TokenPair, TokenType
 
@@ -41,6 +49,47 @@ class UserRepository(Protocol):
     async def list_by_school_and_role(
         self, school_id: str, role: Role
     ) -> list[User]: ...
+    async def delete(self, user_id: str) -> None: ...
+
+
+class StudentRepository(Protocol):
+    """Backend-owned students. Reads are tenant-scoped: a ``student_id`` that
+    belongs to another school resolves to ``None`` (decisions/0026)."""
+
+    async def create(
+        self,
+        *,
+        school_id: str,
+        user_id: str,
+        name: str,
+        reference_photo_path: str,
+    ) -> Student: ...
+    async def get(self, school_id: str, student_id: str) -> Student | None: ...
+    async def list_by_school(self, school_id: str) -> list[Student]: ...
+    async def set_enrollment(
+        self, student_id: str, *, status: EnrollmentStatus
+    ) -> None: ...
+
+
+class ObjectStore(Protocol):
+    """Mints a direct-to-storage upload target for a caller-chosen object key.
+
+    The backend never handles the photo bytes — the frontend uploads to the signed
+    URL and later submits the object path (decisions/0026)."""
+
+    async def create_signed_upload_url(self, object_path: str) -> SignedUpload: ...
+
+
+class MlEnrollmentClient(Protocol):
+    """The backend's only outbound call to the ML service (decisions/0009).
+
+    Synchronous enroll/refresh + delete of a student's embeddings. Raises
+    ``UpstreamError`` when the ML service is unreachable or errors."""
+
+    async def enroll(
+        self, *, school_id: str, student_id: str, photo_uris: list[str]
+    ) -> EnrollmentOutcome: ...
+    async def delete(self, *, school_id: str, student_id: str) -> None: ...
 
 
 class PasswordHasher(Protocol):

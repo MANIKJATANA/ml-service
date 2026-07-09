@@ -55,6 +55,16 @@ async def get_current_user(
 CurrentUser = Annotated[User, Depends(get_current_user)]
 
 
+def tenant_of(user: User) -> str:
+    """The caller's school for a school-scoped route — from the token, never the URL.
+
+    Non-platform roles always have a school (DB CHECK); fail closed anyway so a
+    school-scoped route never proceeds without a tenant (decisions/0025, 0026)."""
+    if user.school_id is None:
+        raise AuthorizationError("account is not scoped to a school")
+    return user.school_id
+
+
 def require_permissions(
     *required: Permission,
 ) -> Callable[..., Awaitable[User]]:

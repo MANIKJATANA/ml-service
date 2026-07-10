@@ -26,6 +26,19 @@ STUDENT_REPO_REGISTRY: dict[str, str] = {
     "postgres": "backend.adapters.repositories.postgres_students:PostgresStudentRepository",
 }
 
+EVENT_REPO_REGISTRY: dict[str, str] = {
+    "postgres": "backend.adapters.repositories.postgres_events:PostgresEventRepository",
+}
+
+MEDIA_REPO_REGISTRY: dict[str, str] = {
+    "postgres": "backend.adapters.repositories.postgres_media:PostgresMediaRepository",
+}
+
+EVENT_JOB_PRODUCER_REGISTRY: dict[str, str] = {
+    "redis": "backend.adapters.queue.redis_producer:RedisEventJobProducer",
+    "inproc": "backend.adapters.queue.inproc_producer:InProcEventJobProducer",
+}
+
 OBJECT_STORE_REGISTRY: dict[str, str] = {
     "supabase": "backend.adapters.object_store.supabase_store:SupabaseObjectStore",
     "local_fs": "backend.adapters.object_store.local_fs_store:LocalFsObjectStore",

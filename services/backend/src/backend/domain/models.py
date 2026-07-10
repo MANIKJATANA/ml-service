@@ -8,7 +8,7 @@ ML service receives, so no conversion happens at the ML boundary.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 from enum import StrEnum
 
 
@@ -33,6 +33,44 @@ class EnrollmentStatus(StrEnum):
     PENDING = "pending"  # student created; ML enrollment not yet confirmed
     ENROLLED = "enrolled"  # ML stored >= 1 embedding for the reference photo
     FAILED = "failed"  # enroll attempted but stored 0 embeddings / ML unreachable
+
+
+class EventStatus(StrEnum):
+    """Event lifecycle (independent of processing). v1 archives, never deletes."""
+
+    ACTIVE = "active"
+    ARCHIVED = "archived"
+
+
+class EventProcessingStatus(StrEnum):
+    """The single event-level status the FE reads in one DB call (decisions/0027).
+
+    The backend sets ``queued`` on Process; the **ML worker** flips it to ``processing``
+    on pickup and ``completed`` when the whole event is done. The backend never derives
+    it from per-photo rows."""
+
+    NOT_STARTED = "not_started"  # media may be uploaded, but Process not pressed yet
+    QUEUED = "queued"  # backend enqueued the event job; ML hasn't picked it up
+    PROCESSING = "processing"  # ML picked the event up and is working through its photos
+    COMPLETED = "completed"  # ML finished every photo in the event
+
+
+class MediaType(StrEnum):
+    """Kind of media. Values match the ML service's ``MediaType`` verbatim
+    (decisions/0027)."""
+
+    IMAGE = "image"
+    VIDEO = "video"
+
+
+class MediaProcessingStatus(StrEnum):
+    """Per-photo status, a column on the backend ``media`` row (decisions/0027). The
+    **ML worker** flips it ``pending -> completed`` as it finishes each photo, and reads
+    it to skip photos already done on a redistribute. A photo that never finishes just
+    stays ``pending``."""
+
+    PENDING = "pending"  # uploaded; not yet processed by ML
+    COMPLETED = "completed"  # ML finished processing this photo
 
 
 @dataclass(frozen=True, slots=True)
@@ -104,3 +142,55 @@ class EnrollmentOutcome:
 
     embeddings_stored: int
     photo_results: tuple[PhotoResult, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class Event:
+    """An event whose media is distributed to appearing students (decisions/0027).
+    ``id`` (as a string) is the ML ``event_id`` (``matches.event_id``).
+
+    ``status`` is the lifecycle (active/archived); ``processing_status`` is the
+    event-level inference state the FE polls."""
+
+    id: str
+    school_id: str
+    name: str
+    description: str | None
+    event_date: date | None
+    created_by: str | None
+    status: EventStatus
+    processing_status: EventProcessingStatus
+    enqueued_at: datetime | None
+    completed_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class Media:
+    """One uploaded event photo + its per-photo processing state (decisions/0027).
+    ``id`` (as a string) is the ML ``media_id``; ``storage_path`` is the ML ``media_uri``.
+    Recording a photo enqueues nothing — processing is event-level (see ``EventJob``)."""
+
+    id: str
+    school_id: str
+    event_id: str
+    storage_path: str
+    media_type: MediaType
+    processing_status: MediaProcessingStatus
+    completed_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class EventJob:
+    """The exact payload enqueued for the ML inference worker (decisions/0027).
+
+    One job per **event** (not per photo). These two fields are XADD'd as strings onto
+    the shared Redis stream; the field names are a binding contract with the ML worker —
+    do not rename without changing both sides. The ML worker reads the backend ``media``
+    roster for the event from the shared DB to learn which photos to process."""
+
+    school_id: str
+    event_id: str

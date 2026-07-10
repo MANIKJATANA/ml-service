@@ -61,6 +61,8 @@ class Settings(BaseSettings):
     detection_repo_impl: str = "postgres"
     threshold_provider_impl: str = "postgres"
     reference_photo_repo_impl: str = "postgres"
+    # Reads the event roster + writes the backend's event/media status (shared DB, 0027).
+    backend_event_store_impl: str = "postgres"
     queue_impl: str = "redis"  # redis (default) | inproc (single-process/dev)
 
     # --- model weights (buffalo_l bundle, baked into the image) ----------
@@ -98,10 +100,6 @@ class Settings(BaseSettings):
     queue_group: str = "inference-workers"
     queue_consumer: str = Field(default_factory=_default_consumer)
     queue_dead_letter_stream: str = ""  # empty -> adapter derives "{stream}:dead"
-
-    # --- worker retry (transient media-fetch failures, architecture §8.4) -
-    worker_max_retries: int = 3
-    worker_backoff_base_s: float = 0.5
 
     # --- readiness probe (/readyz) --------------------------------------
     readiness_timeout_s: float = 5.0

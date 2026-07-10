@@ -1,10 +1,24 @@
 # Inference Worker (Phase 3)
 
+> **Amended by [decisions/0027](../../../decisions/0027-events-media-enqueue-status.md)
+> (Phase 5):** the queue now carries **one job per event** (`{school_id, event_id}`). The
+> runner calls `service.process_event(job)`, which (via `BackendEventStore`) marks the
+> backend event row `processing`, reads the backend `media` roster, skips already-
+> `completed` photos, runs the per-photo `process()` on the rest, marks each finished
+> photo `completed`, and marks the event `completed` — so the **ML worker owns the
+> job-status writes** on the backend's own rows (no backend poller). The per-photo
+> **retry/backoff on `MediaFetchError` was removed from the runner** — a per-photo
+> fetch/decode error is logged and **skipped** inside `process_event` (a later
+> redistribute retries it), so the runner is coarse: **ack** on success, **nack** only on
+> a systemic `EmbeddingVersionMismatch` or an unexpected event-level failure. The
+> `worker_max_retries`/`worker_backoff_base_s` settings are gone. The diagram + table
+> below describe the removed per-media/per-retry flow and are kept only for history.
+
 The worker is the async half of the service (architecture §3): a thin loop that
-consumes inference jobs from the `JobQueue` and runs each through the shared
+consumes event jobs from the `JobQueue` and runs each through the shared
 `InferenceService`. It owns **delivery semantics only** — the service snapshots
 thresholds/versions and does all the work; the runner just decides ack vs. nack
-and emits the returned `JobOutcome` as metrics.
+and emits the returned `EventOutcome` as metrics.
 
 ## Components
 

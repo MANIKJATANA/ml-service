@@ -23,6 +23,7 @@ ALL_REGISTRIES = [
     registry.DETECTION_REPO_REGISTRY,
     registry.THRESHOLD_PROVIDER_REGISTRY,
     registry.REFERENCE_PHOTO_REPO_REGISTRY,
+    registry.BACKEND_EVENT_STORE_REGISTRY,
     registry.QUEUE_REGISTRY,
 ]
 
@@ -48,6 +49,7 @@ def test_every_target_is_module_colon_class() -> None:
         (registry.DETECTION_REPO_REGISTRY, "postgres"),
         (registry.THRESHOLD_PROVIDER_REGISTRY, "postgres"),
         (registry.REFERENCE_PHOTO_REPO_REGISTRY, "postgres"),
+        (registry.BACKEND_EVENT_STORE_REGISTRY, "postgres"),
         (registry.QUEUE_REGISTRY, "inproc"),
     ],
 )

@@ -10,6 +10,8 @@ POSTGRES_REGISTRIES = [
     registry.SCHOOL_REPO_REGISTRY,
     registry.USER_REPO_REGISTRY,
     registry.STUDENT_REPO_REGISTRY,
+    registry.EVENT_REPO_REGISTRY,
+    registry.MEDIA_REPO_REGISTRY,
 ]
 
 # Every (registry, impl) target must import to a class — a rename/typo fails loud here
@@ -20,6 +22,9 @@ ALL_TARGETS = [
         registry.SCHOOL_REPO_REGISTRY,
         registry.USER_REPO_REGISTRY,
         registry.STUDENT_REPO_REGISTRY,
+        registry.EVENT_REPO_REGISTRY,
+        registry.MEDIA_REPO_REGISTRY,
+        registry.EVENT_JOB_PRODUCER_REGISTRY,
         registry.OBJECT_STORE_REGISTRY,
         registry.ML_ENROLLMENT_CLIENT_REGISTRY,
     )

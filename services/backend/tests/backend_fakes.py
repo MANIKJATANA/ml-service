@@ -9,13 +9,20 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 from backend.domain.emails import normalize_email
 from backend.domain.errors import ConflictError, NotFoundError
 from backend.domain.models import (
     EnrollmentOutcome,
     EnrollmentStatus,
+    Event,
+    EventJob,
+    EventProcessingStatus,
+    EventStatus,
+    Media,
+    MediaProcessingStatus,
+    MediaType,
     PhotoResult,
     Role,
     School,
@@ -26,6 +33,9 @@ from backend.domain.models import (
     UserStatus,
 )
 from backend.domain.ports import (
+    EventJobProducer,
+    EventRepository,
+    MediaRepository,
     MlEnrollmentClient,
     ObjectStore,
     SchoolRepository,
@@ -97,6 +107,58 @@ def make_student(
         name=name,
         reference_photo_path=reference_photo_path,
         enrollment_status=enrollment_status,
+        created_at=_NOW,
+        updated_at=_NOW,
+    )
+
+
+def make_event(
+    *,
+    id: str = "event-1",
+    school_id: str = "school-1",
+    name: str = "Sports Day",
+    description: str | None = None,
+    event_date: date | None = None,
+    created_by: str | None = "user-1",
+    status: EventStatus = EventStatus.ACTIVE,
+    processing_status: EventProcessingStatus = EventProcessingStatus.NOT_STARTED,
+    enqueued_at: datetime | None = None,
+    completed_at: datetime | None = None,
+) -> Event:
+    return Event(
+        id=id,
+        school_id=school_id,
+        name=name,
+        description=description,
+        event_date=event_date,
+        created_by=created_by,
+        status=status,
+        processing_status=processing_status,
+        enqueued_at=enqueued_at,
+        completed_at=completed_at,
+        created_at=_NOW,
+        updated_at=_NOW,
+    )
+
+
+def make_media(
+    *,
+    id: str = "media-1",
+    school_id: str = "school-1",
+    event_id: str = "event-1",
+    storage_path: str = "events/school-1/event-1/photo.jpg",
+    media_type: MediaType = MediaType.IMAGE,
+    processing_status: MediaProcessingStatus = MediaProcessingStatus.PENDING,
+    completed_at: datetime | None = None,
+) -> Media:
+    return Media(
+        id=id,
+        school_id=school_id,
+        event_id=event_id,
+        storage_path=storage_path,
+        media_type=media_type,
+        processing_status=processing_status,
+        completed_at=completed_at,
         created_at=_NOW,
         updated_at=_NOW,
     )
@@ -341,6 +403,141 @@ class FakeMlClient:
         self.delete_calls.append((school_id, student_id))
 
 
+class FakeEventRepo:
+    def __init__(self, events: list[Event] | None = None) -> None:
+        self._by_id: dict[str, Event] = {e.id: e for e in (events or [])}
+        self._seq = 0
+
+    async def create(
+        self,
+        *,
+        school_id: str,
+        name: str,
+        description: str | None,
+        event_date: date | None,
+        created_by: str | None,
+    ) -> Event:
+        self._seq += 1
+        event = make_event(
+            id=f"evt-{self._seq}",
+            school_id=school_id,
+            name=name,
+            description=description,
+            event_date=event_date,
+            created_by=created_by,
+        )
+        self._by_id[event.id] = event
+        return event
+
+    async def get(self, school_id: str, event_id: str) -> Event | None:
+        event = self._by_id.get(event_id)
+        if event is None or event.school_id != school_id:
+            return None  # tenant-scoped (mirrors the query)
+        return event
+
+    async def list_by_school(self, school_id: str) -> list[Event]:
+        return [e for e in self._by_id.values() if e.school_id == school_id]
+
+    async def update(
+        self,
+        school_id: str,
+        event_id: str,
+        *,
+        name: str | None = None,
+        description: str | None = None,
+        event_date: date | None = None,
+        status: EventStatus | None = None,
+    ) -> Event | None:
+        event = await self.get(school_id, event_id)
+        if event is None:
+            return None
+        changes: dict[str, object] = {}
+        if name is not None:
+            changes["name"] = name
+        if description is not None:
+            changes["description"] = description
+        if event_date is not None:
+            changes["event_date"] = event_date
+        if status is not None:
+            changes["status"] = status
+        updated = replace(event, **changes)  # type: ignore[arg-type]
+        self._by_id[event_id] = updated
+        return updated
+
+    async def set_processing(
+        self, event_id: str, *, status: EventProcessingStatus
+    ) -> None:
+        event = self._by_id.get(event_id)
+        if event is None:
+            return
+        changes: dict[str, object] = {"processing_status": status}
+        if status is EventProcessingStatus.QUEUED:
+            changes["enqueued_at"] = _NOW
+            changes["completed_at"] = None
+        elif status is EventProcessingStatus.COMPLETED:
+            changes["completed_at"] = _NOW
+        self._by_id[event_id] = replace(event, **changes)  # type: ignore[arg-type]
+
+
+class FakeMediaRepo:
+    def __init__(self, media: list[Media] | None = None) -> None:
+        self._by_id: dict[str, Media] = {m.id: m for m in (media or [])}
+        self._seq = 0
+
+    async def create(
+        self,
+        *,
+        school_id: str,
+        event_id: str,
+        storage_path: str,
+        media_type: MediaType,
+    ) -> Media:
+        self._seq += 1
+        media = make_media(
+            id=f"med-{self._seq}",
+            school_id=school_id,
+            event_id=event_id,
+            storage_path=storage_path,
+            media_type=media_type,
+        )
+        self._by_id[media.id] = media
+        return media
+
+    async def get(self, school_id: str, media_id: str) -> Media | None:
+        media = self._by_id.get(media_id)
+        if media is None or media.school_id != school_id:
+            return None  # tenant-scoped
+        return media
+
+    async def list_by_event(self, school_id: str, event_id: str) -> list[Media]:
+        return [
+            m
+            for m in self._by_id.values()
+            if m.school_id == school_id and m.event_id == event_id
+        ]
+
+    async def status_counts(
+        self, school_id: str, event_id: str
+    ) -> dict[MediaProcessingStatus, int]:
+        counts = {s: 0 for s in MediaProcessingStatus}
+        for m in await self.list_by_event(school_id, event_id):
+            counts[m.processing_status] += 1
+        return counts
+
+
+class FakeEventJobProducer:
+    """EventJobProducer double: records enqueued jobs; configurable failure."""
+
+    def __init__(self, *, raise_on_enqueue: Exception | None = None) -> None:
+        self._raise = raise_on_enqueue
+        self.jobs: list[EventJob] = []
+
+    async def enqueue(self, job: EventJob) -> None:
+        if self._raise is not None:
+            raise self._raise
+        self.jobs.append(job)
+
+
 class SeededContainer(Container):
     """Container with pre-seeded repos; JWT/argon2/RBAC/services stay real.
 
@@ -356,6 +553,9 @@ class SeededContainer(Container):
         students: StudentRepository | None = None,
         object_store: ObjectStore | None = None,
         ml_client: MlEnrollmentClient | None = None,
+        events: EventRepository | None = None,
+        media: MediaRepository | None = None,
+        event_job_producer: EventJobProducer | None = None,
         jwt_secret: str = _TEST_JWT_SECRET,
     ) -> None:
         super().__init__(Settings(jwt_secret=SecretStr(jwt_secret)))
@@ -364,6 +564,11 @@ class SeededContainer(Container):
         self._seed_students: StudentRepository = students or FakeStudentRepo()
         self._seed_object_store: ObjectStore = object_store or FakeObjectStore()
         self._seed_ml_client: MlEnrollmentClient = ml_client or FakeMlClient()
+        self._seed_events: EventRepository = events or FakeEventRepo()
+        self._seed_media: MediaRepository = media or FakeMediaRepo()
+        self._seed_event_job_producer: EventJobProducer = (
+            event_job_producer or FakeEventJobProducer()
+        )
         # Wire the FK-cascade simulation so delete-student removes the profile too.
         if isinstance(self._seed_users, FakeUserRepo) and isinstance(
             self._seed_students, FakeStudentRepo
@@ -384,3 +589,12 @@ class SeededContainer(Container):
 
     def ml_enrollment_client(self) -> MlEnrollmentClient:
         return self._seed_ml_client
+
+    def event_repo(self) -> EventRepository:
+        return self._seed_events
+
+    def media_repo(self) -> MediaRepository:
+        return self._seed_media
+
+    def event_job_producer(self) -> EventJobProducer:
+        return self._seed_event_job_producer

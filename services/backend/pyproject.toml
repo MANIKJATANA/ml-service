@@ -22,6 +22,8 @@ dependencies = [
     # signed upload URLs (supabase). Both cross-platform.
     "httpx>=0.27",
     "supabase>=2.0",
+    # Phase 5 (decisions/0027): Redis Streams job producer (enqueue inference jobs).
+    "redis>=5",
 ]
 
 [build-system]

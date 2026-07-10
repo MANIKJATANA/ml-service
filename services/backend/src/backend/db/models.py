@@ -4,17 +4,18 @@ These mirror the Alembic migrations exactly; application code never issues DDL �
 assumes the schema a migration already established (working rule; decisions/0007).
 Backend table names never collide with the ML-owned tables in the same database
 (decisions/0022). Phase 1 defined the two identity tables; Phase 4 adds ``students``
-(decisions/0026); events/media land with their phases.
+(decisions/0026); Phase 5 adds ``events`` + ``media`` (decisions/0027).
 """
 
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 
 from sqlalchemy import (
     Boolean,
     CheckConstraint,
+    Date,
     DateTime,
     ForeignKey,
     Index,
@@ -156,5 +157,120 @@ class Student(Base):
         CheckConstraint(
             "enrollment_status IN ('pending', 'enrolled', 'failed')",
             name="ck_students_enrollment_status",
+        ),
+    )
+
+
+class Event(Base):
+    """An event (decisions/0027). ``id`` (as a string) is the ML ``event_id``.
+    ``created_by`` uses ON DELETE SET NULL so an event outlives its creator's account.
+    ``status`` is the lifecycle; ``processing_status`` is the event-level inference state
+    the FE reads (the backend sets ``queued`` on Process; the ML worker writes
+    ``processing``/``completed`` directly — decisions/0027)."""
+
+    __tablename__ = "events"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    school_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("schools.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    description: Mapped[str | None] = mapped_column(String, nullable=True)
+    event_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    status: Mapped[str] = mapped_column(
+        String, nullable=False, server_default=text("'active'")
+    )
+    processing_status: Mapped[str] = mapped_column(
+        String, nullable=False, server_default=text("'not_started'")
+    )
+    enqueued_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        Index("ix_events_school", "school_id"),
+        Index("ix_events_processing", "processing_status"),
+        # Lockstep with the EventStatus / EventProcessingStatus domain enums; widen
+        # each enum and its CHECK together.
+        CheckConstraint(
+            "status IN ('active', 'archived')", name="ck_events_status"
+        ),
+        CheckConstraint(
+            "processing_status IN "
+            "('not_started', 'queued', 'processing', 'completed')",
+            name="ck_events_processing_status",
+        ),
+    )
+
+
+class Media(Base):
+    """One uploaded event photo + its per-photo processing state (decisions/0027).
+    ``id`` (as a string) is the ML ``media_id``; ``storage_path`` is the ML ``media_uri``.
+    Recording a photo enqueues nothing — processing is event-level."""
+
+    __tablename__ = "media"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    school_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("schools.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    event_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("events.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    storage_path: Mapped[str] = mapped_column(String, nullable=False)
+    media_type: Mapped[str] = mapped_column(String, nullable=False)
+    processing_status: Mapped[str] = mapped_column(
+        String, nullable=False, server_default=text("'pending'")
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        Index("ix_media_event", "school_id", "event_id"),
+        Index("ix_media_status", "processing_status"),
+        # Lockstep with the MediaType / MediaProcessingStatus domain enums.
+        CheckConstraint(
+            "media_type IN ('image', 'video')", name="ck_media_type"
+        ),
+        CheckConstraint(
+            "processing_status IN ('pending', 'completed')",
+            name="ck_media_processing_status",
         ),
     )

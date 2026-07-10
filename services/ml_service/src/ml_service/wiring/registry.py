@@ -68,6 +68,10 @@ REFERENCE_PHOTO_REPO_REGISTRY: dict[str, str] = {
     ),
 }
 
+BACKEND_EVENT_STORE_REGISTRY: dict[str, str] = {
+    "postgres": "ml_service.adapters.repository.backend_store:PostgresBackendEventStore",
+}
+
 QUEUE_REGISTRY: dict[str, str] = {
     "redis": "ml_service.adapters.queue.redis_streams:RedisStreamsJobQueue",
     "inproc": "ml_service.adapters.queue.inproc_queue:InProcJobQueue",

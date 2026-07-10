@@ -27,6 +27,16 @@ class Settings(BaseSettings):
     ml_service_url: str = "http://ml-service:8000"
     ml_http_timeout_s: float = 30.0  # enroll fetches+detects+embeds — allow slack
 
+    # --- event-job producer (ML inference enqueue, decisions/0027) --------
+    # redis XADDs one event job to the shared stream the ML worker consumes; inproc
+    # records jobs in-memory for offline dev (pair with object_store_impl=local_fs).
+    event_job_producer_impl: str = "redis"
+    redis_url: str = "redis://redis:6379/0"  # the shared Redis (matches ML's default)
+    # Must equal ML_QUEUE_STREAM — the field/stream contract is verified against ML
+    # code (decisions/0022); a mismatch means the worker never sees the jobs.
+    queue_stream: str = "inference-jobs"
+    event_media_prefix: str = "events"  # object-key prefix; distinct from reference-photos
+
     # --- object store (reference-photo signed upload URLs, decisions/0026) -
     # supabase mints direct-to-Supabase upload URLs; local_fs is a credential-free
     # dev stub (pair with ml_enrollment_client_impl=fake to run without either).

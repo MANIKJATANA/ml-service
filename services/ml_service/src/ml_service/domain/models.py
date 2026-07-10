@@ -97,13 +97,42 @@ class Frame:
 
 @dataclass(frozen=True, slots=True)
 class InferenceJob:
-    """An inference job payload (req §10.3)."""
+    """The internal per-photo work item (req §10.3).
+
+    Not the queue payload anymore — the queue carries an :class:`EventJob` per event;
+    the worker expands it into one ``InferenceJob`` per photo from the backend roster
+    (decisions/0027)."""
 
     media_id: str
     media_uri: str
     school_id: str
     event_id: str
     media_type: MediaType
+
+
+@dataclass(frozen=True, slots=True)
+class EventJob:
+    """The queued inference payload — one per **event** (decisions/0027).
+
+    Carries only ``school_id`` + ``event_id``; the worker reads the backend ``media``
+    roster for the event (shared DB) to enumerate the photos. Field names are a binding
+    contract with the backend producer — do not rename without changing both sides."""
+
+    school_id: str
+    event_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class BackendMedia:
+    """One photo of an event, read from the backend ``media`` roster (decisions/0027).
+    ``media_id`` is the backend media row's id; ``media_uri`` is its storage path;
+    ``processing_status`` is the backend's per-photo status column (``pending`` /
+    ``completed``) — the worker skips photos already ``completed`` on a redistribute."""
+
+    media_id: str
+    media_uri: str
+    media_type: MediaType
+    processing_status: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -235,16 +264,37 @@ class Emission:
 
 @dataclass(frozen=True, slots=True)
 class JobLease:
-    """A consumed job plus an opaque receipt used to ack/nack it."""
+    """A consumed event job plus an opaque receipt used to ack/nack it."""
 
-    job: InferenceJob
+    job: EventJob
     receipt: str
 
 
 @dataclass(frozen=True, slots=True)
 class JobOutcome:
-    """Per-job metrics returned by the inference service (req §13)."""
+    """Per-photo metrics returned by the inference pipeline (req §13)."""
 
+    faces_detected: int
+    candidates_above_threshold: int
+    matches_emitted: int
+    ambiguous_matches: int
+    unknown_faces: int
+    frames_processed: int
+    detector_version: str
+    embedding_model_version: str
+
+
+@dataclass(frozen=True, slots=True)
+class EventOutcome:
+    """Aggregate metrics for one processed event job (decisions/0027).
+
+    Sums the per-photo :class:`JobOutcome` counters across the event's roster, so the
+    §13 Prometheus surface is preserved (just event-grained). Model versions are the
+    service's snapshot (constant per deploy)."""
+
+    photos_total: int  # photos in the event's roster
+    photos_processed: int  # photos run through the pipeline this job
+    photos_skipped: int  # already-detected (skipped) + per-photo errors
     faces_detected: int
     candidates_above_threshold: int
     matches_emitted: int

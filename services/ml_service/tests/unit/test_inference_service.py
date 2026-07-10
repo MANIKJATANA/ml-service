@@ -2,6 +2,7 @@
 
 import pytest
 from fakes import (
+    StubBackendEventStore,
     StubDetectionRepository,
     StubDetector,
     StubEmbedder,
@@ -13,12 +14,19 @@ from fakes import (
     box,
     normalized,
 )
-from ml_service.domain.errors import ConfigurationError, MediaFetchError
+from ml_service.domain.errors import (
+    ConfigurationError,
+    EmbeddingVersionMismatch,
+    MediaFetchError,
+)
 from ml_service.domain.models import (
+    BackendMedia,
     Candidate,
     DetectionOutcome,
+    EventJob,
     Frame,
     InferenceJob,
+    JobOutcome,
     MediaType,
 )
 from ml_service.orchestration.inference import InferenceService
@@ -34,6 +42,7 @@ def make_service(
     media: StubMediaStore | None = None,
     extractor: StubFrameExtractor | None = None,
     detection_repo: StubDetectionRepository | None = None,
+    backend_store: StubBackendEventStore | None = None,
     top_k: int = 2,
     video_fps: float = 1.0,
     persist_detections: bool = True,
@@ -47,6 +56,7 @@ def make_service(
         repo,
         thresholds or StubThresholdProvider(0.5, 0.1),
         detection_repo or StubDetectionRepository(),
+        backend_store or StubBackendEventStore(),
         top_k=top_k,
         video_fps=video_fps,
         persist_detections=persist_detections,
@@ -468,3 +478,108 @@ async def test_detections_video_frames_matched_and_timeline() -> None:
     assert record.video_fps == 1.0
     assert [f.frame_timestamp_ms for f in record.frames] == [0, 1000]
     assert all(len(f.faces) == 1 for f in record.frames)
+
+
+# ---- process_event (event-level, decisions/0027) ----------------------
+
+
+def _pending(media_id: str, uri: str) -> BackendMedia:
+    return BackendMedia(media_id, uri, MediaType.IMAGE, processing_status="pending")
+
+
+def _store(*media: BackendMedia) -> StubBackendEventStore:
+    return StubBackendEventStore({("sch1", "ev1"): list(media)})
+
+
+async def test_process_event_runs_each_rostered_photo_and_writes_status() -> None:
+    index = StubVectorIndex()
+    index.script([Candidate("stu1", 0.95)], [Candidate("stu2", 0.9)])
+    repo = StubMatchRepository()
+    store = _store(_pending("m1", "u1"), _pending("m2", "u2"))
+    svc = make_service(
+        index,
+        repo=repo,
+        media=StubMediaStore({"u1": b"img", "u2": b"img"}),
+        detector=StubDetector(mapping={b"img": [box()]}),
+        backend_store=store,
+    )
+
+    outcome = await svc.process_event(EventJob("sch1", "ev1"))
+
+    assert outcome.photos_total == 2 and outcome.photos_processed == 2
+    assert outcome.matches_emitted == 2
+    assert {r.media_id for b in repo.saved_batches for r in b} == {"m1", "m2"}
+    # ML owns the status writes: event processing->completed, each photo completed.
+    assert store.event_status["ev1"] == "completed"
+    assert set(store.media_completed) == {"m1", "m2"}
+
+
+async def test_process_event_skips_already_completed_photo() -> None:
+    # A redistribute re-runs only still-pending photos: a photo whose backend status is
+    # already 'completed' is skipped, and never re-marked (idempotent, 0027).
+    index = StubVectorIndex()
+    index.script([Candidate("stu1", 0.95)])
+    store = _store(
+        BackendMedia("done", "u0", MediaType.IMAGE, processing_status="completed"),
+        _pending("m1", "u1"),
+    )
+    svc = make_service(
+        index,
+        repo=StubMatchRepository(),
+        media=StubMediaStore({"u1": b"img"}),
+        detector=StubDetector(mapping={b"img": [box()]}),
+        backend_store=store,
+    )
+
+    outcome = await svc.process_event(EventJob("sch1", "ev1"))
+
+    assert outcome.photos_processed == 1 and outcome.photos_skipped == 1
+    assert store.media_completed == ["m1"]  # only the pending one marked
+
+
+async def test_process_event_skips_photo_on_fetch_error_and_continues() -> None:
+    index = StubVectorIndex()
+    index.script([Candidate("stu1", 0.95)])  # consumed by the good photo only
+    store = _store(_pending("bad", "missing"), _pending("good", "u1"))
+    svc = make_service(
+        index,
+        repo=StubMatchRepository(),
+        media=StubMediaStore({"u1": b"img"}),  # "missing" absent -> MediaFetchError
+        detector=StubDetector(mapping={b"img": [box()]}),
+        backend_store=store,
+    )
+
+    outcome = await svc.process_event(EventJob("sch1", "ev1"))
+
+    assert outcome.photos_total == 2
+    assert outcome.photos_processed == 1 and outcome.photos_skipped == 1
+    assert store.media_completed == ["good"]  # the failed photo stays pending
+    assert store.event_status["ev1"] == "completed"  # event still finalized
+
+
+async def test_process_event_propagates_version_mismatch() -> None:
+    # A stale-index mismatch is systemic — process_event aborts (worker nacks + alerts);
+    # the event stays 'processing' (never marked completed) for a retry.
+    store = _store(_pending("m1", "u1"))
+    svc = make_service(
+        StubVectorIndex(),
+        repo=StubMatchRepository(),
+        media=StubMediaStore({"u1": b"img"}),
+        backend_store=store,
+    )
+
+    async def _boom(job: InferenceJob) -> JobOutcome:
+        raise EmbeddingVersionMismatch("stale index")
+
+    svc.process = _boom  # type: ignore[method-assign]
+    with pytest.raises(EmbeddingVersionMismatch):
+        await svc.process_event(EventJob("sch1", "ev1"))
+    assert store.event_status["ev1"] == "processing"  # not completed
+
+
+async def test_process_event_empty_roster_completes() -> None:
+    store = StubBackendEventStore()
+    svc = make_service(StubVectorIndex(), repo=StubMatchRepository(), backend_store=store)
+    outcome = await svc.process_event(EventJob("sch1", "ev1"))
+    assert outcome.photos_total == 0 and outcome.photos_processed == 0
+    assert store.event_status["ev1"] == "completed"

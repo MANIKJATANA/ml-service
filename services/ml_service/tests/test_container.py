@@ -55,6 +55,8 @@ def test_postgres_repos_share_one_sessionmaker() -> None:
     sm = c.sessionmaker()
     assert c.threshold_provider() is not None
     assert c.reference_photos() is not None
+    # The backend event store (roster read + status writes, 0027) shares the sessionmaker.
+    assert c.backend_event_store() is c.backend_event_store()
     assert c.sessionmaker() is sm  # engine/sessionmaker built once, shared
     asyncio.run(c.aclose())
 

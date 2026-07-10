@@ -25,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from ml_service.adapters.repository._engine import make_engine, make_sessionmaker
 from ml_service.domain.errors import ConfigurationError
 from ml_service.domain.ports import (
+    BackendEventStore,
     DetectionRepository,
     FaceDetector,
     FaceEmbedder,
@@ -67,6 +68,7 @@ class Container:
         self._detection_repo: DetectionRepository | None = None
         self._threshold_provider: ThresholdProvider | None = None
         self._reference_photos: ReferencePhotoRepository | None = None
+        self._backend_store: BackendEventStore | None = None
         self._queue: JobQueue | None = None
         self._enrollment: EnrollmentService | None = None
         self._inference: InferenceService | None = None
@@ -219,6 +221,18 @@ class Container:
                     self._reference_photos = cls(self.sessionmaker())
         return self._reference_photos
 
+    def backend_event_store(self) -> BackendEventStore:
+        if self._backend_store is None:
+            with self._lock:
+                if self._backend_store is None:
+                    cls = registry.resolve(
+                        registry.BACKEND_EVENT_STORE_REGISTRY,
+                        self._s.backend_event_store_impl,
+                    )
+                    # Reads/writes the backend's events+media status via the shared DB (0027).
+                    self._backend_store = cls(self.sessionmaker())
+        return self._backend_store
+
     def job_queue(self) -> JobQueue:
         if self._queue is None:
             with self._lock:
@@ -269,6 +283,7 @@ class Container:
                         repo=self.match_repo(),
                         thresholds=self.threshold_provider(),
                         detection_repo=self.detection_repo(),
+                        backend_store=self.backend_event_store(),
                         top_k=self._s.top_k,
                         video_fps=self._s.video_sample_fps,
                         persist_detections=self._s.persist_detections,

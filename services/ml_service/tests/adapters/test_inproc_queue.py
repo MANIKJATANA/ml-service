@@ -3,15 +3,9 @@
 from __future__ import annotations
 
 from ml_service.adapters.queue.inproc_queue import InProcJobQueue
-from ml_service.domain.models import InferenceJob, MediaType
+from ml_service.domain.models import EventJob
 
-JOB = InferenceJob(
-    media_id="m1",
-    media_uri="uri",
-    school_id="s1",
-    event_id="e1",
-    media_type=MediaType.IMAGE,
-)
+JOB = EventJob(school_id="s1", event_id="e1")
 
 
 async def test_enqueue_consume_ack() -> None:

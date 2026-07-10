@@ -59,6 +59,18 @@ Notes:
 
 ## 3. Sequence — Inference
 
+> **Amended by [decisions/0027](decisions/0027-events-media-enqueue-status.md) (Phase 5):**
+> the queue now carries **one event job** `{school_id, event_id}`. The worker's
+> `process_event` marks the backend event row `processing`, reads the core system's
+> `media` roster for the event from the shared DB (`BackendEventStore`), skips photos
+> already `completed` (the backend `media.processing_status` column), runs the per-photo
+> `process()` flow diagrammed below for each remaining photo, **writes each finished
+> photo's backend status `completed`**, and finally marks the event `completed` — so the
+> ML worker **owns the job-status writes** (the core system just reads its own rows, no
+> poller). The diagram is now the **inner** loop, once per rostered photo, wrapped by one
+> `ack` of the event job. Per-photo fetch/decode errors are skipped (a redistribute
+> retries them); a stale-index version mismatch nacks the whole event.
+
 ```
 Core    JobQueue   Worker   InferenceService   MediaStore  Thresholds  Detector  Embedder  VectorIndex  MatchRepo
  │         │         │             │                │           │          │         │           │           │

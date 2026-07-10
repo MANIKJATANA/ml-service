@@ -14,7 +14,7 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from ml_service.domain.models import InferenceJob, JobOutcome
+from ml_service.domain.models import EventJob, EventOutcome
 from ml_service.observability import metrics
 from ml_service.observability.logging import configure_logging
 from ml_service.observability.tracing import configure_tracing
@@ -25,8 +25,8 @@ from ml_service.workers.runner import WorkerRunner, log_outcome
 log = logging.getLogger(__name__)
 
 
-def _emit_outcome(job: InferenceJob, outcome: JobOutcome, latency_ms: float) -> None:
-    """Fan a finished job's outcome out to both structured logs and Prometheus."""
+def _emit_outcome(job: EventJob, outcome: EventOutcome, latency_ms: float) -> None:
+    """Fan a finished event job's outcome out to both structured logs and Prometheus."""
     log_outcome(job, outcome, latency_ms)
     metrics.record_job_outcome(job, outcome, latency_ms)
 
@@ -35,13 +35,7 @@ async def _run(container: Container) -> None:
     queue = container.job_queue()
     # Loading the models blocks — keep it off the loop during startup.
     service = await asyncio.to_thread(container.inference_service)
-    runner = WorkerRunner(
-        queue,
-        service,
-        max_retries=settings.worker_max_retries,
-        backoff_base_s=settings.worker_backoff_base_s,
-        on_outcome=_emit_outcome,
-    )
+    runner = WorkerRunner(queue, service, on_outcome=_emit_outcome)
     log.info(
         "inference worker starting",
         extra={"stream": settings.queue_stream, "consumer": settings.queue_consumer},

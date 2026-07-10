@@ -7,17 +7,17 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncIterator
 
-from ml_service.domain.models import InferenceJob, JobLease
+from ml_service.domain.models import EventJob, JobLease
 
 
 class InProcJobQueue:
     """A single-process at-least-once queue."""
 
     def __init__(self) -> None:
-        self._queue: asyncio.Queue[InferenceJob] = asyncio.Queue()
+        self._queue: asyncio.Queue[EventJob] = asyncio.Queue()
         self._counter = 0
 
-    async def enqueue(self, job: InferenceJob) -> None:
+    async def enqueue(self, job: EventJob) -> None:
         await self._queue.put(job)
 
     async def consume(self) -> AsyncIterator[JobLease]:

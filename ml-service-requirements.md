@@ -79,16 +79,29 @@ The service has **two distinct pipelines**. They MUST share the same embedding m
 
 ### 4.2 Inference Pipeline
 
-**Trigger:** Core system enqueues a job per uploaded media item.
+> **Amended by [decisions/0027](decisions/0027-events-media-enqueue-status.md) (Phase 5):**
+> the queue now carries **one job per event**, not per media item. The core system
+> enqueues `{school_id, event_id}` when its operator presses "Process" for an event; the
+> worker marks the event row `processing`, reads the core system's `events`/`media`
+> tables from the **shared DB** to enumerate the photos, **skips any photo already
+> `completed`** (the backend `media.processing_status` column — idempotent redistribute),
+> runs the per-photo steps below on the rest, **writes each finished photo's status
+> `completed`** on its backend row, then marks the event `completed`. So the ML worker
+> **owns the job-status writes** and the core system needs no poller. Per-photo detection
+> writes are unchanged. The per-media trigger + payload below are superseded; steps 1–9
+> now describe the **per-photo** work the worker does for each rostered photo.
 
-**Input:**
+**Trigger:** Core system enqueues one job per **event** (`{school_id, event_id}`); the
+worker expands it into the event's photos via the shared-DB `media` roster.
+
+**Per-photo input** (derived from the roster, not the queue message):
 - `media_id`
 - `media_uri`
 - `school_id`
 - `event_id`
 - `media_type` ∈ {`image`, `video`}
 
-**Steps:**
+**Steps (per rostered, not-yet-processed photo):**
 1. Fetch media bytes from the abstracted media store.
 2. If video: extract frames at fixed FPS (config).
 3. For each image/frame, detect all faces.
@@ -99,7 +112,9 @@ The service has **two distinct pipelines**. They MUST share the same embedding m
 8. Write match records via the abstracted match repository.
 9. Emit per-job metrics.
 
-**Output:** Match records persisted; metrics emitted; job marked complete.
+**Output:** Match records + `media_detections` persisted per photo; aggregate metrics
+emitted; the event job marked complete. A per-photo fetch/decode error is skipped (a
+later redistribute retries it); a stale-index version mismatch aborts the event.
 
 ---
 
@@ -289,13 +304,14 @@ class JobQueue(Protocol):
 
 ### 10.3 Inference job payload
 
+> **Amended by [decisions/0027](decisions/0027-events-media-enqueue-status.md):** the
+> queued payload is now **event-level** — the worker reads the per-photo fields
+> (`media_id`, `media_uri`, `media_type`) from the shared-DB `media` roster.
+
 ```json
 {
-  "media_id": "string",
-  "media_uri": "string",
   "school_id": "string",
-  "event_id": "string",
-  "media_type": "image | video"
+  "event_id": "string"
 }
 ```
 

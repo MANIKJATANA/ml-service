@@ -23,10 +23,13 @@ from ml_service.domain.errors import (
 from ml_service.domain.models import (
     EMBEDDING_DIM,
     SIMILARITY_METRIC,
+    BackendMedia,
     Candidate,
     Embedding,
     Emission,
     EnrollmentResult,
+    EventJob,
+    EventOutcome,
     FaceBox,
     Frame,
     InferenceJob,
@@ -39,6 +42,7 @@ from ml_service.domain.models import (
     Thresholds,
 )
 from ml_service.domain.ports import (
+    BackendEventStore,
     FaceDetector,
     FaceEmbedder,
     JobQueue,
@@ -53,6 +57,8 @@ from ml_service.domain.ports import (
 __all__ = [
     "EMBEDDING_DIM",
     "SIMILARITY_METRIC",
+    "BackendEventStore",
+    "BackendMedia",
     "Candidate",
     "ConfigurationError",
     "Embedding",
@@ -60,6 +66,8 @@ __all__ = [
     "Emission",
     "EnrollmentError",
     "EnrollmentResult",
+    "EventJob",
+    "EventOutcome",
     "FaceBox",
     "FaceDetector",
     "FaceEmbedder",

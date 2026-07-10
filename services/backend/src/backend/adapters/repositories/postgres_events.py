@@ -1,0 +1,146 @@
+"""Postgres implementation of :class:`EventRepository` (decisions/0027).
+
+Reads are tenant-scoped: every ``get``/``list_by_school``/``update`` takes ``school_id``
+so an event that belongs to another school is invisible (returned as ``None``/absent),
+enforcing tenant isolation at the query layer (decisions/0022).
+
+``set_processing`` is only used by the backend to set ``queued`` on Process (the ML
+worker owns the ``processing``/``completed`` writes); it stamps a fresh ``enqueued_at``
+and clears any prior ``completed_at`` so a redistribute restarts cleanly (decisions/0027).
+"""
+
+from __future__ import annotations
+
+from datetime import date
+
+from sqlalchemy import func, select, update
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+from backend.adapters.repositories._common import opt_uuid, req_uuid
+from backend.db.models import Event as EventRow
+from backend.domain.models import Event, EventProcessingStatus, EventStatus
+
+
+def _to_event(row: EventRow) -> Event:
+    return Event(
+        id=str(row.id),
+        school_id=str(row.school_id),
+        name=row.name,
+        description=row.description,
+        event_date=row.event_date,
+        created_by=str(row.created_by) if row.created_by is not None else None,
+        status=EventStatus(row.status),
+        processing_status=EventProcessingStatus(row.processing_status),
+        enqueued_at=row.enqueued_at,
+        completed_at=row.completed_at,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
+
+
+class PostgresEventRepository:
+    """``EventRepository`` over an async SQLAlchemy sessionmaker."""
+
+    def __init__(self, sessionmaker: async_sessionmaker[AsyncSession]) -> None:
+        self._sessionmaker = sessionmaker
+
+    async def create(
+        self,
+        *,
+        school_id: str,
+        name: str,
+        description: str | None,
+        event_date: date | None,
+        created_by: str | None,
+    ) -> Event:
+        sid = req_uuid(school_id, field="school_id")
+        cby = req_uuid(created_by, field="created_by") if created_by is not None else None
+        async with self._sessionmaker() as session, session.begin():
+            row = EventRow(
+                school_id=sid,
+                name=name,
+                description=description,
+                event_date=event_date,
+                created_by=cby,
+            )
+            session.add(row)
+            await session.flush()
+            await session.refresh(row)
+            return _to_event(row)
+
+    async def get(self, school_id: str, event_id: str) -> Event | None:
+        sid = opt_uuid(school_id)
+        eid = opt_uuid(event_id)
+        if sid is None or eid is None:
+            return None  # malformed id -> not found (tenant-safe)
+        async with self._sessionmaker() as session:
+            result = await session.execute(
+                select(EventRow).where(EventRow.id == eid, EventRow.school_id == sid)
+            )
+            row = result.scalar_one_or_none()
+            return _to_event(row) if row is not None else None
+
+    async def list_by_school(self, school_id: str) -> list[Event]:
+        sid = opt_uuid(school_id)
+        if sid is None:
+            return []
+        async with self._sessionmaker() as session:
+            result = await session.execute(
+                select(EventRow)
+                .where(EventRow.school_id == sid)
+                .order_by(EventRow.created_at, EventRow.id)  # stable on ties
+            )
+            return [_to_event(r) for r in result.scalars().all()]
+
+    async def update(
+        self,
+        school_id: str,
+        event_id: str,
+        *,
+        name: str | None = None,
+        description: str | None = None,
+        event_date: date | None = None,
+        status: EventStatus | None = None,
+    ) -> Event | None:
+        sid = opt_uuid(school_id)
+        eid = opt_uuid(event_id)
+        if sid is None or eid is None:
+            return None
+        async with self._sessionmaker() as session, session.begin():
+            result = await session.execute(
+                select(EventRow).where(EventRow.id == eid, EventRow.school_id == sid)
+            )
+            row = result.scalar_one_or_none()
+            if row is None:
+                return None
+            # Only the fields the caller supplied are changed (partial update); a None
+            # means "leave unchanged".
+            if name is not None:
+                row.name = name
+            if description is not None:
+                row.description = description
+            if event_date is not None:
+                row.event_date = event_date
+            if status is not None:
+                row.status = status.value
+            await session.flush()
+            await session.refresh(row)
+            return _to_event(row)
+
+    async def set_processing(
+        self, event_id: str, *, status: EventProcessingStatus
+    ) -> None:
+        # The backend only ever sets ``queued`` on Process (the ML worker owns the
+        # processing/completed writes, decisions/0027). Stamp ``enqueued_at`` and clear
+        # any prior ``completed_at`` so a redistribute restarts cleanly.
+        key = req_uuid(event_id, field="event_id")
+        values: dict[str, object] = {"processing_status": status.value}
+        if status is EventProcessingStatus.QUEUED:
+            values["enqueued_at"] = func.now()
+            values["completed_at"] = None
+        elif status is EventProcessingStatus.COMPLETED:
+            values["completed_at"] = func.now()
+        async with self._sessionmaker() as session, session.begin():
+            await session.execute(
+                update(EventRow).where(EventRow.id == key).values(**values)
+            )

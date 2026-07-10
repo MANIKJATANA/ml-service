@@ -41,6 +41,19 @@ async def test_container_builds_and_memoizes_student_stack() -> None:
     await container.aclose()
 
 
+async def test_container_builds_and_memoizes_event_media_stack() -> None:
+    # inproc event-job producer + postgres repos build without Redis (0027).
+    container = Container(
+        Settings(jwt_secret=SecretStr("x" * 32), event_job_producer_impl="inproc")
+    )
+    assert container.event_repo() is container.event_repo()
+    assert container.media_repo() is container.media_repo()
+    assert container.event_job_producer() is container.event_job_producer()
+    assert container.event_service() is container.event_service()
+    assert container.media_service() is container.media_service()
+    await container.aclose()
+
+
 async def test_token_service_fails_loud_without_secret() -> None:
     # The real deploy path: no BE_JWT_SECRET -> building the token service (and thus
     # the auth service) fails loud rather than minting tokens with an empty key.

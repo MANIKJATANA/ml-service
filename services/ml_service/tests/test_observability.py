@@ -12,13 +12,16 @@ import logging
 
 from fastapi.testclient import TestClient
 from ml_service.api.main import app
-from ml_service.domain.models import InferenceJob, JobOutcome, MediaType
+from ml_service.domain.models import EventJob, EventOutcome
 from ml_service.observability import metrics
 from ml_service.observability.logging import configure_logging, get_logger
 from ml_service.observability.tracing import configure_tracing, span
 
-_JOB = InferenceJob("m-obs", "s3://m-obs.jpg", "school-obs", "ev-1", MediaType.IMAGE)
-_OUTCOME = JobOutcome(
+_JOB = EventJob(school_id="school-obs", event_id="ev-1")
+_OUTCOME = EventOutcome(
+    photos_total=2,
+    photos_processed=2,
+    photos_skipped=0,
     faces_detected=3,
     candidates_above_threshold=2,
     matches_emitted=2,

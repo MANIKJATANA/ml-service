@@ -15,6 +15,7 @@ from collections.abc import Iterator, Mapping, Sequence
 from ml_service.domain.errors import MediaFetchError
 from ml_service.domain.models import (
     EMBEDDING_DIM,
+    BackendMedia,
     Candidate,
     Embedding,
     FaceBox,
@@ -184,6 +185,32 @@ class StubDetectionRepository:
     async def save_detections(self, detection: MediaDetectionRecord) -> None:
         self.save_calls += 1
         self.by_media[detection.media_id] = detection
+
+
+class StubBackendEventStore:
+    """In-memory BackendEventStore: a fixed roster per (school_id, event_id), and it
+    records the status writes the worker makes (decisions/0027)."""
+
+    def __init__(self, roster: dict[tuple[str, str], list[BackendMedia]] | None = None) -> None:
+        self._roster = roster or {}
+        self.list_calls: list[tuple[str, str]] = []
+        self.media_completed: list[str] = []
+        self.event_status: dict[str, str] = {}
+
+    async def list_event_media(
+        self, school_id: str, event_id: str
+    ) -> list[BackendMedia]:
+        self.list_calls.append((school_id, event_id))
+        return list(self._roster.get((school_id, event_id), []))
+
+    async def mark_media_completed(self, school_id: str, media_id: str) -> None:
+        self.media_completed.append(media_id)
+
+    async def mark_event_processing(self, school_id: str, event_id: str) -> None:
+        self.event_status[event_id] = "processing"
+
+    async def mark_event_completed(self, school_id: str, event_id: str) -> None:
+        self.event_status[event_id] = "completed"
 
 
 class StubThresholdProvider:

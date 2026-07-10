@@ -8,6 +8,7 @@ tests only (application code uses migrations; decisions/0007).
 from __future__ import annotations
 
 import os
+import uuid
 
 import pytest
 import pytest_asyncio
@@ -37,7 +38,7 @@ from ml_service.domain.models import (
     MediaDetectionRecord,
     MediaType,
 )
-from sqlalchemy import select
+from sqlalchemy import insert, select
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker,
@@ -195,3 +196,81 @@ async def test_detection_replace_by_media_and_cascade(
     async with sessionmaker() as session:
         rows = (await session.execute(select(FaceDetectionCandidate))).scalars().all()
     assert rows[0].student_id == "carol"
+
+
+async def test_backend_event_store_reads_roster_and_writes_status() -> None:
+    # Self-contained: build the backend `events`/`media` tables on the shared DB, then
+    # assert the worker's read (tenant scope + type filter) AND its status writes (0027).
+    from ml_service.adapters.repository.backend_store import (
+        PostgresBackendEventStore,
+    )
+    from ml_service.db.backend_tables import backend_metadata
+    from ml_service.db.backend_tables import events as backend_events
+    from ml_service.db.backend_tables import media as backend_media
+
+    assert DSN
+    engine = create_async_engine(DSN)
+    async with engine.begin() as conn:
+        await conn.run_sync(backend_metadata.create_all)
+    try:
+        sm = async_sessionmaker(engine, expire_on_commit=False)
+        school, event = uuid.uuid4(), uuid.uuid4()
+        m1, m2 = uuid.uuid4(), uuid.uuid4()
+        async with sm() as session, session.begin():
+            await session.execute(
+                insert(backend_events),
+                [{"id": event, "school_id": school, "processing_status": "queued"}],
+            )
+            await session.execute(
+                insert(backend_media),
+                [
+                    {"id": m1, "school_id": school, "event_id": event,
+                     "storage_path": "events/x/p1.jpg", "media_type": "image",
+                     "processing_status": "pending"},
+                    {"id": m2, "school_id": school, "event_id": event,
+                     "storage_path": "events/x/p2.mp4", "media_type": "video",
+                     "processing_status": "pending"},
+                    # foreign school -> excluded by the tenant filter
+                    {"id": uuid.uuid4(), "school_id": uuid.uuid4(), "event_id": event,
+                     "storage_path": "p", "media_type": "image",
+                     "processing_status": "pending"},
+                    # unknown media_type -> skipped defensively
+                    {"id": uuid.uuid4(), "school_id": school, "event_id": event,
+                     "storage_path": "p", "media_type": "audio",
+                     "processing_status": "pending"},
+                ],
+            )
+        store = PostgresBackendEventStore(sm)
+
+        roster = await store.list_event_media(str(school), str(event))
+        assert {r.media_id for r in roster} == {str(m1), str(m2)}
+        assert {r.media_type for r in roster} == {MediaType.IMAGE, MediaType.VIDEO}
+        assert all(r.processing_status == "pending" for r in roster)
+        # a different school and a malformed id both yield an empty roster.
+        assert await store.list_event_media(str(uuid.uuid4()), str(event)) == []
+        assert await store.list_event_media("not-a-uuid", str(event)) == []
+
+        # Status writes land on the backend rows (tenant-scoped by school).
+        await store.mark_media_completed(str(school), str(m1))
+        await store.mark_event_processing(str(school), str(event))
+        await store.mark_event_completed(str(school), str(event))
+        async with sm() as session:
+            media_status = (
+                await session.execute(
+                    select(backend_media.c.processing_status).where(
+                        backend_media.c.id == m1
+                    )
+                )
+            ).scalar_one()
+            event_status = (
+                await session.execute(
+                    select(backend_events.c.processing_status).where(
+                        backend_events.c.id == event
+                    )
+                )
+            ).scalar_one()
+        assert media_status == "completed" and event_status == "completed"
+    finally:
+        async with engine.begin() as conn:
+            await conn.run_sync(backend_metadata.drop_all)
+        await engine.dispose()

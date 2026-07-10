@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
 
-from ml_service.domain.models import InferenceJob, JobOutcome
+from ml_service.domain.models import EventJob, EventOutcome
 
 # school_id is bounded per deployment; model versions change only on redeploy.
 _LABELS = ("school_id", "detector_model_version", "embedding_model_version")
@@ -38,15 +38,18 @@ FRAMES_PROCESSED = Counter(
 )
 PROCESSING_LATENCY = Histogram(
     "processing_latency_ms",
-    "End-to-end job processing latency in milliseconds.",
+    "End-to-end event processing latency in milliseconds.",
     _LABELS,
-    # Coarse buckets spanning a fast image (~tens of ms) to a long video job.
-    buckets=(50, 100, 250, 500, 1000, 2500, 5000, 10000, 30000, 60000),
+    # Coarse buckets spanning a small event to a large one with long videos.
+    buckets=(50, 100, 250, 500, 1000, 2500, 5000, 10000, 30000, 60000, 300000),
 )
 
 
-def record_job_outcome(job: InferenceJob, outcome: JobOutcome, latency_ms: float) -> None:
-    """Fold one :class:`JobOutcome` into the Prometheus counters/histogram."""
+def record_job_outcome(job: EventJob, outcome: EventOutcome, latency_ms: float) -> None:
+    """Fold one event's aggregate :class:`EventOutcome` into the counters/histogram.
+
+    Metrics are event-grained now (one event job = many photos, decisions/0027); the
+    counter surface is unchanged since ``EventOutcome`` sums the per-photo counters."""
     labels = {
         "school_id": job.school_id,
         "detector_model_version": outcome.detector_version,

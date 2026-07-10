@@ -17,9 +17,10 @@ the architecture decision and the owner-locked forks; this doc is the reference 
    photo** per student → the backend uploads it to Supabase and calls the ML
    **enroll** API. Staff may provision a **student login** (email + temp password).
 4. Staff create an **event**, then upload event **media** (images/videos) → each file
-   goes to Supabase and the backend enqueues an ML **inference job**.
-5. Users watch **job status** (a poller flips `queued`→`completed` when the ML worker
-   has written the media's detection row).
+   goes to Supabase and is **recorded** (no processing yet). One **"Process"** action
+   per event enqueues a single ML **inference job** `{school_id, event_id}` (decisions/0027).
+5. Users watch **job status** — one event status (`queued→processing→completed`/`failed`)
+   plus per-photo status, both derived by a poller from the ML worker's detection rows.
 6. Once processed, photos are browsable in **two views** — student→events→photos and
    event→students→photos — plus **browse-all** (all photos, or one student's).
    **Students** log in and see only the **photos/events they appear in**.
@@ -48,25 +49,25 @@ services/backend/src/backend/
   domain/                # ports.py (Protocol per external system) + shared types/errors
   services/              # business logic (auth school user student event media gallery) — imports only domain
   adapters/              # one subpackage per port — the ONLY place SQLAlchemy/httpx/redis/supabase are imported
-    repositories/        #   postgres_* (schools users students events media) + ml_results reader
+    repositories/        #   postgres_* (schools users students events media)
     storage/             #   supabase_storage.py | local_fs_storage.py    (ObjectStore port)
     ml_client/           #   http_ml_client.py (httpx) | fake              (MlEnrollmentClient port)
-    queue/               #   redis_job_producer.py | inproc_job_producer.py (JobProducer port)
+    queue/               #   redis_producer.py | inproc_producer.py (EventJobProducer port)
   wiring/                # registry.py (name→class per port) + container.py (lazy build + inject)
-  db/                    # base.py, models.py (backend ORM tables), session.py, ml_read.py (read-only ML tables), migrations/
+  db/                    # base.py, models.py (backend ORM tables), session.py, migrations/  (Phase 6 adds ml_read.py for gallery reads)
   auth/                  # security.py (argon2+JWT), permissions.py (resolver seam), dependencies.py
   api/routers/           # health auth platform staff students events media galleries me
   observability/         # logging.py (structlog); metrics.py optional
-  workers/               # job_status_poller.py (dedicated process)
 ```
 
 **Layer rules:** routers do HTTP + authz only; services hold business logic and
 transactions and import only `domain` ports; `adapters/` is the only place concrete
 libs (SQLAlchemy, httpx, redis, supabase) are imported; `wiring/` builds adapters
 from the `BE_*_IMPL` config and injects them. A CI layering grep (mirroring the ML
-service's) keeps concrete libs out of `domain/` and `services/`. **All ML-schema
-reads are isolated** to `db/ml_read.py` + the `ml_results` reader adapter — the
-single coupling point.
+service's) keeps concrete libs out of `domain/` and `services/`. **Job status is read
+from the backend's own `events`/`media` rows** (the ML worker writes those status
+columns over the shared DB — decisions/0027); gallery reads of ML result *contents*
+(Phase 6) will be isolated to `db/ml_read.py`.
 
 ## Data model (backend-owned; own Alembic chain)
 
@@ -79,8 +80,8 @@ handed to the ML service.
 | `schools` | `id`**[→ML school_id]**, `name`, `max_teachers`, `status` |
 | `users` | `id`, `school_id`→schools (null = platform_admin), `email` (unique), `password_hash`, `role`, `status` |
 | `students` | `id`**[→ML student_id]**, `school_id`**[→ML]**, `user_id`→users (nullable), `full_name`, `reference_photo_path`**[→ML photo_uris]**, `enrollment_status`, `enrolled_at` |
-| `events` | `id`**[→ML event_id]**, `school_id`**[→ML]**, `name`, `description`, `event_date`, `created_by`, `status` |
-| `media` | `id`**[→ML media_id]**, `school_id`**[→ML]**, `event_id`→events**[→ML]**, `storage_path`**[→ML media_uri]**, `media_type`**[→ML]**, `processing_status`, `enqueued_at`, `completed_at`, `attempts`, `error` |
+| `events` | `id`**[→ML event_id]**, `school_id`**[→ML]**, `name`, `description`, `event_date`, `created_by`, `status`, `processing_status`, `enqueued_at`, `completed_at` |
+| `media` | `id`**[→ML media_id]**, `school_id`**[→ML]**, `event_id`→events**[→ML]**, `storage_path`**[→ML media_uri]**, `media_type`**[→ML]**, `processing_status` (`pending`/`completed`), `completed_at` |
 
 Full column detail (types, indexes, constraints) lands in `01-data-model.md` with
 Phase 1's migration.
@@ -115,8 +116,8 @@ is scoped by `school_id` (and `student_id` for students).
 - **Students + enrollment:** `.../students` CRUD; `.../students/{stid}/reference-photo`
   (upload→enroll); `.../students/{stid}/enroll` (refresh) + `DELETE` (unenroll);
   `.../students/{stid}/account` (provision login).
-- **Events + media + status:** `.../events` CRUD; `.../events/{eid}/media` (upload+enqueue);
-  `.../events/{eid}/media`, `.../media/{mid}`, `.../events/{eid}/status`, `.../media/{mid}/reprocess`.
+- **Events + media + status:** `.../events` CRUD; `.../events/{eid}/media/upload-url` + `.../events/{eid}/media` (register, records only);
+  `POST .../events/{eid}/process` (enqueue/redistribute the event); `GET .../events/{eid}/media`, `.../media/{mid}`, `.../events/{eid}/status`.
 - **Galleries:** `.../events/{eid}/students`, `.../events/{eid}/students/{stid}/media`,
   `.../students/{stid}/events`, `.../students/{stid}/media`, browse-all
   `GET /schools/{sid}/media?event_id=&student_id=&status=`, `.../media/{mid}/appearances`.
@@ -126,10 +127,12 @@ is scoped by `school_id` (and `student_id` for students).
 ## ML integration contract (binding — see decision 0022)
 
 - **Enroll:** `POST {ML}/v1/schools/{sid}/students/{stid}/enroll` `{photo_uris:[path]|null}`; `DELETE` same path.
-- **Enqueue:** `XADD` to `BE_QUEUE_STREAM` (== `ML_QUEUE_STREAM`, default `inference-jobs`) with exactly
-  `media_id, media_uri, school_id, event_id, media_type` (all strings; `media_type ∈ {image,video}`).
+- **Enqueue (event-level, decisions/0027):** `XADD` to `BE_QUEUE_STREAM` (== `ML_QUEUE_STREAM`, default
+  `inference-jobs`) with exactly `school_id, event_id` (both strings). The ML worker reads the backend
+  `media` roster for the event from the shared DB to enumerate the photos.
 - **Read results:** `matches` / `student_media_appearances` / `media_detections`, scoped by `school_id`.
-  Job done = a `media_detections` row exists (requires `ML_PERSIST_DETECTIONS=true`). Failure = timeout sweep.
+  Per-photo done = a `media_detections` row exists (requires `ML_PERSIST_DETECTIONS=true`); event failure =
+  the poller's timeout sweep.
 - **Storage:** upload to `BE_SUPABASE_BUCKET` (== `ML_SUPABASE_BUCKET`, default `media`); store the
   bucket-relative path; `reference-photos/…` vs `events/…` prefixes.
 

@@ -1,59 +1,48 @@
-"""Inference worker loop — consume → process → ack/nack (architecture §3, §8.4).
+"""Inference worker loop — consume → process event → ack/nack (architecture §3, §8.4).
 
-Thin shell over :class:`InferenceService`: it owns delivery semantics only. Per
-job it resolves nothing itself (the service snapshots thresholds/versions),
-emits the returned :class:`JobOutcome` as metrics, and drives at-least-once
-acking:
+Thin shell over :class:`InferenceService`: it owns delivery semantics only. Each queued
+job is one **event** (decisions/0027); ``process_event`` reads the event's photo roster
+and runs the pipeline per photo, handling per-photo errors internally (skip + let a
+later redistribute retry). So the runner's job is coarse:
 
-* success                → ``ack`` (and delete from the stream)
-* corrupt/undecodable     → ``ack`` — permanent, don't loop (§8.4)
-* transient fetch failure → retry with backoff, then ``nack`` for redelivery
-* any other failure       → ``nack`` (redelivered; DLQ'd after max deliveries)
+* success                     → ``ack`` (and delete from the stream)
+* stale-index version mismatch → ``nack`` — systemic, surfaces via redelivery/DLQ + alert
+* any other failure            → ``nack`` (redelivered; DLQ'd after max deliveries)
 
-Metrics are emitted via an injectable ``on_outcome`` callback (Phase 4 wires
-Prometheus); the default logs a structured record. The DB unique constraint on
-``(media_id, student_id)`` makes redelivery idempotent (NFR-5).
+Metrics are emitted via an injectable ``on_outcome`` callback (Phase 4 wires Prometheus);
+the default logs a structured record. Per-photo writes are idempotent (media_detections
+replace-by-media; matches higher-confidence-wins), so redelivery is safe (NFR-5).
 """
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import time
 from collections.abc import Callable
 
-from ml_service.domain.errors import (
-    EmbeddingVersionMismatch,
-    MediaDecodeError,
-    MediaFetchError,
-)
-from ml_service.domain.models import InferenceJob, JobLease, JobOutcome
+from ml_service.domain.errors import EmbeddingVersionMismatch
+from ml_service.domain.models import EventJob, EventOutcome, JobLease
 from ml_service.domain.ports import JobQueue
 from ml_service.observability.tracing import span
 from ml_service.orchestration.inference import InferenceService
 
 log = logging.getLogger(__name__)
 
-OutcomeSink = Callable[[InferenceJob, JobOutcome, float], None]
+OutcomeSink = Callable[[EventJob, EventOutcome, float], None]
 
 
-def log_outcome(job: InferenceJob, outcome: JobOutcome, latency_ms: float) -> None:
+def log_outcome(job: EventJob, outcome: EventOutcome, latency_ms: float) -> None:
     log.info(
-        "inference job complete",
+        "event inference complete",
         extra={
             "school_id": job.school_id,
             "event_id": job.event_id,
-            "media_id": job.media_id,
-            "media_type": job.media_type.value,
+            "photos_total": outcome.photos_total,
+            "photos_processed": outcome.photos_processed,
+            "photos_skipped": outcome.photos_skipped,
             "faces_detected": outcome.faces_detected,
-            "candidates_above_threshold": outcome.candidates_above_threshold,
             "matches_emitted": outcome.matches_emitted,
-            "ambiguous_matches": outcome.ambiguous_matches,
-            "unknown_faces": outcome.unknown_faces,
-            "frames_processed": outcome.frames_processed,
             "processing_latency_ms": round(latency_ms, 1),
-            "detector_model_version": outcome.detector_version,
-            "embedding_model_version": outcome.embedding_model_version,
         },
     )
 
@@ -66,23 +55,19 @@ class WorkerRunner:
         queue: JobQueue,
         service: InferenceService,
         *,
-        max_retries: int = 3,
-        backoff_base_s: float = 0.5,
         on_outcome: OutcomeSink = log_outcome,
     ) -> None:
         self._queue = queue
         self._service = service
-        self._max_retries = max_retries
-        self._backoff_base_s = backoff_base_s
         self._on_outcome = on_outcome
 
     async def run(self) -> None:
-        """Consume and process jobs until cancelled.
+        """Consume and process event jobs until cancelled.
 
-        A failure in ``handle`` (including a transient ack/nack error from the
-        queue) is logged and the loop continues, so one bad job or infra hiccup
-        never kills the consumer. Cancellation (``CancelledError``, a
-        ``BaseException``) still propagates and stops the loop cleanly.
+        A failure in ``handle`` (including a transient ack/nack error from the queue) is
+        logged and the loop continues, so one bad job or infra hiccup never kills the
+        consumer. Cancellation (``CancelledError``, a ``BaseException``) still propagates
+        and stops the loop cleanly.
         """
         async for lease in self._queue.consume():
             try:
@@ -90,58 +75,34 @@ class WorkerRunner:
             except Exception:
                 log.exception(
                     "unrecoverable error handling lease; continuing",
-                    extra={"media_id": lease.job.media_id},
+                    extra={"event_id": lease.job.event_id},
                 )
 
     async def handle(self, lease: JobLease) -> None:
-        """Process one leased job with retry/ack/nack (public for tests)."""
+        """Process one leased event job with ack/nack (public for tests)."""
         job = lease.job
-        attempt = 0
-        while True:
-            started = time.perf_counter()
-            try:
-                with span(
-                    "inference.process",
-                    school_id=job.school_id,
-                    media_id=job.media_id,
-                    media_type=job.media_type.value,
-                    attempt=attempt,
-                ):
-                    outcome = await self._service.process(job)
-            except MediaDecodeError as exc:
-                # Permanent — a corrupt media item; mark complete, never loop.
-                log.warning(
-                    "undecodable media; marking job complete",
-                    extra={"media_id": job.media_id, "reason": str(exc)},
-                )
-                await self._queue.ack(lease)
-                return
-            except MediaFetchError:
-                attempt += 1
-                if attempt > self._max_retries:
-                    log.error(
-                        "media fetch failed after retries; nacking",
-                        extra={"media_id": job.media_id, "attempts": attempt},
-                    )
-                    await self._queue.nack(lease)
-                    return
-                await asyncio.sleep(self._backoff_base_s * 2 ** (attempt - 1))
-                continue
-            except EmbeddingVersionMismatch:
-                # Systemic config error, not per-job: the index is stale vs the
-                # configured embedder (§7.3/§8.4 "fail loud, alert"). Nack so it
-                # surfaces via redelivery/DLQ rather than being silently dropped.
-                log.error(
-                    "embedding-model version mismatch; index is stale — ALERT",
-                    extra={"media_id": job.media_id, "school_id": job.school_id},
-                )
-                await self._queue.nack(lease)
-                return
-            except Exception:
-                log.exception("job failed; nacking", extra={"media_id": job.media_id})
-                await self._queue.nack(lease)
-                return
-            latency_ms = (time.perf_counter() - started) * 1000.0
-            await self._queue.ack(lease)
-            self._on_outcome(job, outcome, latency_ms)
+        started = time.perf_counter()
+        try:
+            with span(
+                "inference.process_event",
+                school_id=job.school_id,
+                event_id=job.event_id,
+            ):
+                outcome = await self._service.process_event(job)
+        except EmbeddingVersionMismatch:
+            # Systemic config error, not per-job: the index is stale vs the configured
+            # embedder (§7.3/§8.4 "fail loud, alert"). Nack so it surfaces via
+            # redelivery/DLQ rather than being silently dropped.
+            log.error(
+                "embedding-model version mismatch; index is stale — ALERT",
+                extra={"event_id": job.event_id, "school_id": job.school_id},
+            )
+            await self._queue.nack(lease)
             return
+        except Exception:
+            log.exception("event job failed; nacking", extra={"event_id": job.event_id})
+            await self._queue.nack(lease)
+            return
+        latency_ms = (time.perf_counter() - started) * 1000.0
+        await self._queue.ack(lease)
+        self._on_outcome(job, outcome, latency_ms)

@@ -15,13 +15,22 @@ layer stays import-pure.
 
 from __future__ import annotations
 
+import logging
 import time
 from collections.abc import Iterable
 
-from ml_service.domain.errors import ConfigurationError
+from ml_service.domain.errors import (
+    ConfigurationError,
+    EmbeddingVersionMismatch,
+    MediaDecodeError,
+    MediaFetchError,
+)
 from ml_service.domain.models import (
+    BackendMedia,
     DetectionCandidate,
     DetectionOutcome,
+    EventJob,
+    EventOutcome,
     FaceDetectionRecord,
     Frame,
     FrameDetectionRecord,
@@ -33,6 +42,7 @@ from ml_service.domain.models import (
     Thresholds,
 )
 from ml_service.domain.ports import (
+    BackendEventStore,
     DetectionRepository,
     FaceDetector,
     FaceEmbedder,
@@ -43,6 +53,10 @@ from ml_service.domain.ports import (
     VideoFrameExtractor,
 )
 from ml_service.orchestration.identify import IdentifyResult, identify_in_frames
+
+log = logging.getLogger(__name__)
+
+_MEDIA_COMPLETED = "completed"  # backend media status the worker skips (decisions/0027)
 
 
 class InferenceService:
@@ -58,6 +72,7 @@ class InferenceService:
         repo: MatchRepository,
         thresholds: ThresholdProvider,
         detection_repo: DetectionRepository,
+        backend_store: BackendEventStore,
         *,
         top_k: int,
         video_fps: float,
@@ -77,9 +92,89 @@ class InferenceService:
         self._repo = repo
         self._thresholds = thresholds
         self._detection_repo = detection_repo
+        self._backend_store = backend_store
         self._top_k = top_k
         self._video_fps = video_fps
         self._persist_detections = persist_detections
+
+    async def process_event(self, job: EventJob) -> EventOutcome:
+        """Process one event: mark it ``processing``, read the backend's photo roster,
+        run the per-photo pipeline on each not-yet-``completed`` photo (marking it
+        ``completed`` as it finishes), then mark the event ``completed`` (decisions/0027).
+
+        The ML worker owns these backend status writes, so the backend needs no poller.
+        Idempotent: a redistribute re-runs only the still-``pending`` photos (already
+        ``completed`` ones are skipped via the backend status column). A per-photo
+        fetch/decode/unexpected error is logged and skipped — the photo stays ``pending``
+        and a later redistribute retries it — so one bad photo never blocks the event. An
+        ``EmbeddingVersionMismatch`` is systemic (stale index), so it aborts the whole
+        event and propagates for the worker to nack + alert (the event stays
+        ``processing`` and is retried on redelivery).
+        """
+        await self._backend_store.mark_event_processing(job.school_id, job.event_id)
+        roster = await self._backend_store.list_event_media(
+            job.school_id, job.event_id
+        )
+        processed = skipped = 0
+        faces = candidates = matches = ambiguous = unknown = frames = 0
+        for media in roster:
+            if media.processing_status == _MEDIA_COMPLETED:
+                skipped += 1
+                continue
+            try:
+                outcome = await self.process(self._to_photo_job(job, media))
+            except EmbeddingVersionMismatch:
+                raise  # systemic — abort the event; worker nacks + alerts (§7.3/§8.4)
+            except (MediaFetchError, MediaDecodeError) as exc:
+                log.warning(
+                    "skipping photo after %s",
+                    type(exc).__name__,
+                    extra={"media_id": media.media_id, "event_id": job.event_id},
+                )
+                skipped += 1
+                continue
+            except Exception:
+                log.exception(
+                    "photo failed; skipping",
+                    extra={"media_id": media.media_id, "event_id": job.event_id},
+                )
+                skipped += 1
+                continue
+            # Persist per-photo completion on the backend row (its status column).
+            await self._backend_store.mark_media_completed(
+                job.school_id, media.media_id
+            )
+            processed += 1
+            faces += outcome.faces_detected
+            candidates += outcome.candidates_above_threshold
+            matches += outcome.matches_emitted
+            ambiguous += outcome.ambiguous_matches
+            unknown += outcome.unknown_faces
+            frames += outcome.frames_processed
+        await self._backend_store.mark_event_completed(job.school_id, job.event_id)
+        return EventOutcome(
+            photos_total=len(roster),
+            photos_processed=processed,
+            photos_skipped=skipped,
+            faces_detected=faces,
+            candidates_above_threshold=candidates,
+            matches_emitted=matches,
+            ambiguous_matches=ambiguous,
+            unknown_faces=unknown,
+            frames_processed=frames,
+            detector_version=self._detector.version,
+            embedding_model_version=self._embedder.version,
+        )
+
+    @staticmethod
+    def _to_photo_job(job: EventJob, media: BackendMedia) -> InferenceJob:
+        return InferenceJob(
+            media_id=media.media_id,
+            media_uri=media.media_uri,
+            school_id=job.school_id,
+            event_id=job.event_id,
+            media_type=media.media_type,
+        )
 
     async def process(self, job: InferenceJob) -> JobOutcome:
         """Process one media item end to end, returning a ``JobOutcome``.

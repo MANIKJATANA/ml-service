@@ -7,8 +7,9 @@ are built once and memoized: the DB engine/sessionmaker is shared across reposit
 Nothing is built until first requested. Secrets (the DB password in the DSN) come
 from ``settings`` (the environment) and are never stored in code.
 
-The surface grows per phase; Phase 4 adds the student repository, the object store,
-the ML enrollment client, and the student service (decisions/0026).
+The surface grows per phase; Phase 5 adds the event + media repositories, the event-job
+producer, and the event/media services (0027). Job status lives on the backend's own
+event/media rows (the ML worker writes them), so there's no results-reader or poller.
 """
 
 from __future__ import annotations
@@ -20,6 +21,9 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from backend.db.session import make_engine, make_sessionmaker
 from backend.domain.ports import (
+    EventJobProducer,
+    EventRepository,
+    MediaRepository,
     MlEnrollmentClient,
     ObjectStore,
     PasswordHasher,
@@ -30,6 +34,8 @@ from backend.domain.ports import (
     UserRepository,
 )
 from backend.services.auth_service import AuthService
+from backend.services.event_service import EventService
+from backend.services.media_service import MediaService
 from backend.services.onboarding_service import OnboardingService
 from backend.services.student_service import StudentService
 from backend.settings import Settings
@@ -49,6 +55,9 @@ class Container:
         self._school_repo: SchoolRepository | None = None
         self._user_repo: UserRepository | None = None
         self._student_repo: StudentRepository | None = None
+        self._event_repo: EventRepository | None = None
+        self._media_repo: MediaRepository | None = None
+        self._event_job_producer: EventJobProducer | None = None
         self._object_store: ObjectStore | None = None
         self._ml_enrollment_client: MlEnrollmentClient | None = None
         self._password_hasher: PasswordHasher | None = None
@@ -57,6 +66,8 @@ class Container:
         self._auth_service: AuthService | None = None
         self._onboarding_service: OnboardingService | None = None
         self._student_service: StudentService | None = None
+        self._event_service: EventService | None = None
+        self._media_service: MediaService | None = None
 
     @property
     def settings(self) -> Settings:
@@ -106,6 +117,44 @@ class Container:
                     )
                     self._student_repo = cls(self.sessionmaker())
         return self._student_repo
+
+    def event_repo(self) -> EventRepository:
+        if self._event_repo is None:
+            with self._lock:
+                if self._event_repo is None:
+                    cls = registry.resolve(
+                        registry.EVENT_REPO_REGISTRY, self._s.repository_impl
+                    )
+                    self._event_repo = cls(self.sessionmaker())
+        return self._event_repo
+
+    def media_repo(self) -> MediaRepository:
+        if self._media_repo is None:
+            with self._lock:
+                if self._media_repo is None:
+                    cls = registry.resolve(
+                        registry.MEDIA_REPO_REGISTRY, self._s.repository_impl
+                    )
+                    self._media_repo = cls(self.sessionmaker())
+        return self._media_repo
+
+    # ---- events: job producer (decisions/0027) -------------------------
+
+    def event_job_producer(self) -> EventJobProducer:
+        if self._event_job_producer is None:
+            with self._lock:
+                if self._event_job_producer is None:
+                    cls = registry.resolve(
+                        registry.EVENT_JOB_PRODUCER_REGISTRY,
+                        self._s.event_job_producer_impl,
+                    )
+                    if self._s.event_job_producer_impl == "redis":
+                        self._event_job_producer = cls(
+                            self._s.redis_url, stream=self._s.queue_stream
+                        )
+                    else:  # inproc (offline dev)
+                        self._event_job_producer = cls()
+        return self._event_job_producer
 
     # ---- students: object store + ML client (decisions/0026) -----------
 
@@ -220,6 +269,29 @@ class Container:
                     )
         return self._student_service
 
+    def event_service(self) -> EventService:
+        if self._event_service is None:
+            with self._lock:
+                if self._event_service is None:
+                    self._event_service = EventService(
+                        self.event_repo(),
+                        self.media_repo(),
+                        self.event_job_producer(),
+                    )
+        return self._event_service
+
+    def media_service(self) -> MediaService:
+        if self._media_service is None:
+            with self._lock:
+                if self._media_service is None:
+                    self._media_service = MediaService(
+                        self.media_repo(),
+                        self.event_repo(),
+                        self.object_store(),
+                        event_media_prefix=self._s.event_media_prefix,
+                    )
+        return self._media_service
+
     # ---- lifecycle -----------------------------------------------------
 
     async def check_readiness(self) -> dict[str, bool]:
@@ -243,6 +315,11 @@ class Container:
 
     async def aclose(self) -> None:
         """Dispose shared resources. Safe to call once at shutdown."""
+        # Close the Redis producer connection if one was built (redis impl only).
+        producer_close = getattr(self._event_job_producer, "aclose", None)
+        if producer_close is not None:
+            await producer_close()
+            self._event_job_producer = None
         if self._engine is not None:
             await self._engine.dispose()
             self._engine = None

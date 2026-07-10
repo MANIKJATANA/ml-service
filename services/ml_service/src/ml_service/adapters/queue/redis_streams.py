@@ -15,9 +15,9 @@ from typing import Any, cast
 from redis.asyncio import Redis
 from redis.exceptions import ResponseError
 
-from ml_service.domain.models import InferenceJob, JobLease, MediaType
+from ml_service.domain.models import EventJob, JobLease
 
-_JOB_FIELDS = ("media_id", "media_uri", "school_id", "event_id", "media_type")
+_JOB_FIELDS = ("school_id", "event_id")
 
 
 def _as_str(value: Any) -> str:
@@ -55,7 +55,7 @@ class RedisStreamsJobQueue:
         self._claim_batch = claim_batch
         self._group_ready = False
 
-    async def enqueue(self, job: InferenceJob) -> None:
+    async def enqueue(self, job: EventJob) -> None:
         await self._redis.xadd(self._stream, cast("dict[Any, Any]", self._encode(job)))
 
     async def consume(self) -> AsyncIterator[JobLease]:
@@ -144,28 +144,12 @@ class RedisStreamsJobQueue:
         await self._redis.xdel(self._stream, _as_str(msg_id))
 
     @staticmethod
-    def _encode(job: InferenceJob) -> dict[str, str]:
-        return {
-            "media_id": job.media_id,
-            "media_uri": job.media_uri,
-            "school_id": job.school_id,
-            "event_id": job.event_id,
-            "media_type": job.media_type.value,
-        }
+    def _encode(job: EventJob) -> dict[str, str]:
+        return {"school_id": job.school_id, "event_id": job.event_id}
 
     @staticmethod
-    def _decode(raw: dict[Any, Any]) -> InferenceJob | None:
+    def _decode(raw: dict[Any, Any]) -> EventJob | None:
         fields = _decode_fields(raw)
         if any(f not in fields for f in _JOB_FIELDS):
             return None
-        try:
-            media_type = MediaType(fields["media_type"])
-        except ValueError:
-            return None
-        return InferenceJob(
-            media_id=fields["media_id"],
-            media_uri=fields["media_uri"],
-            school_id=fields["school_id"],
-            event_id=fields["event_id"],
-            media_type=media_type,
-        )
+        return EventJob(school_id=fields["school_id"], event_id=fields["event_id"])

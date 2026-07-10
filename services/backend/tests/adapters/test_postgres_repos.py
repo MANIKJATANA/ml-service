@@ -16,12 +16,20 @@ import os
 from collections.abc import AsyncIterator
 
 import pytest
+from backend.adapters.repositories.postgres_events import PostgresEventRepository
+from backend.adapters.repositories.postgres_media import PostgresMediaRepository
 from backend.adapters.repositories.postgres_schools import PostgresSchoolRepository
 from backend.adapters.repositories.postgres_users import PostgresUserRepository
 from backend.db.base import Base
 from backend.db.session import make_engine, make_sessionmaker
 from backend.domain.errors import ConflictError, NotFoundError
-from backend.domain.models import Role
+from backend.domain.models import (
+    EventProcessingStatus,
+    EventStatus,
+    MediaProcessingStatus,
+    MediaType,
+    Role,
+)
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 _DSN = os.environ.get("BE_TEST_DATABASE_URL")
@@ -160,3 +168,71 @@ async def test_count_and_list_by_school_and_role(
     listed = await users.list_by_school_and_role(a.id, Role.TEACHER)
     assert {u.email for u in listed} == {"t1@a.io", "t2@a.io"}
     assert await users.list_by_school_and_role("not-a-uuid", Role.TEACHER) == []
+
+
+# ---- events + media (Phase 5, decisions/0027) -------------------------
+
+
+async def test_event_create_get_list_update_and_processing(
+    sm: async_sessionmaker[AsyncSession],
+) -> None:
+    schools = PostgresSchoolRepository(sm)
+    events = PostgresEventRepository(sm)
+    school = await schools.create(name="A", max_teachers=5)
+
+    ev = await events.create(
+        school_id=school.id, name="Sports Day", description=None,
+        event_date=None, created_by=None,
+    )
+    assert ev.status is EventStatus.ACTIVE
+    assert ev.processing_status is EventProcessingStatus.NOT_STARTED
+
+    got = await events.get(school.id, ev.id)
+    assert got is not None and got.id == ev.id
+    assert await events.get("other-school-not-uuid", ev.id) is None  # tenant-safe
+
+    listed = await events.list_by_school(school.id)
+    assert [e.id for e in listed] == [ev.id]
+
+    renamed = await events.update(school.id, ev.id, name="Renamed",
+                                  status=EventStatus.ARCHIVED)
+    assert renamed is not None and renamed.name == "Renamed"
+    assert renamed.status is EventStatus.ARCHIVED
+
+    # set_processing stamps enqueued_at on queued (the only status the backend sets).
+    await events.set_processing(ev.id, status=EventProcessingStatus.QUEUED)
+    queued = await events.get(school.id, ev.id)
+    assert queued is not None and queued.enqueued_at is not None
+    assert queued.processing_status is EventProcessingStatus.QUEUED
+
+
+async def test_media_create_list_and_counts(
+    sm: async_sessionmaker[AsyncSession],
+) -> None:
+    schools = PostgresSchoolRepository(sm)
+    events = PostgresEventRepository(sm)
+    media = PostgresMediaRepository(sm)
+    school = await schools.create(name="A", max_teachers=5)
+    ev = await events.create(
+        school_id=school.id, name="E", description=None, event_date=None,
+        created_by=None,
+    )
+
+    m1 = await media.create(
+        school_id=school.id, event_id=ev.id, storage_path="events/a/e/p1.jpg",
+        media_type=MediaType.IMAGE,
+    )
+    await media.create(
+        school_id=school.id, event_id=ev.id, storage_path="events/a/e/p2.mp4",
+        media_type=MediaType.VIDEO,
+    )
+    # Recorded pending; the ML worker (not this repo) later flips the status column.
+    assert m1.processing_status is MediaProcessingStatus.PENDING
+
+    got = await media.get(school.id, m1.id)
+    assert got is not None and got.media_type is MediaType.IMAGE
+    assert await media.get("not-a-uuid", m1.id) is None  # tenant-safe
+
+    assert len(await media.list_by_event(school.id, ev.id)) == 2
+    counts = await media.status_counts(school.id, ev.id)
+    assert counts[MediaProcessingStatus.PENDING] == 2

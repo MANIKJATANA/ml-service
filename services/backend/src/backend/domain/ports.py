@@ -3,17 +3,25 @@
 Concrete implementations live under ``adapters/`` and are selected by config via
 ``wiring/registry.py`` (decisions/0022). Keeping services import-pure against these
 Protocols (no SQLAlchemy/httpx/redis/supabase) is enforced by
-``tests/test_layering.py``. The surface grows per phase; Phase 4 adds the student
-repository, the object store, and the ML enrollment client (decisions/0026).
+``tests/test_layering.py``. The surface grows per phase; Phase 5 adds the event and
+media repositories, the job producer, and the ML results reader (decisions/0027).
 """
 
 from __future__ import annotations
 
+from datetime import date
 from typing import Protocol
 
 from backend.domain.models import (
     EnrollmentOutcome,
     EnrollmentStatus,
+    Event,
+    EventJob,
+    EventProcessingStatus,
+    EventStatus,
+    Media,
+    MediaProcessingStatus,
+    MediaType,
     Role,
     School,
     SignedUpload,
@@ -69,6 +77,64 @@ class StudentRepository(Protocol):
     async def set_enrollment(
         self, student_id: str, *, status: EnrollmentStatus
     ) -> None: ...
+
+
+class EventRepository(Protocol):
+    """Backend-owned events. Reads are tenant-scoped: an ``event_id`` from another
+    school resolves to ``None`` (decisions/0027). ``set_processing`` is only used to set
+    ``queued`` on Process — the ML worker owns the ``processing``/``completed`` writes."""
+
+    async def create(
+        self,
+        *,
+        school_id: str,
+        name: str,
+        description: str | None,
+        event_date: date | None,
+        created_by: str | None,
+    ) -> Event: ...
+    async def get(self, school_id: str, event_id: str) -> Event | None: ...
+    async def list_by_school(self, school_id: str) -> list[Event]: ...
+    async def update(
+        self,
+        school_id: str,
+        event_id: str,
+        *,
+        name: str | None = None,
+        description: str | None = None,
+        event_date: date | None = None,
+        status: EventStatus | None = None,
+    ) -> Event | None: ...
+    async def set_processing(
+        self, event_id: str, *, status: EventProcessingStatus
+    ) -> None: ...
+
+
+class MediaRepository(Protocol):
+    """Backend-owned event photos. Reads are tenant-scoped (decisions/0027). Recording a
+    photo enqueues nothing; the per-photo status column is written by the ML worker
+    directly (shared DB), so this repo only reads it."""
+
+    async def create(
+        self,
+        *,
+        school_id: str,
+        event_id: str,
+        storage_path: str,
+        media_type: MediaType,
+    ) -> Media: ...
+    async def get(self, school_id: str, media_id: str) -> Media | None: ...
+    async def list_by_event(self, school_id: str, event_id: str) -> list[Media]: ...
+    async def status_counts(
+        self, school_id: str, event_id: str
+    ) -> dict[MediaProcessingStatus, int]: ...
+
+
+class EventJobProducer(Protocol):
+    """Enqueues one ML inference job per **event** (decisions/0027). Raises
+    ``UpstreamError`` when the queue backend is unreachable."""
+
+    async def enqueue(self, job: EventJob) -> None: ...
 
 
 class ObjectStore(Protocol):

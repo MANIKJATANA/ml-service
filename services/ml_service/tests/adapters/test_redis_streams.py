@@ -13,18 +13,12 @@ import pytest_asyncio
 redis_asyncio = pytest.importorskip("redis.asyncio")
 
 from ml_service.adapters.queue.redis_streams import RedisStreamsJobQueue  # noqa: E402
-from ml_service.domain.models import InferenceJob, MediaType  # noqa: E402
+from ml_service.domain.models import EventJob  # noqa: E402
 
 URL = os.environ.get("ML_TEST_REDIS_URL")
 pytestmark = pytest.mark.skipif(not URL, reason="ML_TEST_REDIS_URL not set")
 
-JOB = InferenceJob(
-    media_id="m1",
-    media_uri="uri",
-    school_id="s1",
-    event_id="e1",
-    media_type=MediaType.VIDEO,
-)
+JOB = EventJob(school_id="s1", event_id="e1")
 
 
 @pytest_asyncio.fixture

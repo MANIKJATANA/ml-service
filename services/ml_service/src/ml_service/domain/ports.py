@@ -13,11 +13,12 @@ from collections.abc import AsyncIterator, Iterator, Mapping
 from typing import Protocol
 
 from ml_service.domain.models import (
+    BackendMedia,
     Candidate,
     Embedding,
+    EventJob,
     FaceBox,
     Frame,
-    InferenceJob,
     JobLease,
     MatchRecord,
     MediaDetectionRecord,
@@ -109,6 +110,23 @@ class DetectionRepository(Protocol):
     async def save_detections(self, detection: MediaDetectionRecord) -> None: ...
 
 
+class BackendEventStore(Protocol):
+    """The worker's read+write view of the backend's ``events``/``media`` status columns
+    over the shared DB (decisions/0027). The ML worker **owns the status writes** — it
+    flips the event ``processing``→``completed`` and each photo ``pending``→``completed``
+    — and the backend just reads them (no poller). This is the coupling to the backend
+    schema (mirror of the backend reading ML's tables); the ML service never calls the
+    backend over HTTP.
+    """
+
+    async def list_event_media(
+        self, school_id: str, event_id: str
+    ) -> list[BackendMedia]: ...
+    async def mark_media_completed(self, school_id: str, media_id: str) -> None: ...
+    async def mark_event_processing(self, school_id: str, event_id: str) -> None: ...
+    async def mark_event_completed(self, school_id: str, event_id: str) -> None: ...
+
+
 class ThresholdProvider(Protocol):
     """Resolves per-school thresholds with global-default fallback (req §6.1)."""
 
@@ -128,9 +146,9 @@ class ReferencePhotoRepository(Protocol):
 
 
 class JobQueue(Protocol):
-    """At-least-once job queue with explicit ack/nack (architecture §8.4)."""
+    """At-least-once event-job queue with explicit ack/nack (architecture §8.4)."""
 
-    async def enqueue(self, job: InferenceJob) -> None: ...
+    async def enqueue(self, job: EventJob) -> None: ...
 
     def consume(self) -> AsyncIterator[JobLease]: ...
 

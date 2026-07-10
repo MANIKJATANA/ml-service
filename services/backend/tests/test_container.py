@@ -42,9 +42,14 @@ async def test_container_builds_and_memoizes_student_stack() -> None:
 
 
 async def test_container_builds_and_memoizes_event_media_stack() -> None:
-    # inproc event-job producer + postgres repos build without Redis (0027).
+    # inproc event-job producer + postgres repos build without Redis; local_fs object
+    # store so media_service() builds without Supabase creds (0027).
     container = Container(
-        Settings(jwt_secret=SecretStr("x" * 32), event_job_producer_impl="inproc")
+        Settings(
+            jwt_secret=SecretStr("x" * 32),
+            event_job_producer_impl="inproc",
+            object_store_impl="local_fs",
+        )
     )
     assert container.event_repo() is container.event_repo()
     assert container.media_repo() is container.media_repo()

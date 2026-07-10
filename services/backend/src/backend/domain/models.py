@@ -128,6 +128,17 @@ class SignedUpload:
 
 
 @dataclass(frozen=True, slots=True)
+class SignedDownload:
+    """A short-lived signed URL to fetch a stored object (decisions/0028).
+
+    The backend mints this on demand for an entitled caller; the bytes are fetched
+    straight from storage, never proxied through the backend."""
+
+    download_url: str
+    expires_in_s: int
+
+
+@dataclass(frozen=True, slots=True)
 class PhotoResult:
     """Per-photo enrollment outcome as reported by the ML service (FR-E4)."""
 
@@ -194,3 +205,19 @@ class EventJob:
 
     school_id: str
     event_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class Appearance:
+    """One ``matches`` row: a student who appears in a media (decisions/0028).
+
+    The join keys the galleries fan out on plus the two decision facts they surface
+    (``confidence``, ``needs_review``). Read-only — the ML service writes ``matches``;
+    the backend only reads it (via ``MlResultsReader``). Display data (names, dates,
+    photo metadata) is joined from the backend's own rows, never from here."""
+
+    student_id: str
+    media_id: str
+    event_id: str
+    confidence: float
+    needs_review: bool

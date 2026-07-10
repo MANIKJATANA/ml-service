@@ -8,6 +8,8 @@ by the ML worker directly (shared DB), so this repo only reads it.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -79,6 +81,28 @@ class PostgresMediaRepository:
             result = await session.execute(
                 select(MediaRow)
                 .where(MediaRow.school_id == sid, MediaRow.event_id == eid)
+                .order_by(MediaRow.created_at, MediaRow.id)  # stable on ties
+            )
+            return [_to_media(r) for r in result.scalars().all()]
+
+    async def list_by_ids(
+        self, school_id: str, media_ids: Sequence[str]
+    ) -> list[Media]:
+        """Bulk-load media by id within one tenant (decisions/0028).
+
+        Used by the galleries to hydrate the media a student appears in. Tenant-scoped
+        and defensive: malformed ids are dropped, and a matches row pointing at an
+        already-deleted/foreign media simply doesn't come back."""
+        sid = opt_uuid(school_id)
+        if sid is None:
+            return []
+        ids = [mid for mid in (opt_uuid(m) for m in media_ids) if mid is not None]
+        if not ids:
+            return []
+        async with self._sessionmaker() as session:
+            result = await session.execute(
+                select(MediaRow)
+                .where(MediaRow.school_id == sid, MediaRow.id.in_(ids))
                 .order_by(MediaRow.created_at, MediaRow.id)  # stable on ties
             )
             return [_to_media(r) for r in result.scalars().all()]

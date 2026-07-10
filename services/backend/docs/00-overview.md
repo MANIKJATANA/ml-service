@@ -19,8 +19,9 @@ the architecture decision and the owner-locked forks; this doc is the reference 
 4. Staff create an **event**, then upload event **media** (images/videos) → each file
    goes to Supabase and is **recorded** (no processing yet). One **"Process"** action
    per event enqueues a single ML **inference job** `{school_id, event_id}` (decisions/0027).
-5. Users watch **job status** — one event status (`queued→processing→completed`/`failed`)
-   plus per-photo status, both derived by a poller from the ML worker's detection rows.
+5. Users watch **job status** — one event status (`queued→processing→completed`) plus
+   per-photo status — read directly from the backend's own `events`/`media` rows, which
+   the ML worker writes over the shared DB (decisions/0027). No poller.
 6. Once processed, photos are browsable in **two views** — student→events→photos and
    event→students→photos — plus **browse-all** (all photos, or one student's).
    **Students** log in and see only the **photos/events they appear in**.
@@ -66,8 +67,8 @@ libs (SQLAlchemy, httpx, redis, supabase) are imported; `wiring/` builds adapter
 from the `BE_*_IMPL` config and injects them. A CI layering grep (mirroring the ML
 service's) keeps concrete libs out of `domain/` and `services/`. **Job status is read
 from the backend's own `events`/`media` rows** (the ML worker writes those status
-columns over the shared DB — decisions/0027); gallery reads of ML result *contents*
-(Phase 6) will be isolated to `db/ml_read.py`.
+columns over the shared DB — decisions/0027); gallery reads of ML result *contents* are
+isolated to `db/ml_read.py` + `PostgresMlResultsReader` (decisions/0028).
 
 ## Data model (backend-owned; own Alembic chain)
 
@@ -93,10 +94,15 @@ Phase 1's migration.
 
 ### ML tables the backend reads (owned by the ML service)
 
-- `matches` — one row per `(media_id, student_id)`; the deduped "who is in this media"
-  answer. Indexed `(school_id, event_id)` and `(school_id, student_id)`.
-- `student_media_appearances` (view) — per-frame appearances (for in-photo boxes).
-- `media_detections` — one row per processed media; **its presence = job done.**
+The galleries read **`matches`** — one row per `(media_id, student_id)`; the deduped
+"who is in this media" answer, indexed `(school_id, event_id)` and
+`(school_id, student_id)`. This is the **sole** ML-schema coupling, isolated to
+`db/ml_read.py` + `PostgresMlResultsReader` and CI-guarded by a Phase-7
+`information_schema` contract test (decisions/0028). The per-frame
+`student_media_appearances` view (in-photo boxes) is reserved for post-v1. **Job status
+is NOT read from ML tables** — the ML worker writes the backend's own `events`/`media`
+status columns directly (decisions/0027), so there is no `media_detections`-presence
+signal and no poller.
 
 ## RBAC
 
@@ -118,11 +124,14 @@ is scoped by `school_id` (and `student_id` for students).
   `.../students/{stid}/account` (provision login).
 - **Events + media + status:** `.../events` CRUD; `.../events/{eid}/media/upload-url` + `.../events/{eid}/media` (register, records only);
   `POST .../events/{eid}/process` (enqueue/redistribute the event); `GET .../events/{eid}/media`, `.../media/{mid}`, `.../events/{eid}/status`.
-- **Galleries:** `.../events/{eid}/students`, `.../events/{eid}/students/{stid}/media`,
-  `.../students/{stid}/events`, `.../students/{stid}/media`, browse-all
-  `GET /schools/{sid}/media?event_id=&student_id=&status=`, `.../media/{mid}/appearances`.
-- **Student (self-scoped):** `GET /me/events`, `/me/events/{eid}/media`, `/me/media`.
-- **Download:** `GET .../media/{mid}/download` → short-lived Supabase signed URL, authz-gated.
+- **Galleries (`gallery:view_all`):** `GET /events/{eid}/students`,
+  `/events/{eid}/students/{stid}/media`, `/students/{stid}/events`,
+  `/students/{stid}/media?event_id=`, `/media/{mid}/appearances`. Browse-all (every
+  photo in an event) is the existing `GET /events/{eid}/media`.
+- **Student self (`gallery:view_own`):** `GET /me/events`, `GET /me/media?event_id=`
+  (own student_id resolved from the token, never supplied).
+- **Download:** `GET /media/{mid}/download` → short-lived signed URL; staff any media in
+  their school, a student only media they appear in (else 404).
 
 ## ML integration contract (binding — see decision 0022)
 
@@ -130,9 +139,9 @@ is scoped by `school_id` (and `student_id` for students).
 - **Enqueue (event-level, decisions/0027):** `XADD` to `BE_QUEUE_STREAM` (== `ML_QUEUE_STREAM`, default
   `inference-jobs`) with exactly `school_id, event_id` (both strings). The ML worker reads the backend
   `media` roster for the event from the shared DB to enumerate the photos.
-- **Read results:** `matches` / `student_media_appearances` / `media_detections`, scoped by `school_id`.
-  Per-photo done = a `media_detections` row exists (requires `ML_PERSIST_DETECTIONS=true`); event failure =
-  the poller's timeout sweep.
+- **Read results (galleries, decisions/0028):** `matches`, scoped by `school_id`, via
+  `db/ml_read.py`. Job status is not inferred from ML tables — the ML worker writes the
+  backend `events`/`media` status columns directly (decisions/0027).
 - **Storage:** upload to `BE_SUPABASE_BUCKET` (== `ML_SUPABASE_BUCKET`, default `media`); store the
   bucket-relative path; `reference-photos/…` vs `events/…` prefixes.
 

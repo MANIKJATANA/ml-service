@@ -9,10 +9,12 @@ media repositories, the job producer, and the ML results reader (decisions/0027)
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import date
 from typing import Protocol
 
 from backend.domain.models import (
+    Appearance,
     EnrollmentOutcome,
     EnrollmentStatus,
     Event,
@@ -73,6 +75,9 @@ class StudentRepository(Protocol):
         reference_photo_path: str,
     ) -> Student: ...
     async def get(self, school_id: str, student_id: str) -> Student | None: ...
+    async def get_by_user_id(
+        self, school_id: str, user_id: str
+    ) -> Student | None: ...
     async def list_by_school(self, school_id: str) -> list[Student]: ...
     async def set_enrollment(
         self, student_id: str, *, status: EnrollmentStatus
@@ -125,6 +130,9 @@ class MediaRepository(Protocol):
     ) -> Media: ...
     async def get(self, school_id: str, media_id: str) -> Media | None: ...
     async def list_by_event(self, school_id: str, event_id: str) -> list[Media]: ...
+    async def list_by_ids(
+        self, school_id: str, media_ids: Sequence[str]
+    ) -> list[Media]: ...
     async def status_counts(
         self, school_id: str, event_id: str
     ) -> dict[MediaProcessingStatus, int]: ...
@@ -138,12 +146,16 @@ class EventJobProducer(Protocol):
 
 
 class ObjectStore(Protocol):
-    """Mints a direct-to-storage upload target for a caller-chosen object key.
+    """Mints direct-to-storage signed URLs; the bytes never transit the backend.
 
-    The backend never handles the photo bytes — the frontend uploads to the signed
-    URL and later submits the object path (decisions/0026)."""
+    Upload: the frontend uploads to the signed URL and later submits the object path
+    (decisions/0026). Download: the backend mints a short-lived read URL for an entitled
+    caller (decisions/0028). Raises ``UpstreamError`` when the store is unreachable."""
 
     async def create_signed_upload_url(self, object_path: str) -> SignedUpload: ...
+    async def create_signed_download_url(
+        self, object_path: str, *, expires_in_s: int
+    ) -> str: ...
 
 
 class MlEnrollmentClient(Protocol):
@@ -156,6 +168,25 @@ class MlEnrollmentClient(Protocol):
         self, *, school_id: str, student_id: str, photo_uris: list[str]
     ) -> EnrollmentOutcome: ...
     async def delete(self, *, school_id: str, student_id: str) -> None: ...
+
+
+class MlResultsReader(Protocol):
+    """Read-only reader over the ML-owned ``matches`` table (decisions/0028).
+
+    The single backend coupling to the ML result schema: it reads *who appears in what*
+    and returns pure ``Appearance`` join-keys + decision facts; all display data is
+    joined from backend-owned rows. Every read is tenant-scoped by ``school_id``. A
+    Phase-7 ``information_schema`` contract test guards the consumed columns."""
+
+    async def list_event_appearances(
+        self, school_id: str, event_id: str
+    ) -> list[Appearance]: ...
+    async def list_student_appearances(
+        self, school_id: str, student_id: str
+    ) -> list[Appearance]: ...
+    async def list_media_appearances(
+        self, school_id: str, media_id: str
+    ) -> list[Appearance]: ...
 
 
 class PasswordHasher(Protocol):

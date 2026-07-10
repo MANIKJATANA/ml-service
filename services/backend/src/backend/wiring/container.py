@@ -25,6 +25,7 @@ from backend.domain.ports import (
     EventRepository,
     MediaRepository,
     MlEnrollmentClient,
+    MlResultsReader,
     ObjectStore,
     PasswordHasher,
     PermissionResolver,
@@ -35,6 +36,7 @@ from backend.domain.ports import (
 )
 from backend.services.auth_service import AuthService
 from backend.services.event_service import EventService
+from backend.services.gallery_service import GalleryService
 from backend.services.media_service import MediaService
 from backend.services.onboarding_service import OnboardingService
 from backend.services.student_service import StudentService
@@ -57,6 +59,7 @@ class Container:
         self._student_repo: StudentRepository | None = None
         self._event_repo: EventRepository | None = None
         self._media_repo: MediaRepository | None = None
+        self._ml_results_reader: MlResultsReader | None = None
         self._event_job_producer: EventJobProducer | None = None
         self._object_store: ObjectStore | None = None
         self._ml_enrollment_client: MlEnrollmentClient | None = None
@@ -68,6 +71,7 @@ class Container:
         self._student_service: StudentService | None = None
         self._event_service: EventService | None = None
         self._media_service: MediaService | None = None
+        self._gallery_service: GalleryService | None = None
 
     @property
     def settings(self) -> Settings:
@@ -137,6 +141,18 @@ class Container:
                     )
                     self._media_repo = cls(self.sessionmaker())
         return self._media_repo
+
+    def ml_results_reader(self) -> MlResultsReader:
+        # Read-only reader over the ML-owned `matches` table (decisions/0028); the sole
+        # coupling to the ML result schema. Postgres-only, like the repos.
+        if self._ml_results_reader is None:
+            with self._lock:
+                if self._ml_results_reader is None:
+                    cls = registry.resolve(
+                        registry.ML_RESULTS_READER_REGISTRY, self._s.repository_impl
+                    )
+                    self._ml_results_reader = cls(self.sessionmaker())
+        return self._ml_results_reader
 
     # ---- events: job producer (decisions/0027) -------------------------
 
@@ -291,6 +307,20 @@ class Container:
                         event_media_prefix=self._s.event_media_prefix,
                     )
         return self._media_service
+
+    def gallery_service(self) -> GalleryService:
+        if self._gallery_service is None:
+            with self._lock:
+                if self._gallery_service is None:
+                    self._gallery_service = GalleryService(
+                        self.ml_results_reader(),
+                        self.student_repo(),
+                        self.event_repo(),
+                        self.media_repo(),
+                        self.object_store(),
+                        download_url_ttl_s=self._s.download_url_ttl_s,
+                    )
+        return self._gallery_service
 
     # ---- lifecycle -----------------------------------------------------
 

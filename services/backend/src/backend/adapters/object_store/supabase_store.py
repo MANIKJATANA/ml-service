@@ -29,6 +29,30 @@ class SupabaseObjectStore:
     async def create_signed_upload_url(self, object_path: str) -> SignedUpload:
         return await anyio.to_thread.run_sync(self._sign_sync, object_path)
 
+    async def create_signed_download_url(
+        self, object_path: str, *, expires_in_s: int
+    ) -> str:
+        return await anyio.to_thread.run_sync(
+            self._sign_download_sync, object_path, expires_in_s
+        )
+
+    def _sign_download_sync(self, object_path: str, expires_in_s: int) -> str:
+        path = object_path.lstrip("/")
+        try:
+            res: Any = self._client.storage.from_(self._bucket).create_signed_url(
+                path, expires_in_s
+            )
+        except Exception as exc:  # storage3 raises on transport/permission errors
+            raise UpstreamError(
+                f"supabase signed-download-url failed for {path!r}: {exc}"
+            ) from exc
+        url = _pick(res, "signed_url", "signedURL", "signedUrl")
+        if not url:
+            raise UpstreamError(
+                f"supabase returned no signed url for {path!r}: {res!r}"
+            )
+        return url
+
     def _sign_sync(self, object_path: str) -> SignedUpload:
         path = object_path.lstrip("/")
         try:

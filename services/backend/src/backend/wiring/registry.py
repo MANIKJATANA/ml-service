@@ -34,6 +34,10 @@ MEDIA_REPO_REGISTRY: dict[str, str] = {
     "postgres": "backend.adapters.repositories.postgres_media:PostgresMediaRepository",
 }
 
+ML_RESULTS_READER_REGISTRY: dict[str, str] = {
+    "postgres": "backend.adapters.repositories.ml_results:PostgresMlResultsReader",
+}
+
 EVENT_JOB_PRODUCER_REGISTRY: dict[str, str] = {
     "redis": "backend.adapters.queue.redis_producer:RedisEventJobProducer",
     "inproc": "backend.adapters.queue.inproc_producer:InProcEventJobProducer",

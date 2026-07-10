@@ -12,6 +12,7 @@ under a bare `TestClient` without the lifespan — matching health/readyz.
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from typing import Annotated
 
 from fastapi import Depends
@@ -77,3 +78,54 @@ def require_permissions(
         return user
 
     return guard
+
+
+@dataclass(frozen=True, slots=True)
+class GalleryScope:
+    """A gallery caller's tenant + optional own-only restriction (decisions/0028).
+
+    ``restrict_to_student_id=None`` -> staff (all the school's media). Otherwise the
+    caller is a student limited to the media/events they appear in."""
+
+    school_id: str
+    restrict_to_student_id: str | None
+
+
+async def _student_scope(container: Container, user: User) -> GalleryScope:
+    """Resolve a logged-in student to a scope bound to their own ``student_id``."""
+    school_id = tenant_of(user)
+    student = await container.student_repo().get_by_user_id(school_id, user.id)
+    if student is None:
+        raise AuthorizationError("no student profile for this account")
+    return GalleryScope(school_id=school_id, restrict_to_student_id=student.id)
+
+
+async def resolve_gallery_download_scope(
+    container: ContainerDep, user: CurrentUser
+) -> GalleryScope:
+    """Download authz (decisions/0028): a caller with ``gallery:view_all`` (staff) may
+    download any media in their school; one with ``gallery:view_own`` (student) is
+    restricted to media they appear in. Anyone else is refused."""
+    granted = container.permission_resolver().permissions_for(user)
+    if Permission.GALLERY_VIEW_ALL in granted:
+        return GalleryScope(school_id=tenant_of(user), restrict_to_student_id=None)
+    if Permission.GALLERY_VIEW_OWN in granted:
+        return await _student_scope(container, user)
+    raise AuthorizationError("insufficient permissions")
+
+
+async def resolve_student_self_scope(
+    container: ContainerDep, user: CurrentUser
+) -> GalleryScope:
+    """The ``/me`` gallery (decisions/0028): the caller must be a student
+    (``gallery:view_own``); yields a scope bound to their own ``student_id``."""
+    granted = container.permission_resolver().permissions_for(user)
+    if Permission.GALLERY_VIEW_OWN not in granted:
+        raise AuthorizationError("insufficient permissions")
+    return await _student_scope(container, user)
+
+
+GalleryDownloadScope = Annotated[
+    GalleryScope, Depends(resolve_gallery_download_scope)
+]
+StudentSelfScope = Annotated[GalleryScope, Depends(resolve_student_self_scope)]

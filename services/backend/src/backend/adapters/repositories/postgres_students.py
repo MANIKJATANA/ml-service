@@ -71,6 +71,26 @@ class PostgresStudentRepository:
             row = result.scalar_one_or_none()
             return _to_student(row) if row is not None else None
 
+    async def get_by_user_id(
+        self, school_id: str, user_id: str
+    ) -> Student | None:
+        """The student profile linked to a login account (decisions/0028).
+
+        Resolves a logged-in student user to their ``student_id`` for the ``/me`` gallery
+        + own-only download. Tenant-scoped: a foreign school never resolves."""
+        sid = opt_uuid(school_id)
+        uid = opt_uuid(user_id)
+        if sid is None or uid is None:
+            return None
+        async with self._sessionmaker() as session:
+            result = await session.execute(
+                select(StudentRow).where(
+                    StudentRow.user_id == uid, StudentRow.school_id == sid
+                )
+            )
+            row = result.scalar_one_or_none()
+            return _to_student(row) if row is not None else None
+
     async def list_by_school(self, school_id: str) -> list[Student]:
         sid = opt_uuid(school_id)
         if sid is None:

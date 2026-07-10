@@ -50,6 +50,10 @@ class Settings(BaseSettings):
     max_upload_mb: int = 30  # advertised to the FE; enforced client-side in v1
     object_store_dir: str = "/var/lib/backend/objects"  # local_fs dev target
 
+    # --- galleries / download (decisions/0028) ---------------------------
+    # TTL of the short-lived signed download URLs the galleries mint on demand.
+    download_url_ttl_s: int = 3600  # 1 hour
+
     # --- database (shared Postgres; backend owns its own tables + chain) --
     database_url: str = "postgresql+asyncpg://app:app@postgres:5432/app"
     db_echo: bool = False

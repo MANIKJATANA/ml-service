@@ -1,9 +1,9 @@
 """FastAPI app factory for the backend / core system.
 
-Mounts the health, auth, onboarding (schools/staff), student, event, and media routers,
-maps domain errors to HTTP status codes, and at startup configures structured logging and
-wires the composition-root container onto ``app.state`` so ``/readyz`` can probe
-dependencies; on shutdown it disposes the container. Gallery routers land in Phase 6.
+Mounts the health, auth, onboarding (schools/staff), student, event, media, gallery, and
+student-self (`/me`) routers, maps domain errors to HTTP status codes, and at startup
+configures structured logging and wires the composition-root container onto ``app.state``
+so ``/readyz`` can probe dependencies; on shutdown it disposes the container.
 """
 
 from collections.abc import AsyncIterator
@@ -13,7 +13,17 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from backend import __version__
-from backend.api.routers import auth, events, health, media, schools, staff, students
+from backend.api.routers import (
+    auth,
+    events,
+    galleries,
+    health,
+    me,
+    media,
+    schools,
+    staff,
+    students,
+)
 from backend.deps import get_container
 from backend.domain.errors import (
     AuthenticationError,
@@ -91,6 +101,8 @@ def create_app() -> FastAPI:
     app.include_router(students.router)
     app.include_router(events.router)
     app.include_router(media.router)
+    app.include_router(galleries.router)
+    app.include_router(me.router)
     _register_error_handlers(app)
     return app
 

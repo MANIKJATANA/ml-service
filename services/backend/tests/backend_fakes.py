@@ -7,13 +7,14 @@ don't re-hand-roll them.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import replace
 from datetime import UTC, date, datetime
 
 from backend.domain.emails import normalize_email
 from backend.domain.errors import ConflictError, NotFoundError
 from backend.domain.models import (
+    Appearance,
     EnrollmentOutcome,
     EnrollmentStatus,
     Event,
@@ -37,6 +38,7 @@ from backend.domain.ports import (
     EventRepository,
     MediaRepository,
     MlEnrollmentClient,
+    MlResultsReader,
     ObjectStore,
     SchoolRepository,
     StudentRepository,
@@ -161,6 +163,23 @@ def make_media(
         completed_at=completed_at,
         created_at=_NOW,
         updated_at=_NOW,
+    )
+
+
+def make_appearance(
+    *,
+    student_id: str = "student-1",
+    media_id: str = "media-1",
+    event_id: str = "event-1",
+    confidence: float = 0.9,
+    needs_review: bool = False,
+) -> Appearance:
+    return Appearance(
+        student_id=student_id,
+        media_id=media_id,
+        event_id=event_id,
+        confidence=confidence,
+        needs_review=needs_review,
     )
 
 
@@ -337,6 +356,12 @@ class FakeStudentRepo:
             return None
         return student
 
+    async def get_by_user_id(self, school_id: str, user_id: str) -> Student | None:
+        for student in self._by_id.values():
+            if student.user_id == user_id and student.school_id == school_id:
+                return student
+        return None
+
     async def list_by_school(self, school_id: str) -> list[Student]:
         return [s for s in self._by_id.values() if s.school_id == school_id]
 
@@ -357,7 +382,7 @@ class FakeStudentRepo:
 
 
 class FakeObjectStore:
-    """ObjectStore double: returns a deterministic signed upload for any key."""
+    """ObjectStore double: returns deterministic signed upload/download URLs."""
 
     async def create_signed_upload_url(self, object_path: str) -> SignedUpload:
         return SignedUpload(
@@ -365,6 +390,11 @@ class FakeObjectStore:
             object_path=object_path,
             token="fake-token",
         )
+
+    async def create_signed_download_url(
+        self, object_path: str, *, expires_in_s: int
+    ) -> str:
+        return f"https://downloads.test/{object_path}?ttl={expires_in_s}"
 
 
 class FakeMlClient:
@@ -516,6 +546,16 @@ class FakeMediaRepo:
             if m.school_id == school_id and m.event_id == event_id
         ]
 
+    async def list_by_ids(
+        self, school_id: str, media_ids: Sequence[str]
+    ) -> list[Media]:
+        wanted = set(media_ids)
+        return [
+            m
+            for m in self._by_id.values()
+            if m.school_id == school_id and m.id in wanted
+        ]
+
     async def status_counts(
         self, school_id: str, event_id: str
     ) -> dict[MediaProcessingStatus, int]:
@@ -538,6 +578,32 @@ class FakeEventJobProducer:
         self.jobs.append(job)
 
 
+class FakeMlResultsReader:
+    """MlResultsReader double: filters a seeded list of matches ``Appearance``s.
+
+    Tenant scoping isn't re-checked here (it's ignored): the GalleryService's
+    require-guards use the tenant-scoped repos, so the reader is only ever reached
+    intra-tenant — mirroring the real adapter, which still filters by school_id."""
+
+    def __init__(self, appearances: list[Appearance] | None = None) -> None:
+        self._appearances = list(appearances or [])
+
+    async def list_event_appearances(
+        self, school_id: str, event_id: str
+    ) -> list[Appearance]:
+        return [a for a in self._appearances if a.event_id == event_id]
+
+    async def list_student_appearances(
+        self, school_id: str, student_id: str
+    ) -> list[Appearance]:
+        return [a for a in self._appearances if a.student_id == student_id]
+
+    async def list_media_appearances(
+        self, school_id: str, media_id: str
+    ) -> list[Appearance]:
+        return [a for a in self._appearances if a.media_id == media_id]
+
+
 class SeededContainer(Container):
     """Container with pre-seeded repos; JWT/argon2/RBAC/services stay real.
 
@@ -556,6 +622,7 @@ class SeededContainer(Container):
         events: EventRepository | None = None,
         media: MediaRepository | None = None,
         event_job_producer: EventJobProducer | None = None,
+        ml_results_reader: MlResultsReader | None = None,
         jwt_secret: str = _TEST_JWT_SECRET,
     ) -> None:
         super().__init__(Settings(jwt_secret=SecretStr(jwt_secret)))
@@ -568,6 +635,9 @@ class SeededContainer(Container):
         self._seed_media: MediaRepository = media or FakeMediaRepo()
         self._seed_event_job_producer: EventJobProducer = (
             event_job_producer or FakeEventJobProducer()
+        )
+        self._seed_ml_results_reader: MlResultsReader = (
+            ml_results_reader or FakeMlResultsReader()
         )
         # Wire the FK-cascade simulation so delete-student removes the profile too.
         if isinstance(self._seed_users, FakeUserRepo) and isinstance(
@@ -598,3 +668,6 @@ class SeededContainer(Container):
 
     def event_job_producer(self) -> EventJobProducer:
         return self._seed_event_job_producer
+
+    def ml_results_reader(self) -> MlResultsReader:
+        return self._seed_ml_results_reader

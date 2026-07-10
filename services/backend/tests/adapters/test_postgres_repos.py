@@ -19,6 +19,7 @@ import pytest
 from backend.adapters.repositories.postgres_events import PostgresEventRepository
 from backend.adapters.repositories.postgres_media import PostgresMediaRepository
 from backend.adapters.repositories.postgres_schools import PostgresSchoolRepository
+from backend.adapters.repositories.postgres_students import PostgresStudentRepository
 from backend.adapters.repositories.postgres_users import PostgresUserRepository
 from backend.db.base import Base
 from backend.db.session import make_engine, make_sessionmaker
@@ -34,6 +35,9 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 _DSN = os.environ.get("BE_TEST_DATABASE_URL")
 pytestmark = pytest.mark.skipif(_DSN is None, reason="BE_TEST_DATABASE_URL not set")
+
+# A well-formed UUID that never exists — for "valid id, absent row" assertions.
+_MISSING_UUID = "00000000-0000-0000-0000-000000000000"
 
 
 @pytest.fixture
@@ -236,3 +240,60 @@ async def test_media_create_list_and_counts(
     assert len(await media.list_by_event(school.id, ev.id)) == 2
     counts = await media.status_counts(school.id, ev.id)
     assert counts[MediaProcessingStatus.PENDING] == 2
+
+
+async def test_media_list_by_ids_is_tenant_scoped_and_defensive(
+    sm: async_sessionmaker[AsyncSession],
+) -> None:
+    schools = PostgresSchoolRepository(sm)
+    events = PostgresEventRepository(sm)
+    media = PostgresMediaRepository(sm)
+    a = await schools.create(name="A", max_teachers=5)
+    b = await schools.create(name="B", max_teachers=5)
+    ea = await events.create(
+        school_id=a.id, name="EA", description=None, event_date=None, created_by=None
+    )
+    eb = await events.create(
+        school_id=b.id, name="EB", description=None, event_date=None, created_by=None
+    )
+    m1 = await media.create(
+        school_id=a.id, event_id=ea.id, storage_path="events/a/e/1.jpg",
+        media_type=MediaType.IMAGE,
+    )
+    m2 = await media.create(
+        school_id=a.id, event_id=ea.id, storage_path="events/a/e/2.jpg",
+        media_type=MediaType.IMAGE,
+    )
+    other = await media.create(
+        school_id=b.id, event_id=eb.id, storage_path="events/b/e/3.jpg",
+        media_type=MediaType.IMAGE,
+    )
+
+    # Only this tenant's ids come back; a foreign id and a garbage id are dropped.
+    got = await media.list_by_ids(
+        a.id, [m1.id, m2.id, other.id, "not-a-uuid", str(_MISSING_UUID)]
+    )
+    assert {m.id for m in got} == {m1.id, m2.id}
+    assert await media.list_by_ids(a.id, []) == []
+
+
+async def test_student_get_by_user_id_is_tenant_scoped(
+    sm: async_sessionmaker[AsyncSession],
+) -> None:
+    schools = PostgresSchoolRepository(sm)
+    users = PostgresUserRepository(sm)
+    students = PostgresStudentRepository(sm)
+    school = await schools.create(name="A", max_teachers=5)
+    login = await users.create(
+        school_id=school.id, email="s@x.io", password_hash="h", role=Role.STUDENT
+    )
+    created = await students.create(
+        school_id=school.id, user_id=login.id, name="Bart",
+        reference_photo_path="reference-photos/a/p.jpg",
+    )
+
+    found = await students.get_by_user_id(school.id, login.id)
+    assert found is not None and found.id == created.id
+    # A foreign school never resolves the profile; a garbage id is None (not an error).
+    assert await students.get_by_user_id("other-not-uuid", login.id) is None
+    assert await students.get_by_user_id(school.id, str(_MISSING_UUID)) is None

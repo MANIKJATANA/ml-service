@@ -25,3 +25,11 @@ class LocalFsObjectStore:
         return SignedUpload(
             upload_url=f"file://{target}", object_path=path, token=None
         )
+
+    async def create_signed_download_url(
+        self, object_path: str, *, expires_in_s: int
+    ) -> str:
+        # Dev stub: a deterministic file:// URL (no real signing / expiry), mirroring
+        # the upload stub (decisions/0028). Real downloads use the supabase impl.
+        target = PurePosixPath(self._base) / object_path.lstrip("/")
+        return f"file://{target}"

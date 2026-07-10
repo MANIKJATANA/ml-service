@@ -1,0 +1,251 @@
+"""GalleryService use-cases with fakes (decisions/0028).
+
+Covers the two views + browse (event→students, event→student→photos, student→events,
+student→photos), media→appearances, and entitlement-gated download. Tenant isolation is
+enforced by the require-guards (foreign ids resolve to NotFound via the scoped repos).
+"""
+
+from __future__ import annotations
+
+import pytest
+from backend.domain.errors import NotFoundError
+from backend.domain.models import Appearance, Event, Media, Student
+from backend.services.gallery_service import GalleryService
+from backend_fakes import (
+    FakeEventRepo,
+    FakeMediaRepo,
+    FakeMlResultsReader,
+    FakeObjectStore,
+    FakeStudentRepo,
+    make_appearance,
+    make_event,
+    make_media,
+    make_student,
+)
+
+_S1 = "s1"
+
+
+def _svc(
+    *,
+    students: list[Student] | None = None,
+    events: list[Event] | None = None,
+    media: list[Media] | None = None,
+    appearances: list[Appearance] | None = None,
+    ttl: int = 3600,
+) -> GalleryService:
+    return GalleryService(
+        FakeMlResultsReader(appearances or []),
+        FakeStudentRepo(students or []),
+        FakeEventRepo(events or []),
+        FakeMediaRepo(media or []),
+        FakeObjectStore(),
+        download_url_ttl_s=ttl,
+    )
+
+
+# ---- event → students --------------------------------------------------
+
+
+async def test_event_students_groups_counts_and_keeps_only_appearing() -> None:
+    svc = _svc(
+        students=[
+            make_student(id="a", school_id=_S1, user_id="ua", name="Ann"),
+            make_student(id="b", school_id=_S1, user_id="ub", name="Bob"),
+            make_student(id="c", school_id=_S1, user_id="uc", name="Cid"),  # no matches
+        ],
+        events=[make_event(id="e1", school_id=_S1)],
+        appearances=[
+            make_appearance(student_id="a", media_id="m1", event_id="e1"),
+            make_appearance(student_id="a", media_id="m2", event_id="e1"),
+            make_appearance(student_id="b", media_id="m1", event_id="e1"),
+        ],
+    )
+    views = await svc.event_students(school_id=_S1, event_id="e1")
+    # Only appearing students, in roster order, with per-student media counts.
+    assert [(v.student.id, v.media_count) for v in views] == [("a", 2), ("b", 1)]
+
+
+async def test_event_students_missing_event_raises() -> None:
+    svc = _svc(events=[])
+    with pytest.raises(NotFoundError):
+        await svc.event_students(school_id=_S1, event_id="ghost")
+
+
+async def test_event_students_tenant_scoped() -> None:
+    svc = _svc(events=[make_event(id="e1", school_id=_S1)])
+    with pytest.raises(NotFoundError):
+        await svc.event_students(school_id="other", event_id="e1")
+
+
+# ---- event → student → photos ------------------------------------------
+
+
+async def test_event_student_media_returns_only_that_students_photos() -> None:
+    svc = _svc(
+        students=[make_student(id="a", school_id=_S1, user_id="ua")],
+        events=[make_event(id="e1", school_id=_S1)],
+        media=[
+            make_media(id="m1", school_id=_S1, event_id="e1"),
+            make_media(id="m2", school_id=_S1, event_id="e1"),
+            make_media(id="m3", school_id=_S1, event_id="e1"),
+        ],
+        appearances=[
+            make_appearance(student_id="a", media_id="m1", event_id="e1"),
+            make_appearance(student_id="a", media_id="m3", event_id="e1"),
+            make_appearance(student_id="b", media_id="m2", event_id="e1"),
+        ],
+    )
+    media = await svc.event_student_media(
+        school_id=_S1, event_id="e1", student_id="a"
+    )
+    assert {m.id for m in media} == {"m1", "m3"}
+
+
+async def test_event_student_media_missing_student_raises() -> None:
+    svc = _svc(events=[make_event(id="e1", school_id=_S1)], students=[])
+    with pytest.raises(NotFoundError):
+        await svc.event_student_media(school_id=_S1, event_id="e1", student_id="ghost")
+
+
+# ---- student → events --------------------------------------------------
+
+
+async def test_student_events_groups_counts_and_keeps_only_appearing() -> None:
+    svc = _svc(
+        students=[make_student(id="a", school_id=_S1, user_id="ua")],
+        events=[
+            make_event(id="e1", school_id=_S1),
+            make_event(id="e2", school_id=_S1),
+            make_event(id="e3", school_id=_S1),  # student not in it
+        ],
+        appearances=[
+            make_appearance(student_id="a", media_id="m1", event_id="e1"),
+            make_appearance(student_id="a", media_id="m2", event_id="e1"),
+            make_appearance(student_id="a", media_id="m3", event_id="e2"),
+        ],
+    )
+    views = await svc.student_events(school_id=_S1, student_id="a")
+    assert [(v.event.id, v.media_count) for v in views] == [("e1", 2), ("e2", 1)]
+
+
+# ---- student → photos --------------------------------------------------
+
+
+async def test_student_media_all_and_filtered_by_event() -> None:
+    svc = _svc(
+        students=[make_student(id="a", school_id=_S1, user_id="ua")],
+        events=[make_event(id="e1", school_id=_S1), make_event(id="e2", school_id=_S1)],
+        media=[
+            make_media(id="m1", school_id=_S1, event_id="e1"),
+            make_media(id="m2", school_id=_S1, event_id="e1"),
+            make_media(id="m3", school_id=_S1, event_id="e2"),
+        ],
+        appearances=[
+            make_appearance(student_id="a", media_id="m1", event_id="e1"),
+            make_appearance(student_id="a", media_id="m2", event_id="e1"),
+            make_appearance(student_id="a", media_id="m3", event_id="e2"),
+        ],
+    )
+    all_media = await svc.student_media(school_id=_S1, student_id="a")
+    # Order follows the media repo (upload order), not match order — deterministic.
+    assert [m.id for m in all_media] == ["m1", "m2", "m3"]
+
+    e1_media = await svc.student_media(school_id=_S1, student_id="a", event_id="e1")
+    assert [m.id for m in e1_media] == ["m1", "m2"]
+
+
+async def test_student_media_missing_student_raises() -> None:
+    svc = _svc(students=[])
+    with pytest.raises(NotFoundError):
+        await svc.student_media(school_id=_S1, student_id="ghost")
+
+
+# ---- media → appearances -----------------------------------------------
+
+
+async def test_media_appearances_joins_students_and_facts() -> None:
+    svc = _svc(
+        students=[
+            make_student(id="a", school_id=_S1, user_id="ua", name="Ann"),
+            make_student(id="b", school_id=_S1, user_id="ub", name="Bob"),
+        ],
+        media=[make_media(id="m1", school_id=_S1, event_id="e1")],
+        appearances=[
+            make_appearance(student_id="a", media_id="m1", confidence=0.9),
+            make_appearance(
+                student_id="b", media_id="m1", confidence=0.6, needs_review=True
+            ),
+        ],
+    )
+    views = await svc.media_appearances(school_id=_S1, media_id="m1")
+    by_id = {v.student.id: v for v in views}
+    assert by_id["a"].student.name == "Ann" and by_id["a"].needs_review is False
+    assert by_id["b"].needs_review is True and by_id["b"].confidence == pytest.approx(0.6)
+
+
+async def test_media_appearances_skips_since_deleted_student() -> None:
+    # A matches row references a student no longer in the roster -> dropped, not an error.
+    svc = _svc(
+        students=[make_student(id="a", school_id=_S1, user_id="ua")],
+        media=[make_media(id="m1", school_id=_S1, event_id="e1")],
+        appearances=[
+            make_appearance(student_id="a", media_id="m1"),
+            make_appearance(student_id="gone", media_id="m1"),
+        ],
+    )
+    views = await svc.media_appearances(school_id=_S1, media_id="m1")
+    assert [v.student.id for v in views] == ["a"]
+
+
+async def test_media_appearances_missing_media_raises() -> None:
+    svc = _svc(media=[])
+    with pytest.raises(NotFoundError):
+        await svc.media_appearances(school_id=_S1, media_id="ghost")
+
+
+# ---- download ----------------------------------------------------------
+
+
+async def test_download_staff_any_media_in_school() -> None:
+    svc = _svc(
+        media=[make_media(id="m1", school_id=_S1, event_id="e1")],
+        appearances=[],  # nobody matched — staff can still download
+        ttl=120,
+    )
+    signed = await svc.download_url(
+        school_id=_S1, media_id="m1", restrict_to_student_id=None
+    )
+    assert signed.expires_in_s == 120
+    assert "events/school-1/event-1" in signed.download_url
+    # The TTL must be threaded INTO the store call (the fake echoes it as ?ttl=),
+    # not just copied onto the response — guards a dropped expires_in_s= arg.
+    assert "ttl=120" in signed.download_url
+
+
+async def test_download_missing_media_raises() -> None:
+    svc = _svc(media=[])
+    with pytest.raises(NotFoundError):
+        await svc.download_url(
+            school_id=_S1, media_id="ghost", restrict_to_student_id=None
+        )
+
+
+async def test_download_student_only_when_appearing() -> None:
+    svc = _svc(
+        media=[
+            make_media(id="m1", school_id=_S1, event_id="e1"),
+            make_media(id="m2", school_id=_S1, event_id="e1"),
+        ],
+        appearances=[make_appearance(student_id="a", media_id="m1")],
+    )
+    # Appears in m1 -> allowed.
+    signed = await svc.download_url(
+        school_id=_S1, media_id="m1", restrict_to_student_id="a"
+    )
+    assert signed.download_url
+    # Does NOT appear in m2 -> 404 (never confirms the photo exists).
+    with pytest.raises(NotFoundError):
+        await svc.download_url(
+            school_id=_S1, media_id="m2", restrict_to_student_id="a"
+        )

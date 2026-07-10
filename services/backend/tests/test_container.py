@@ -59,6 +59,17 @@ async def test_container_builds_and_memoizes_event_media_stack() -> None:
     await container.aclose()
 
 
+async def test_container_builds_and_memoizes_gallery_stack() -> None:
+    # ml-results reader (postgres, lazy — no connect) + gallery service; local_fs object
+    # store so gallery_service() builds without Supabase creds (0028).
+    container = Container(
+        Settings(jwt_secret=SecretStr("x" * 32), object_store_impl="local_fs")
+    )
+    assert container.ml_results_reader() is container.ml_results_reader()
+    assert container.gallery_service() is container.gallery_service()
+    await container.aclose()
+
+
 async def test_token_service_fails_loud_without_secret() -> None:
     # The real deploy path: no BE_JWT_SECRET -> building the token service (and thus
     # the auth service) fails loud rather than minting tokens with an empty key.

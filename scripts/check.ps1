@@ -6,7 +6,7 @@
 .DESCRIPTION
     Mirrors the GitHub Actions `check` job so failures surface before pushing.
     On Windows the Linux-only heavy deps (insightface/decord) are absent by
-    design, so their adapter tests skip — everything else runs. Exits non-zero
+    design, so their adapter tests skip - everything else runs. Exits non-zero
     on the first failing step.
 
 .EXAMPLE
@@ -32,7 +32,7 @@ function Invoke-Step {
 Invoke-Step "ruff check" { uv run ruff check . }
 Invoke-Step "mypy" { uv run mypy . }
 
-# Layering invariant (architecture §5): no concrete ML/IO lib in the pure layers.
+# Layering invariant (architecture section 5): no concrete ML/IO lib in the pure layers.
 Write-Host "==> layering invariant" -ForegroundColor Cyan
 $pureDirs = @(
     "services/ml_service/src/ml_service/domain",

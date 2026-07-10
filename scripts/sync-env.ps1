@@ -8,7 +8,7 @@
     appended to .env, carrying the example's default/placeholder value. Commented
     and blank lines in .env.example are ignored, so intentionally-commented keys
     (e.g. ML_QUEUE_CONSUMER) are never added. Existing .env values are never
-    touched or overwritten — real secrets already in .env stay as they are. Prints
+    touched or overwritten - real secrets already in .env stay as they are. Prints
     exactly which keys were added.
 
     Pairs with the working rule "Every new env var goes in .env.example" (CLAUDE.md):

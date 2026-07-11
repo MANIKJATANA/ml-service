@@ -115,10 +115,14 @@ Two tests, one file (`tests/adapters/test_ml_read_contract.py`):
   new live-schema contract test actually execute in CI. It applies **both** Alembic
   chains first (backend + ML) as an **apply-and-coexist smoke** — this is the first
   place CI runs `alembic upgrade head`, proving both chains apply and coexist in one DB
-  via distinct version tables ([0023](0023-backend-db-schema.md)). The gated tests then
-  **self-provision** their own tables per fixture (the repo tests their `Base.metadata`,
-  the reader its reduced `matches`, the contract test the full one), independent of the
-  migrated tables — so a disposable test DB is assumed throughout.
+  via distinct version tables ([0023](0023-backend-db-schema.md)) — then **resets the
+  schema to empty** (`DROP SCHEMA public CASCADE; CREATE SCHEMA public`) before pytest.
+  The gated tests **self-provision** their own tables per fixture (the repo tests their
+  `Base.metadata`, the reader its reduced `matches`, the contract test the full one) and
+  **assume an empty DB**; the reset is what makes that assumption hold. Without it the ML
+  migration's `student_media_appearances` **view** (which depends on the detection audit
+  tables) blocks `Base.metadata.drop_all` in the ML repo-test teardown — so the reset is
+  precisely what makes the gated tests independent of the migrated schema.
 - **`docker-compose.yml` `backend` service**: add `redis` (`condition:
   service_healthy`) to `depends_on` and set `BE_REDIS_URL` / `BE_QUEUE_STREAM` /
   `BE_CORS_ORIGINS` — the enqueue path ([0027](0027-events-media-enqueue-status.md))
@@ -178,3 +182,23 @@ Two tests, one file (`tests/adapters/test_ml_read_contract.py`):
   `integration` job); `scripts/check.ps1` (grep mirror gains `storage3`/`pydantic`);
   `CLAUDE.md`; `decisions/README.md`.
 - **No migration. No ML-service change.**
+
+## Follow-up (2026-07-12): integration-job schema reset
+
+The first CI run of the new `integration` job failed: the ML gated repo tests
+(`services/ml_service/tests/adapters/test_postgres_repos.py`) errored in fixture
+teardown with `cannot drop table face_detection_candidates because other objects
+depend on it` — the migration-created `student_media_appearances` **view**. Root cause:
+the job applied both Alembic chains and then ran the gated tests **in the same DB**, but
+those fixtures self-provision via `Base.metadata.{create,drop}_all` and assume an empty
+DB. The migrated ML view (not part of `Base.metadata`) depends on the detection tables,
+so `drop_all` couldn't drop them. The doc's original claim that the gated tests are
+"independent of the migrated tables" was aspirational — nothing enforced it.
+
+Fix: after the apply-and-coexist smoke, **reset the schema to empty**
+(`DROP SCHEMA public CASCADE; CREATE SCHEMA public`, via `psql`) before pytest, so the
+gated fixtures get the empty DB they assume. `postgresql-client` was added to the job's
+apt install to guarantee `psql`. This is a CI-only change (still no migration, no
+application-code change); §4 above is updated to describe it. (A local-dev caveat
+remains: pointing the gated ML repo tests at a DB that already has the ML migrations
+applied hits the same view-dependency — the tests assume a *disposable, empty* DB.)

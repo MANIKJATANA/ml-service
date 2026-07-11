@@ -57,8 +57,12 @@ jobs:
   # here they exercise the Postgres repositories, the Phase-6 ML-results reader, and
   # the matches contract test against live Postgres. Applying both Alembic chains first
   # is an apply-and-coexist smoke (the first CI run of `alembic upgrade head`, proving
-  # the two chains coexist in one DB via distinct version tables). The gated tests then
-  # self-provision their own tables per fixture, independent of the migrated schema.
+  # the two chains coexist in one DB via distinct version tables). We then RESET the
+  # schema to empty before pytest: the gated fixtures self-provision via
+  # `Base.metadata.{create,drop}_all` and assume an empty DB, but the ML migration's
+  # `student_media_appearances` view depends on the detection tables and would block
+  # `drop_all` in the repo-test teardown. The reset makes the gated tests genuinely
+  # independent of the migrated schema.
   integration:
     runs-on: ubuntu-latest
     services:
@@ -98,8 +102,9 @@ jobs:
         with:
           enable-cache: true
 
-      - name: Install system libs for OpenCV
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libgl1 libglib2.0-0
+      # libgl/glib for OpenCV; postgresql-client (psql) for the schema reset below.
+      - name: Install system libs (OpenCV + psql)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libgl1 libglib2.0-0 postgresql-client
 
       - name: Sync workspace
         run: uv sync --all-packages --frozen
@@ -109,6 +114,14 @@ jobs:
 
       - name: Apply ML migrations
         run: uv run alembic -c services/ml_service/alembic.ini upgrade head
+
+      # Reset to an empty schema so the gated fixtures (Base.metadata.{create,drop}_all,
+      # which assume an empty DB) aren't blocked by the migration-created
+      # student_media_appearances view. The apply above already served as the smoke.
+      - name: Reset public schema (gated tests self-provision on a clean DB)
+        env:
+          PGPASSWORD: app
+        run: psql -h localhost -U app -d app -v ON_ERROR_STOP=1 -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"
 
       - name: Pytest (gated DB/Redis tests active)
         run: uv run pytest

@@ -12,6 +12,10 @@ services:
       dockerfile: Dockerfile
     ports:
       - "3000:3000"
+    environment:
+      # The Next server (BFF) reaches FastAPI over the compose network — not the
+      # host 127.0.0.1 fallback used for local `npm run dev` (decisions/0031).
+      BFF_BACKEND_ORIGIN: http://backend:8000
     depends_on:
       - backend
 

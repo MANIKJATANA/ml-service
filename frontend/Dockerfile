@@ -3,7 +3,10 @@
 FROM node:24-slim AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
-RUN npm ci
+# `npm install` (not `npm ci`): the lockfile is generated on the Windows dev host,
+# and npm omits some cross-platform optional deps (Tailwind v4 oxide's wasm/@emnapi
+# transitive deps), so `npm ci`'s exact-sync check fails on linux. install reconciles.
+RUN npm install --no-audit --no-fund
 
 FROM node:24-slim AS builder
 WORKDIR /app

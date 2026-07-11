@@ -6,10 +6,12 @@ configures structured logging and wires the composition-root container onto ``ap
 so ``/readyz`` can probe dependencies; on shutdown it disposes the container.
 """
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
+from time import perf_counter
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Response
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from backend import __version__
@@ -29,12 +31,14 @@ from backend.domain.errors import (
     AuthenticationError,
     AuthorizationError,
     BackendError,
+    ConfigurationError,
     ConflictError,
     LimitExceededError,
     NotFoundError,
     UpstreamError,
     ValidationError,
 )
+from backend.observability import metrics
 from backend.observability.logging import configure_logging
 from backend.settings import settings
 
@@ -92,6 +96,61 @@ def _register_error_handlers(app: FastAPI) -> None:
     app.add_exception_handler(BackendError, on_backend_error)  # type: ignore[arg-type]
 
 
+def _install_metrics(app: FastAPI) -> None:
+    """HTTP metrics middleware + the Prometheus scrape endpoint (decisions/0029)."""
+
+    @app.middleware("http")
+    async def _record_metrics(
+        request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
+        start = perf_counter()
+        status_code = 500  # stays 500 if call_next raises before a response exists
+        try:
+            response = await call_next(request)
+            status_code = response.status_code
+            return response
+        finally:
+            # The matched ROUTE TEMPLATE (set on the scope after routing), never the
+            # concrete path — unmatched requests collapse to one fixed label so a
+            # hostile 404 scan can't explode the series count.
+            route = request.scope.get("route")
+            template = getattr(route, "path", None) or "__unmatched__"
+            metrics.record_request(
+                request.method, template, status_code, perf_counter() - start
+            )
+
+    @app.get("/metrics", tags=["observability"], include_in_schema=False)
+    def prometheus_metrics() -> Response:
+        body, content_type = metrics.render_latest()
+        return Response(content=body, media_type=content_type)
+
+
+def _install_cors(app: FastAPI) -> None:
+    """Install CORS only when BE_CORS_ORIGINS lists at least one origin.
+
+    Added after the metrics middleware so it is the outermost layer: preflight
+    OPTIONS short-circuit here and don't inflate the request metrics.
+    """
+    origins = [o.strip() for o in settings.cors_origins.split(",") if o.strip()]
+    if not origins:
+        return
+    if "*" in origins:
+        # A credentialed wildcard makes Starlette reflect (and set allow-credentials on)
+        # ANY origin, so any site could read authenticated responses. Fail loud (the
+        # repo's config philosophy, cf. the empty jwt_secret) — require explicit origins.
+        raise ConfigurationError(
+            "BE_CORS_ORIGINS='*' is unsupported: a credentialed wildcard would reflect "
+            "any origin. List explicit origins instead."
+        )
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+
 def create_app() -> FastAPI:
     app = FastAPI(title="Backend", version=__version__, lifespan=lifespan)
     app.include_router(health.router)
@@ -103,6 +162,8 @@ def create_app() -> FastAPI:
     app.include_router(media.router)
     app.include_router(galleries.router)
     app.include_router(me.router)
+    _install_metrics(app)
+    _install_cors(app)
     _register_error_handlers(app)
     return app
 

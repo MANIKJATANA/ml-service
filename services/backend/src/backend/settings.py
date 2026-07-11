@@ -22,6 +22,11 @@ class Settings(BaseSettings):
     service_name: str = "backend"
     log_level: str = "INFO"
     log_json: bool = True  # False -> human-readable console logs for local dev
+    # CORS allow-list for browser callers (the FE), comma-separated. Empty -> the
+    # CORS middleware is not installed (nothing changes for non-browser callers).
+    # Must be explicit origins: "*" is rejected at startup (a credentialed wildcard
+    # would let any origin read authenticated responses).
+    cors_origins: str = ""
 
     # --- ML service (HTTP enrollment API) --------------------------------
     ml_service_url: str = "http://ml-service:8000"

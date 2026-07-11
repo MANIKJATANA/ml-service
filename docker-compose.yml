@@ -26,10 +26,18 @@ services:
     environment:
       BE_ML_SERVICE_URL: http://ml-service:8000
       BE_DATABASE_URL: ${BE_DATABASE_URL:-postgresql+asyncpg://app:app@postgres:5432/app}
+      # Enqueue path (decisions/0027): POST /events/{id}/process XADDs to the shared
+      # stream the ML worker consumes; BE_QUEUE_STREAM MUST equal ML_QUEUE_STREAM.
+      BE_REDIS_URL: ${BE_REDIS_URL:-redis://redis:6379/0}
+      BE_QUEUE_STREAM: ${BE_QUEUE_STREAM:-inference-jobs}
+      # CORS allow-list for the FE (browser); empty -> no CORS middleware.
+      BE_CORS_ORIGINS: ${BE_CORS_ORIGINS:-}
     ports:
       - "8001:8000"
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
       backend-migrate:
         condition: service_completed_successfully

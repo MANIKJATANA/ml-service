@@ -24,6 +24,8 @@ dependencies = [
     "supabase>=2.0",
     # Phase 5 (decisions/0027): Redis Streams job producer (enqueue inference jobs).
     "redis>=5",
+    # Phase 7 (decisions/0029): Prometheus HTTP metrics at GET /metrics.
+    "prometheus-client>=0.20",
 ]
 
 [build-system]

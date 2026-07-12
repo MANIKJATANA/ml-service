@@ -48,6 +48,53 @@ export interface UploadUrlResponse {
   max_upload_mb: number;
 }
 
+export type EventStatus = "active" | "archived";
+export type EventProcessingStatus = "not_started" | "queued" | "processing" | "completed";
+export type MediaType = "image" | "video";
+export type MediaProcessingStatus = "pending" | "completed";
+
+/**
+ * An event whose media is distributed to appearing students (decisions/0027).
+ * `status` is the lifecycle (active/archived); `processing_status` is the event-level
+ * inference state the FE polls. `event_date` is an ISO date (YYYY-MM-DD); the rest are
+ * ISO datetimes.
+ */
+export interface EventResponse {
+  id: string;
+  school_id: string;
+  name: string;
+  description: string | null;
+  event_date: string | null;
+  status: EventStatus;
+  processing_status: EventProcessingStatus;
+  enqueued_at: string | null;
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** One uploaded event photo + its per-photo processing state (decisions/0027). */
+export interface MediaResponse {
+  id: string;
+  school_id: string;
+  event_id: string;
+  storage_path: string;
+  media_type: MediaType;
+  processing_status: MediaProcessingStatus;
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** The event-level status the FE polls + a per-photo breakdown (decisions/0027). */
+export interface EventStatusResponse {
+  event_id: string;
+  processing_status: EventProcessingStatus;
+  pending: number;
+  completed: number;
+  total: number;
+}
+
 /** What the BFF login handler returns to the browser — never the tokens. */
 export interface LoginResult {
   must_change_password: boolean;

@@ -7,6 +7,7 @@
 export type Role = "platform_admin" | "school_admin" | "teacher" | "student";
 export type UserStatus = "active" | "disabled";
 export type SchoolStatus = "active" | "suspended";
+export type EnrollmentStatus = "pending" | "enrolled" | "failed";
 
 /** The one user shape the API exposes (GET /v1/auth/me + onboarding responses). */
 export interface UserResponse {
@@ -26,6 +27,25 @@ export interface SchoolResponse {
   status: SchoolStatus;
   created_at: string;
   updated_at: string;
+}
+
+/** A student profile (decisions/0026); `email` is the linked login's (decisions/0033). */
+export interface StudentResponse {
+  id: string;
+  school_id: string;
+  name: string;
+  email: string;
+  reference_photo_path: string;
+  enrollment_status: EnrollmentStatus;
+  created_at: string;
+  updated_at: string;
+}
+
+/** A short-lived direct-to-Supabase upload target (the token is inside `upload_url`). */
+export interface UploadUrlResponse {
+  upload_url: string;
+  object_path: string;
+  max_upload_mb: number;
 }
 
 /** What the BFF login handler returns to the browser — never the tokens. */

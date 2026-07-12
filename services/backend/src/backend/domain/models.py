@@ -108,6 +108,7 @@ class Student:
     school_id: str
     user_id: str
     name: str
+    email: str  # the linked login's email — denormalized onto the read model (0033)
     reference_photo_path: str
     enrollment_status: EnrollmentStatus
     created_at: datetime

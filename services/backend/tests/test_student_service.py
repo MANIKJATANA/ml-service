@@ -36,6 +36,7 @@ def _svc(
     urepo = FakeUserRepo(users or [])
     strepo = FakeStudentRepo()
     urepo.link_cascade(strepo.remove_by_user)  # mirror the FK cascade
+    strepo.link_users(urepo.email_of)  # mirror the users JOIN (email on student reads)
     ml = ml_client or FakeMlClient()
     svc = StudentService(
         strepo,
@@ -70,6 +71,7 @@ async def test_create_student_provisions_login_and_enrolls() -> None:
     )
     assert student.name == "Bart"  # trimmed
     assert student.school_id == _S1
+    assert student.email == "bart@x.io"  # the login email, joined onto the read model
     assert student.enrollment_status is EnrollmentStatus.ENROLLED
 
     # A login account was created: role=student, temp password, normalized email.

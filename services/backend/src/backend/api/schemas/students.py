@@ -38,6 +38,7 @@ class StudentResponse(BaseModel):
     id: str
     school_id: str
     name: str
+    email: str  # the student's login email (decisions/0033)
     reference_photo_path: str
     enrollment_status: EnrollmentStatus
     created_at: datetime
@@ -49,6 +50,7 @@ class StudentResponse(BaseModel):
             id=student.id,
             school_id=student.school_id,
             name=student.name,
+            email=student.email,
             reference_photo_path=student.reference_photo_path,
             enrollment_status=student.enrollment_status,
             created_at=student.created_at,

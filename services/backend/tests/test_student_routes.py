@@ -101,7 +101,8 @@ def test_school_admin_creates_student_in_own_school() -> None:
     # Tenant isolation: the student lands in the admin's own school, from the token.
     assert body["school_id"] == "s1" and body["name"] == "Bart"
     assert body["enrollment_status"] == "enrolled"
-    assert "password_hash" not in body and "email" not in body
+    # email is now exposed (0033) — the student's login email; the hash never is.
+    assert body["email"] == "bart@s1.io" and "password_hash" not in body
     # The ML enrollment seam was invoked for this student's photo.
     ml = container.ml_enrollment_client()
     assert isinstance(ml, FakeMlClient) and ml.enroll_calls[0][2] == [_PATH]

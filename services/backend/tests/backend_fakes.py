@@ -99,6 +99,7 @@ def make_student(
     school_id: str = "school-1",
     user_id: str = "user-1",
     name: str = "Bart Simpson",
+    email: str = "student@example.com",
     reference_photo_path: str = "reference-photos/school-1/photo.jpg",
     enrollment_status: EnrollmentStatus = EnrollmentStatus.PENDING,
 ) -> Student:
@@ -107,6 +108,7 @@ def make_student(
         school_id=school_id,
         user_id=user_id,
         name=name,
+        email=email,
         reference_photo_path=reference_photo_path,
         enrollment_status=enrollment_status,
         created_at=_NOW,
@@ -263,6 +265,11 @@ class FakeUserRepo:
     async def get(self, user_id: str) -> User | None:
         return self._by_id.get(user_id)
 
+    def email_of(self, user_id: str) -> str:
+        """Sync helper: the login email for a user_id (or "") — mirrors the repo JOIN."""
+        user = self._by_id.get(user_id)
+        return user.email if user is not None else ""
+
     async def get_by_email(self, email: str) -> User | None:
         return self._by_email.get(normalize_email(email))
 
@@ -331,6 +338,12 @@ class FakeStudentRepo:
         self._seq = 0
         # Set to raise from create() to exercise the compensating-delete path (0026).
         self.fail_create: bool = False
+        # Resolves a student's login email by user_id — mirrors the repo's users JOIN
+        # (0033). Wired to the FakeUserRepo in tests; defaults to a placeholder.
+        self._email_of: Callable[[str], str] = lambda _uid: "student@example.com"
+
+    def link_users(self, resolver: Callable[[str], str]) -> None:
+        self._email_of = resolver
 
     async def create(
         self, *, school_id: str, user_id: str, name: str, reference_photo_path: str
@@ -343,6 +356,7 @@ class FakeStudentRepo:
             school_id=school_id,
             user_id=user_id,
             name=name,
+            email=self._email_of(user_id),
             reference_photo_path=reference_photo_path,
             enrollment_status=EnrollmentStatus.PENDING,
         )
@@ -644,6 +658,7 @@ class SeededContainer(Container):
             self._seed_students, FakeStudentRepo
         ):
             self._seed_users.link_cascade(self._seed_students.remove_by_user)
+            self._seed_students.link_users(self._seed_users.email_of)
 
     def user_repo(self) -> UserRepository:
         return self._seed_users

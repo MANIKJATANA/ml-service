@@ -1,6 +1,6 @@
 "use client";
 
-import { Archive, Pencil, Play, RotateCcw, Upload } from "lucide-react";
+import { Archive, Images, Pencil, Play, RotateCcw, Upload } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { type FormEvent, useState } from "react";
@@ -233,6 +233,15 @@ export default function EventDetailPage() {
             title={event.name}
             actions={
               <>
+                {status && status.total > 0 ? (
+                  <Link
+                    href={`/events/${event.id}/gallery`}
+                    className={buttonVariants({ variant: "secondary" })}
+                  >
+                    <Images className="size-4" aria-hidden="true" />
+                    View gallery
+                  </Link>
+                ) : null}
                 <EditEventDialog
                   event={event}
                   onSaved={(e) => eventMutate(e, { revalidate: false })}

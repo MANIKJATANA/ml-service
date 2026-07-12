@@ -1,12 +1,17 @@
 import { bffFetch } from "./client";
 import type {
+  DownloadResponse,
+  EventForStudentResponse,
   EventResponse,
   EventStatus,
   EventStatusResponse,
+  GalleryMediaResponse,
   LoginResult,
+  MediaAppearanceResponse,
   MediaResponse,
   MediaType,
   SchoolResponse,
+  StudentInEventResponse,
   StudentResponse,
   UploadUrlResponse,
   UserResponse,
@@ -203,4 +208,49 @@ export function listEventMedia(eventId: string): Promise<MediaResponse[]> {
 
 export function getMedia(mediaId: string): Promise<MediaResponse> {
   return bffFetch<MediaResponse>(`/api/v1/media/${encodeURIComponent(mediaId)}`);
+}
+
+// --- Galleries + download (F5, gallery:view_all; download is entitlement-scoped) ---
+
+export function eventStudents(eventId: string): Promise<StudentInEventResponse[]> {
+  return bffFetch<StudentInEventResponse[]>(
+    `/api/v1/events/${encodeURIComponent(eventId)}/students`,
+  );
+}
+
+export function eventStudentMedia(
+  eventId: string,
+  studentId: string,
+): Promise<GalleryMediaResponse[]> {
+  return bffFetch<GalleryMediaResponse[]>(
+    `/api/v1/events/${encodeURIComponent(eventId)}/students/${encodeURIComponent(studentId)}/media`,
+  );
+}
+
+export function studentEvents(studentId: string): Promise<EventForStudentResponse[]> {
+  return bffFetch<EventForStudentResponse[]>(
+    `/api/v1/students/${encodeURIComponent(studentId)}/events`,
+  );
+}
+
+export function studentMedia(
+  studentId: string,
+  eventId?: string,
+): Promise<GalleryMediaResponse[]> {
+  const query = eventId ? `?event_id=${encodeURIComponent(eventId)}` : "";
+  return bffFetch<GalleryMediaResponse[]>(
+    `/api/v1/students/${encodeURIComponent(studentId)}/media${query}`,
+  );
+}
+
+export function mediaAppearances(mediaId: string): Promise<MediaAppearanceResponse[]> {
+  return bffFetch<MediaAppearanceResponse[]>(
+    `/api/v1/media/${encodeURIComponent(mediaId)}/appearances`,
+  );
+}
+
+/** Mint a short-lived signed URL for one media's bytes (entitlement-gated: staff any
+ *  in-school, a student only media they appear in, else 404). */
+export function downloadMedia(mediaId: string): Promise<DownloadResponse> {
+  return bffFetch<DownloadResponse>(`/api/v1/media/${encodeURIComponent(mediaId)}/download`);
 }

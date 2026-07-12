@@ -5,6 +5,9 @@ import { useParams, useRouter } from "next/navigation";
 import { useState } from "react";
 import { mutate as globalMutate } from "swr";
 
+import { FilterChips } from "@/components/gallery/filter-chips";
+import { GridSkeleton } from "@/components/gallery/grid-skeleton";
+import { PhotoGrid } from "@/components/gallery/photo-grid";
 import { StudentAvatar } from "@/components/ui/avatar";
 import { Breadcrumb } from "@/components/ui/breadcrumb";
 import { Button } from "@/components/ui/button";
@@ -17,9 +20,51 @@ import { StatusPill } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
 import { deleteStudent, enrollStudent } from "@/lib/api/endpoints";
 import { isApiError } from "@/lib/api/errors";
+import { useStudentEvents, useStudentMedia } from "@/lib/hooks/use-galleries";
 import { useStudent } from "@/lib/hooks/use-students";
 import { ENROLL_LABEL, ENROLL_TONE } from "@/lib/students/enrollment";
 import { formatDate } from "@/lib/utils";
+
+function StudentEventPhotos({ studentId, eventId }: { studentId: string; eventId: string }) {
+  const { media, isLoading, error } = useStudentMedia(studentId, eventId);
+  if (isLoading) return <GridSkeleton />;
+  if (error) return <p className="text-body-sm text-ink-secondary">Couldn&apos;t load photos.</p>;
+  if (!media || media.length === 0) {
+    return <p className="text-body-sm text-ink-secondary">No photos in this event.</p>;
+  }
+  return <PhotoGrid mediaIds={media.map((m) => m.media_id)} />;
+}
+
+/** Events the student appears in → their photos in the selected one. Hidden until the
+ *  student has been matched into at least one photo (decisions/0035). */
+function AppearsInSection({ studentId }: { studentId: string }) {
+  const { events, isLoading, error } = useStudentEvents(studentId);
+  const [picked, setPicked] = useState<string | null>(null);
+
+  if (isLoading) {
+    return (
+      <Card className="flex flex-col gap-4 p-6">
+        <Skeleton className="h-5 w-32" />
+        <GridSkeleton />
+      </Card>
+    );
+  }
+  if (error || !events || events.length === 0) return null;
+
+  const activeId = picked ?? events[0].event_id;
+  return (
+    <Card className="flex flex-col gap-4 p-6">
+      <h2 className="text-headline text-ink">Appears in</h2>
+      <FilterChips
+        ariaLabel="Events"
+        items={events.map((e) => ({ id: e.event_id, label: e.name, count: e.media_count }))}
+        activeId={activeId}
+        onSelect={setPicked}
+      />
+      <StudentEventPhotos studentId={studentId} eventId={activeId} />
+    </Card>
+  );
+}
 
 export default function StudentDetailPage() {
   const { studentId } = useParams<{ studentId: string }>();
@@ -154,6 +199,7 @@ export default function StudentDetailPage() {
               unavailable. Try Re-enroll, or delete and re-add with a clearer photo.
             </p>
           ) : null}
+          <AppearsInSection studentId={studentId} />
         </>
       )}
 

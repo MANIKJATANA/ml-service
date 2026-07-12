@@ -95,6 +95,42 @@ export interface EventStatusResponse {
   total: number;
 }
 
+/** A photo in a gallery — metadata only; fetch bytes via the download endpoint (0028). */
+export interface GalleryMediaResponse {
+  media_id: string;
+  event_id: string;
+  media_type: MediaType;
+}
+
+/** A student who appears in an event + how many of its photos they're in (0028). */
+export interface StudentInEventResponse {
+  student_id: string;
+  name: string;
+  media_count: number;
+}
+
+/** An event a student appears in + how many of its photos they're in (0028). */
+export interface EventForStudentResponse {
+  event_id: string;
+  name: string;
+  event_date: string | null;
+  media_count: number;
+}
+
+/** A student who appears in one photo + that match's decision facts (0028). */
+export interface MediaAppearanceResponse {
+  student_id: string;
+  name: string;
+  confidence: number;
+  needs_review: boolean;
+}
+
+/** A short-lived signed URL to fetch one media's bytes (0028). */
+export interface DownloadResponse {
+  download_url: string;
+  expires_in_s: number;
+}
+
 /** What the BFF login handler returns to the browser — never the tokens. */
 export interface LoginResult {
   must_change_password: boolean;

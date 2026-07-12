@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 
+import { SwrProvider } from "@/components/swr-provider";
 import { ToastProvider } from "@/components/ui/toast";
 
 import "./globals.css";
@@ -28,7 +29,9 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${geistSans.variable} ${geistMono.variable}`}>
       <body>
-        <ToastProvider>{children}</ToastProvider>
+        <SwrProvider>
+          <ToastProvider>{children}</ToastProvider>
+        </SwrProvider>
       </body>
     </html>
   );

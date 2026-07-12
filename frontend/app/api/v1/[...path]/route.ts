@@ -41,17 +41,23 @@ async function proxy(req: NextRequest, path: string): Promise<NextResponse> {
   const access = req.cookies.get(ACCESS_COOKIE)?.value;
   const refresh = req.cookies.get(REFRESH_COOKIE)?.value;
 
-  let backendRes = await callBackend(req, path, access, body);
+  let backendRes: Response;
   let rotated: Awaited<ReturnType<typeof refreshTokens>> = null;
+  try {
+    backendRes = await callBackend(req, path, access, body);
 
-  if (backendRes.status === 401 && refresh) {
-    rotated = await refreshTokens(refresh);
-    if (rotated?.access_token && rotated.refresh_token) {
-      backendRes = await callBackend(req, path, rotated.access_token, body);
-    } else {
-      // A malformed/failed refresh is unrecoverable — fall through to clearing.
-      rotated = null;
+    if (backendRes.status === 401 && refresh) {
+      rotated = await refreshTokens(refresh);
+      if (rotated?.access_token && rotated.refresh_token) {
+        backendRes = await callBackend(req, path, rotated.access_token, body);
+      } else {
+        // A malformed/failed refresh is unrecoverable — fall through to clearing.
+        rotated = null;
+      }
     }
+  } catch {
+    // Backend unreachable — return a clean 502 (not an unhandled 500).
+    return NextResponse.json({ detail: "Service unavailable" }, { status: 502 });
   }
 
   const resBody = await backendRes.text();

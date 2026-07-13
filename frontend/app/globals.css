@@ -99,3 +99,19 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
+
+/*
+ * Reduced-motion floor (D8): honour the OS preference app-wide — collapse transitions,
+ * animations, and smooth-scroll to near-instant. Covers the masonry hover zoom, skeleton
+ * pulses, spinner, and lightbox/dialog transitions in one place.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

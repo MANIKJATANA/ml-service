@@ -15,7 +15,7 @@ interface SignedImageProps {
   /** Wrapper class for the loading / error states (e.g. to size them). */
   className?: string;
   onDark?: boolean;
-  loading?: "spinner" | "square";
+  loading?: "spinner" | "square" | "block";
   fallbackText?: string;
 }
 
@@ -65,6 +65,11 @@ export function SignedImage({
   if (!download) {
     if (loading === "square") {
       return <div className={cn("aspect-square w-full animate-pulse bg-surface-2", className)} />;
+    }
+    if (loading === "block") {
+      // Masonry placeholder: the caller supplies the aspect (unknown until the image
+      // loads, then it takes its natural size and the column reflows).
+      return <div className={cn("w-full animate-pulse bg-surface-2", className)} />;
     }
     return (
       <div className={cn("flex items-center justify-center", className)}>

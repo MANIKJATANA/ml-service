@@ -186,7 +186,7 @@ cache-invalidation, fail-loud on model-version mismatch; model swap = offline re
 | Event processing status + counts | BE + FE | ✅ | live polling; per-photo counts exist |
 | Galleries (event↔student↔media) | BE + FE | ✅ | All/By-student; student self-view |
 | Download (entitlement-scoped) | BE + FE | ✅ | signed URL; staff any in-school, student only own |
-| **Notify / deliver / share** | — | ❌ **absent** | no email/push/share-link/bulk-export/download-all |
+| **Notify / deliver / share** | — | ❌ **absent** | no email/push/share-link; a student **download-all** (client-zip) landed in BP3, but there's still no *delivery* (BP4) |
 | Dashboards / analytics / counts | BE + FE (BP1) | ⚠️ partial | **school command center landed** (decisions/0038): `GET /v1/dashboard` rollups + needs-attention + nav scent; list-row counts + platform/analytics rollups still pending (BP2+) |
 | Search / filter / sort on lists | FE (BP2) | ✅ | all four admin lists (schools/staff/students/events): client search + sort + status/enrollment filter chips + per-row counts (decisions/0039). **Bulk** actions still absent (BP7). |
 | Self-serve onboarding / bulk import / billing | — | ❌ **absent** | manual; `max_teachers` is the only quota |
@@ -217,7 +217,7 @@ Route map (17): `(auth)` `/login` `/change-password` · root `/` + `error`/`not-
 | `/events/[id]/upload` | Bulk upload | Multi-file dropzone + per-file progress | No inline retry; no size guidance; no "distribute next" hand-off |
 | `/events/[id]/gallery` | Browse + triage | Tabs All / By-student, masonry grid | **No needs-review lens**; no download-all; grid plain |
 | `/photos/[id]` | Inspect one photo | Big image + appearances (confidence + review pill) | Only place confidence/review show |
-| `/me/events` | Student "My Photos" | FilterChips + reused grid (appearances hidden) | No welcome, no context, no "new since," no download-all |
+| `/me/events` | Student "My Photos" | **Pinterest-grade (BP3)**: warm hero + first-visit welcome + "N new since last visit"; natural-aspect **masonry** w/ hover-download; **download-all** (client-zip); appearances hidden | Lightbox lacks per-photo event context (deferred) |
 
 ### 7b. Backend — 41 endpoints + the distribution model
 

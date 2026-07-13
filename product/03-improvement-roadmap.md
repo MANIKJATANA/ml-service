@@ -76,7 +76,7 @@ convention. Order = my recommended build order.
 - **Persona:** staff/admin. **Source lens:** T5, P5, P8, P3. **Acceptance:** each list is searchable/sortable, every
   row carries the count its job needs, filters work, gates green.
 
-### BP3 — Student Receive Experience · **Effort M · Impact H · FE only · no BE · no ML**
+### BP3 — Student Receive Experience · **Effort M · Impact H · FE only · no BE · no ML** ✅ landed (decisions/0040)
 - **Problem:** the student gallery is Linear-plain, not the emotional core it should be; no welcome, context, or
   "new since." Fails **P9/T2**.
 - **Change:** a **Pinterest-grade** `/me/events` — real aspect-ratio masonry (image is the hero), light event

@@ -20,7 +20,7 @@ export function PhotoTile({ mediaId, index, onOpen }: PhotoTileProps) {
       type="button"
       onClick={() => onOpen(index)}
       aria-label={`Open photo ${index + 1}`}
-      className="mb-2 block w-full overflow-hidden rounded-card border border-hairline bg-surface-2 transition-colors hover:border-hairline-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="block w-full overflow-hidden rounded-card border border-hairline bg-surface-2 transition-colors hover:border-hairline-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
       <SignedImage
         mediaId={mediaId}

@@ -1,5 +1,6 @@
 "use client";
 
+import * as DialogPrimitive from "@radix-ui/react-dialog";
 import {
   Building2,
   CalendarDays,
@@ -8,11 +9,13 @@ import {
   LayoutDashboard,
   LogOut,
   type LucideIcon,
+  Menu,
   Users,
+  X,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import type { ReactNode } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { mutate } from "swr";
 
 import { logout } from "@/lib/api/endpoints";
@@ -26,8 +29,7 @@ interface NavItem {
   icon: LucideIcon;
 }
 
-// Nav is filtered to the caller's role. Targets not yet built (F2–F6) render a
-// "coming soon" placeholder so the shell is fully navigable from F1.
+// Nav is filtered to the caller's role.
 const NAV_BY_ROLE: Record<Role, NavItem[]> = {
   platform_admin: [{ href: "/schools", label: "Schools", icon: Building2 }],
   school_admin: [
@@ -44,17 +46,88 @@ const NAV_BY_ROLE: Record<Role, NavItem[]> = {
   student: [{ href: "/me/events", label: "My Photos", icon: Images }],
 };
 
+/** Role-filtered nav links; shared by the desktop sidebar and the mobile drawer. */
+function NavList({
+  items,
+  pathname,
+  onNavigate,
+}: {
+  items: NavItem[];
+  pathname: string;
+  onNavigate?: () => void;
+}) {
+  return (
+    <nav className="flex flex-1 flex-col gap-0.5 p-3">
+      {items.map((item) => {
+        const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
+        const Icon = item.icon;
+        return (
+          <Link
+            key={item.href}
+            href={item.href}
+            onClick={onNavigate}
+            aria-current={active ? "page" : undefined}
+            className={cn(
+              "flex items-center gap-3 rounded-button px-3 py-2 text-body font-medium transition-colors",
+              active
+                ? "bg-surface-2 text-accent-hover"
+                : "text-ink-secondary hover:bg-surface hover:text-ink",
+            )}
+          >
+            <Icon className="size-4 shrink-0" aria-hidden="true" />
+            {item.label}
+          </Link>
+        );
+      })}
+    </nav>
+  );
+}
+
+/** Email + role + sign out; shared by the sidebar and the drawer. */
+function UserFooter({ user, onSignOut }: { user: UserResponse; onSignOut: () => void }) {
+  return (
+    <div className="border-t border-hairline p-3">
+      <div className="flex flex-col gap-0.5 px-2 pb-2">
+        <span className="truncate text-body-sm font-medium text-ink" title={user.email}>
+          {user.email}
+        </span>
+        <span className="text-body-sm text-ink-muted">{ROLE_LABELS[user.role]}</span>
+      </div>
+      <button
+        type="button"
+        onClick={onSignOut}
+        className="flex w-full items-center gap-3 rounded-button px-3 py-2 text-body font-medium text-ink-secondary transition-colors hover:bg-surface hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        <LogOut className="size-4 shrink-0" aria-hidden="true" />
+        Sign out
+      </button>
+    </div>
+  );
+}
+
 export function AppShell({ user, children }: { user: UserResponse; children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const items = NAV_BY_ROLE[user.role];
+
+  // Close the mobile drawer if the viewport grows to desktop while it's open — otherwise
+  // Radix keeps body scroll locked + focus trapped on a now-hidden (sm:hidden) panel.
+  useEffect(() => {
+    const mql = window.matchMedia("(min-width: 640px)");
+    function onChange() {
+      if (mql.matches) setDrawerOpen(false);
+    }
+    mql.addEventListener("change", onChange);
+    return () => mql.removeEventListener("change", onChange);
+  }, []);
 
   async function handleLogout() {
     try {
       await logout();
     } catch {
-      // Clear-and-go regardless; the cookies are cleared server-side on success,
-      // and proxy.ts will bounce to /login if they weren't.
+      // Clear-and-go regardless; cookies are cleared server-side on success, and proxy.ts
+      // bounces to /login if they weren't.
     }
     // Drop the cached user so nothing reads a stale session after logout.
     await mutate("auth/me", undefined, { revalidate: false });
@@ -64,61 +137,56 @@ export function AppShell({ user, children }: { user: UserResponse; children: Rea
 
   return (
     <div className="flex min-h-dvh bg-surface">
+      {/* Desktop sidebar */}
       <aside className="hidden w-60 shrink-0 flex-col border-r border-hairline bg-canvas sm:flex">
         <div className="flex h-14 items-center border-b border-hairline px-5">
           <span className="text-headline text-ink">Photos</span>
         </div>
-        <nav className="flex flex-1 flex-col gap-0.5 p-3">
-          {items.map((item) => {
-            const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
-            const Icon = item.icon;
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                aria-current={active ? "page" : undefined}
-                className={cn(
-                  "flex items-center gap-3 rounded-button px-3 py-2 text-body font-medium transition-colors",
-                  active
-                    ? "bg-surface-2 text-accent-hover"
-                    : "text-ink-secondary hover:bg-surface hover:text-ink",
-                )}
-              >
-                <Icon className="size-4 shrink-0" aria-hidden="true" />
-                {item.label}
-              </Link>
-            );
-          })}
-        </nav>
-        <div className="border-t border-hairline p-3">
-          <div className="flex flex-col gap-0.5 px-2 pb-2">
-            <span className="truncate text-body-sm font-medium text-ink" title={user.email}>
-              {user.email}
-            </span>
-            <span className="text-body-sm text-ink-muted">{ROLE_LABELS[user.role]}</span>
-          </div>
-          <button
-            type="button"
-            onClick={handleLogout}
-            className="flex w-full items-center gap-3 rounded-button px-3 py-2 text-body font-medium text-ink-secondary transition-colors hover:bg-surface hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            <LogOut className="size-4 shrink-0" aria-hidden="true" />
-            Sign out
-          </button>
-        </div>
+        <NavList items={items} pathname={pathname} />
+        <UserFooter user={user} onSignOut={handleLogout} />
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
+        {/* Mobile header with a slide-in nav drawer */}
         <header className="flex h-14 items-center justify-between border-b border-hairline bg-canvas px-4 sm:hidden">
-          <span className="text-headline text-ink">Photos</span>
-          <button
-            type="button"
-            onClick={handleLogout}
-            aria-label="Sign out"
-            className="rounded-button text-ink-secondary hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            <LogOut className="size-5" />
-          </button>
+          <div className="flex items-center gap-2">
+            <DialogPrimitive.Root open={drawerOpen} onOpenChange={setDrawerOpen}>
+              <DialogPrimitive.Trigger asChild>
+                <button
+                  type="button"
+                  aria-label="Open menu"
+                  className="-ml-1 rounded-button p-1 text-ink-secondary transition-colors hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <Menu className="size-5" />
+                </button>
+              </DialogPrimitive.Trigger>
+              <DialogPrimitive.Portal>
+                <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-ink/50 sm:hidden" />
+                <DialogPrimitive.Content className="fixed left-0 top-0 z-50 flex h-full w-64 flex-col border-r border-hairline bg-canvas focus:outline-none sm:hidden">
+                  <DialogPrimitive.Title className="sr-only">Menu</DialogPrimitive.Title>
+                  <DialogPrimitive.Description className="sr-only">
+                    Navigate the app.
+                  </DialogPrimitive.Description>
+                  <div className="flex h-14 items-center justify-between border-b border-hairline px-5">
+                    <span className="text-headline text-ink">Photos</span>
+                    <DialogPrimitive.Close
+                      aria-label="Close menu"
+                      className="-mr-1 rounded-button p-1 text-ink-muted transition-colors hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      <X className="size-5" />
+                    </DialogPrimitive.Close>
+                  </div>
+                  <NavList
+                    items={items}
+                    pathname={pathname}
+                    onNavigate={() => setDrawerOpen(false)}
+                  />
+                  <UserFooter user={user} onSignOut={handleLogout} />
+                </DialogPrimitive.Content>
+              </DialogPrimitive.Portal>
+            </DialogPrimitive.Root>
+            <span className="text-headline text-ink">Photos</span>
+          </div>
         </header>
         <main className="flex-1 p-4 sm:p-8">
           <div className="mx-auto w-full max-w-6xl">{children}</div>

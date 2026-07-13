@@ -131,6 +131,7 @@ export default function EventsPage() {
         </Card>
       ) : error ? (
         <EmptyState
+          role="alert"
           title="Couldn't load events"
           description="Something went wrong reaching the server."
           action={

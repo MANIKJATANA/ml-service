@@ -20,6 +20,7 @@ function MyPhotos({ eventId }: { eventId: string | null }) {
   if (error) {
     return (
       <EmptyState
+        role="alert"
         title="Couldn't load your photos"
         description="Something went wrong reaching the server."
         action={
@@ -50,6 +51,7 @@ export default function MyPhotosPage() {
         <GridSkeleton />
       ) : error ? (
         <EmptyState
+          role="alert"
           title="Couldn't load your photos"
           description="Something went wrong reaching the server."
           action={

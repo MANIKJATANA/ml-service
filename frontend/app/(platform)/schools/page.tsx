@@ -136,6 +136,7 @@ export default function SchoolsPage() {
         </Card>
       ) : error ? (
         <EmptyState
+          role="alert"
           title="Couldn't load schools"
           description="Something went wrong reaching the server."
           action={

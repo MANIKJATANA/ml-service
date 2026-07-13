@@ -19,7 +19,7 @@ export function PhotoGrid({
 
   return (
     <>
-      <div className="columns-2 gap-2 sm:columns-3 lg:columns-4 [&>*]:break-inside-avoid">
+      <div className="columns-2 gap-2 sm:columns-3 lg:columns-4 [&>*]:mb-2 [&>*]:break-inside-avoid">
         {mediaIds.map((mediaId, i) => (
           <PhotoTile key={mediaId} mediaId={mediaId} index={i} onOpen={setOpenIndex} />
         ))}

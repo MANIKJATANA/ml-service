@@ -215,6 +215,7 @@ export default function EventDetailPage() {
         </>
       ) : error || !event ? (
         <EmptyState
+          role="alert"
           title={notFound ? "Event not found" : "Couldn't load event"}
           description={
             notFound ? "It may have been removed." : "Something went wrong reaching the server."

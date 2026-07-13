@@ -104,7 +104,7 @@ export function Lightbox({
             ) : null}
           </div>
 
-          <aside className="flex w-full shrink-0 flex-col gap-4 border-t border-hairline bg-canvas p-4 sm:w-80 sm:border-l sm:border-t-0">
+          <aside className="flex max-h-[45vh] w-full shrink-0 flex-col gap-4 overflow-y-auto border-t border-hairline bg-canvas p-4 sm:max-h-none sm:w-80 sm:overflow-visible sm:border-l sm:border-t-0">
             <div className="flex items-center justify-between gap-2">
               <span
                 aria-live="polite"

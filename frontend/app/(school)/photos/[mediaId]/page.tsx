@@ -35,6 +35,7 @@ export default function PhotoDetailPage() {
   if (error || !media) {
     return (
       <EmptyState
+        role="alert"
         title={notFound ? "Photo not found" : "Couldn't load photo"}
         description={
           notFound ? "It may have been removed." : "Something went wrong reaching the server."

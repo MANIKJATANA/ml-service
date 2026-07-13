@@ -26,6 +26,7 @@ function AllPhotos({ eventId }: { eventId: string }) {
   if (error) {
     return (
       <EmptyState
+        role="alert"
         title="Couldn't load photos"
         description="Something went wrong reaching the server."
         action={
@@ -67,6 +68,7 @@ function ByStudent({ eventId }: { eventId: string }) {
   if (error) {
     return (
       <EmptyState
+        role="alert"
         title="Couldn't load students"
         description="Something went wrong reaching the server."
         action={

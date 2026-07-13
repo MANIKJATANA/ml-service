@@ -124,6 +124,7 @@ export default function SchoolDetailPage() {
         </>
       ) : error || !school ? (
         <EmptyState
+          role="alert"
           title={notFound ? "School not found" : "Couldn't load school"}
           description={
             notFound ? "It may have been removed." : "Something went wrong reaching the server."

@@ -8,12 +8,22 @@ interface EmptyStateProps {
   description?: string;
   action?: ReactNode;
   className?: string;
+  /** Set "alert" on error states so screen readers announce the failure on mount (0037). */
+  role?: "status" | "alert";
 }
 
 /** Centered "nothing here yet" state with an optional icon and call-to-action. */
-export function EmptyState({ icon, title, description, action, className }: EmptyStateProps) {
+export function EmptyState({
+  icon,
+  title,
+  description,
+  action,
+  className,
+  role,
+}: EmptyStateProps) {
   return (
     <div
+      role={role}
       className={cn(
         "flex flex-col items-center justify-center gap-3 rounded-card border border-dashed border-hairline bg-surface px-6 py-12 text-center",
         className,

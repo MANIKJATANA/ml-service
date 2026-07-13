@@ -97,3 +97,20 @@ async def test_reader_carries_decision_facts(
     assert len(appearances) == 1
     assert appearances[0].confidence == pytest.approx(0.71)
     assert appearances[0].needs_review is True
+
+
+async def test_count_needs_review_is_tenant_scoped(
+    sm: async_sessionmaker[AsyncSession],
+) -> None:
+    # School A: two matches, one flagged. School B: one flagged (noise on the same ids).
+    await _insert(sm, school_id="A", event_id="e1", student_id="s1", media_id="m1",
+                  needs_review=True)
+    await _insert(sm, school_id="A", event_id="e1", student_id="s2", media_id="m1",
+                  needs_review=False)
+    await _insert(sm, school_id="B", event_id="e1", student_id="s1", media_id="m1",
+                  needs_review=True)
+    reader = PostgresMlResultsReader(sm)
+
+    assert await reader.count_needs_review("A") == 1  # B's flagged row excluded
+    assert await reader.count_needs_review("B") == 1
+    assert await reader.count_needs_review("Z") == 0  # no rows for this school

@@ -35,6 +35,7 @@ from backend.domain.ports import (
     UserRepository,
 )
 from backend.services.auth_service import AuthService
+from backend.services.dashboard_service import DashboardService
 from backend.services.event_service import EventService
 from backend.services.gallery_service import GalleryService
 from backend.services.media_service import MediaService
@@ -72,6 +73,7 @@ class Container:
         self._event_service: EventService | None = None
         self._media_service: MediaService | None = None
         self._gallery_service: GalleryService | None = None
+        self._dashboard_service: DashboardService | None = None
 
     @property
     def settings(self) -> Settings:
@@ -321,6 +323,19 @@ class Container:
                         download_url_ttl_s=self._s.download_url_ttl_s,
                     )
         return self._gallery_service
+
+    def dashboard_service(self) -> DashboardService:
+        if self._dashboard_service is None:
+            with self._lock:
+                if self._dashboard_service is None:
+                    self._dashboard_service = DashboardService(
+                        self.school_repo(),
+                        self.student_repo(),
+                        self.event_repo(),
+                        self.media_repo(),
+                        self.ml_results_reader(),
+                    )
+        return self._dashboard_service
 
     # ---- lifecycle -----------------------------------------------------
 

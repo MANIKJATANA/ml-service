@@ -131,6 +131,23 @@ export interface DownloadResponse {
   expires_in_s: number;
 }
 
+/**
+ * The admin command-center rollup (BP1, decisions/0038). Every count is read live from
+ * the backend's own rows (and the ML `matches` seam) — there is no stored aggregate.
+ * `needs_attention` mirrors the "do something" signals the dashboard turns into alerts.
+ */
+export interface DashboardResponse {
+  school_name: string;
+  students: { total: number; enrolled: number; pending: number; failed: number };
+  events: { total: number; active: number; archived: number; processing: number };
+  media: { total: number; pending: number };
+  needs_attention: {
+    events_undistributed: number;
+    enrollment_failures: number;
+    needs_review: number;
+  };
+}
+
 /** What the BFF login handler returns to the browser — never the tokens. */
 export interface LoginResult {
   must_change_password: boolean;

@@ -8,7 +8,7 @@ carry the student's login ``email`` on the read model (decisions/0033).
 
 from __future__ import annotations
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from backend.adapters.repositories._common import opt_uuid, req_uuid
@@ -109,6 +109,27 @@ class PostgresStudentRepository:
                 .order_by(StudentRow.created_at, StudentRow.id)  # stable on ties
             )
             return [_to_student(r[0], r[1]) for r in result.all()]
+
+    async def enrollment_counts(
+        self, school_id: str
+    ) -> dict[EnrollmentStatus, int]:
+        """Students grouped by enrollment status for one school (BP1 dashboard).
+
+        One grouped scan of the tenant's slice (``ix_students_school``); every status
+        key is present (zero-filled) so callers never key-miss."""
+        counts = {s: 0 for s in EnrollmentStatus}
+        sid = opt_uuid(school_id)
+        if sid is None:
+            return counts
+        async with self._sessionmaker() as session:
+            result = await session.execute(
+                select(StudentRow.enrollment_status, func.count())
+                .where(StudentRow.school_id == sid)
+                .group_by(StudentRow.enrollment_status)
+            )
+            for status_value, n in result.all():
+                counts[EnrollmentStatus(status_value)] = n
+        return counts
 
     async def set_enrollment(
         self, student_id: str, *, status: EnrollmentStatus

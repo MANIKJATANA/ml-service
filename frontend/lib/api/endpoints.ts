@@ -1,5 +1,6 @@
 import { bffFetch } from "./client";
 import type {
+  DashboardResponse,
   DownloadResponse,
   EventForStudentResponse,
   EventResponse,
@@ -46,6 +47,13 @@ export function changePassword(currentPassword: string, newPassword: string): Pr
 /** Current authenticated user (proxied to GET /v1/auth/me, with refresh-retry). */
 export function getMe(): Promise<UserResponse> {
   return bffFetch<UserResponse>("/api/v1/auth/me");
+}
+
+// --- Dashboard (BP1, dashboard:view — school_admin + teacher) ---
+
+/** The caller's school command-center rollup (tenant is the token's school). */
+export function getDashboard(): Promise<DashboardResponse> {
+  return bffFetch<DashboardResponse>("/api/v1/dashboard");
 }
 
 // --- Platform: schools + admins (F2, school:manage) ---

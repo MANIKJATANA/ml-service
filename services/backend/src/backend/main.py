@@ -17,6 +17,7 @@ from fastapi.responses import JSONResponse
 from backend import __version__
 from backend.api.routers import (
     auth,
+    dashboard,
     events,
     galleries,
     health,
@@ -162,6 +163,7 @@ def create_app() -> FastAPI:
     app.include_router(media.router)
     app.include_router(galleries.router)
     app.include_router(me.router)
+    app.include_router(dashboard.router)
     _install_metrics(app)
     _install_cors(app)
     _register_error_handlers(app)

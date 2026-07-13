@@ -124,3 +124,24 @@ class PostgresMediaRepository:
             for status_value, n in result.all():
                 counts[MediaProcessingStatus(status_value)] = n
         return counts
+
+    async def school_status_counts(
+        self, school_id: str
+    ) -> dict[MediaProcessingStatus, int]:
+        """All of a school's photos grouped by processing status (BP1 dashboard).
+
+        The event-agnostic sibling of ``status_counts``: one grouped scan over the
+        tenant's ``media`` slice; total photos = the sum of the returned values."""
+        counts = {s: 0 for s in MediaProcessingStatus}
+        sid = opt_uuid(school_id)
+        if sid is None:
+            return counts
+        async with self._sessionmaker() as session:
+            result = await session.execute(
+                select(MediaRow.processing_status, func.count())
+                .where(MediaRow.school_id == sid)
+                .group_by(MediaRow.processing_status)
+            )
+            for status_value, n in result.all():
+                counts[MediaProcessingStatus(status_value)] = n
+        return counts

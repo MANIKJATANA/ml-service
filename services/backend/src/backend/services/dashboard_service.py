@@ -1,0 +1,119 @@
+"""School command-center use-case — the admin dashboard read (BP1, decisions/0038).
+
+Depends only on ports (no HTTP, no RBAC): authorization is at the route via
+`require_permissions(dashboard:view)`, and the tenant is the caller's token `school_id`,
+never the URL/body. Every number already exists in the backend's own rows (or the ML
+`matches` seam it already reads) — so this is a pure read: no migration, no ML change.
+
+One method, `school_summary`, composes a handful of grouped-count queries (one per port,
+each a single indexed scan of the tenant's slice — no N+1) into the `SchoolDashboard`
+value object the FE renders as stat cards + needs-attention alerts + nav scent.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from backend.domain.errors import NotFoundError
+from backend.domain.models import (
+    EnrollmentStatus,
+    EventRollup,
+    MediaProcessingStatus,
+)
+from backend.domain.ports import (
+    EventRepository,
+    MediaRepository,
+    MlResultsReader,
+    SchoolRepository,
+    StudentRepository,
+)
+
+
+@dataclass(frozen=True, slots=True)
+class SchoolDashboard:
+    """A school's at-a-glance state for the admin command center (BP1).
+
+    Plain scalar counts — the schema layer nests them for the response and the FE reads
+    them into stat cards + a needs-attention block. ``events_undistributed`` and
+    ``needs_review`` are the two derived "do something" signals; the enrollment-failure
+    alert reuses ``students_failed``."""
+
+    school_name: str
+    # students, by enrollment status
+    students_total: int
+    students_enrolled: int
+    students_pending: int
+    students_failed: int
+    # events
+    events_total: int
+    events_active: int
+    events_archived: int
+    events_processing: int
+    # photos
+    photos_total: int
+    photos_pending: int
+    # needs-attention signals
+    events_undistributed: int
+    needs_review: int
+
+
+class DashboardService:
+    def __init__(
+        self,
+        schools: SchoolRepository,
+        students: StudentRepository,
+        events: EventRepository,
+        media: MediaRepository,
+        reader: MlResultsReader,
+    ) -> None:
+        self._schools = schools
+        self._students = students
+        self._events = events
+        self._media = media
+        self._reader = reader
+
+    async def school_summary(self, *, school_id: str) -> SchoolDashboard:
+        school = await self._schools.get(school_id)
+        if school is None:  # a valid token whose school was deleted — fail closed
+            raise NotFoundError(f"school not found: {school_id}")
+
+        enrollment = await self._students.enrollment_counts(school_id)
+        events = await self._events.status_counts(school_id)
+        photos = await self._media.school_status_counts(school_id)
+        undistributed = await self._events.count_not_started_with_media(school_id)
+        needs_review = await self._reader.count_needs_review(school_id)
+
+        return _to_dashboard(
+            school_name=school.name,
+            enrollment=enrollment,
+            events=events,
+            photos=photos,
+            undistributed=undistributed,
+            needs_review=needs_review,
+        )
+
+
+def _to_dashboard(
+    *,
+    school_name: str,
+    enrollment: dict[EnrollmentStatus, int],
+    events: EventRollup,
+    photos: dict[MediaProcessingStatus, int],
+    undistributed: int,
+    needs_review: int,
+) -> SchoolDashboard:
+    return SchoolDashboard(
+        school_name=school_name,
+        students_total=sum(enrollment.values()),
+        students_enrolled=enrollment[EnrollmentStatus.ENROLLED],
+        students_pending=enrollment[EnrollmentStatus.PENDING],
+        students_failed=enrollment[EnrollmentStatus.FAILED],
+        events_total=events.total,
+        events_active=events.active,
+        events_archived=events.archived,
+        events_processing=events.processing,
+        photos_total=sum(photos.values()),
+        photos_pending=photos[MediaProcessingStatus.PENDING],
+        events_undistributed=undistributed,
+        needs_review=needs_review,
+    )

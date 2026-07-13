@@ -24,6 +24,7 @@ class Permission(StrEnum):
     JOB_STATUS_VIEW = "job:status:view"  # admin + teacher: watch processing
     GALLERY_VIEW_ALL = "gallery:view_all"  # admin + teacher: all students' photos
     GALLERY_VIEW_OWN = "gallery:view_own"  # student: only their own photos
+    DASHBOARD_VIEW = "dashboard:view"  # admin + teacher: the school command center
 
 
 # Hardcoded v1 policy. A later DbPermissionResolver overlays per-school overrides
@@ -38,6 +39,7 @@ ROLE_PERMISSIONS: dict[Role, frozenset[Permission]] = {
             Permission.MEDIA_UPLOAD,
             Permission.JOB_STATUS_VIEW,
             Permission.GALLERY_VIEW_ALL,
+            Permission.DASHBOARD_VIEW,
         }
     ),
     Role.TEACHER: frozenset(
@@ -47,6 +49,7 @@ ROLE_PERMISSIONS: dict[Role, frozenset[Permission]] = {
             Permission.MEDIA_UPLOAD,
             Permission.JOB_STATUS_VIEW,
             Permission.GALLERY_VIEW_ALL,
+            Permission.DASHBOARD_VIEW,
         }
     ),
     Role.STUDENT: frozenset({Permission.GALLERY_VIEW_OWN}),

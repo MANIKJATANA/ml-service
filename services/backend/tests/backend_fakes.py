@@ -20,6 +20,7 @@ from backend.domain.models import (
     Event,
     EventJob,
     EventProcessingStatus,
+    EventRollup,
     EventStatus,
     Media,
     MediaProcessingStatus,
@@ -379,6 +380,15 @@ class FakeStudentRepo:
     async def list_by_school(self, school_id: str) -> list[Student]:
         return [s for s in self._by_id.values() if s.school_id == school_id]
 
+    async def enrollment_counts(
+        self, school_id: str
+    ) -> dict[EnrollmentStatus, int]:
+        counts = {s: 0 for s in EnrollmentStatus}
+        for student in self._by_id.values():
+            if student.school_id == school_id:
+                counts[student.enrollment_status] += 1
+        return counts
+
     async def set_enrollment(
         self, student_id: str, *, status: EnrollmentStatus
     ) -> None:
@@ -451,6 +461,12 @@ class FakeEventRepo:
     def __init__(self, events: list[Event] | None = None) -> None:
         self._by_id: dict[str, Event] = {e.id: e for e in (events or [])}
         self._seq = 0
+        # Optionally linked to a FakeMediaRepo so count_not_started_with_media can see
+        # which events actually have photos (mirrors the real EXISTS join).
+        self._media_repo: FakeMediaRepo | None = None
+
+    def link_media(self, media_repo: FakeMediaRepo) -> None:
+        self._media_repo = media_repo
 
     async def create(
         self,
@@ -481,6 +497,40 @@ class FakeEventRepo:
 
     async def list_by_school(self, school_id: str) -> list[Event]:
         return [e for e in self._by_id.values() if e.school_id == school_id]
+
+    async def status_counts(self, school_id: str) -> EventRollup:
+        total = active = archived = processing = 0
+        for event in self._by_id.values():
+            if event.school_id != school_id:
+                continue
+            total += 1
+            if event.status is EventStatus.ACTIVE:
+                active += 1
+            elif event.status is EventStatus.ARCHIVED:
+                archived += 1
+            if event.processing_status in (
+                EventProcessingStatus.QUEUED,
+                EventProcessingStatus.PROCESSING,
+            ):
+                processing += 1
+        return EventRollup(
+            total=total, active=active, archived=archived, processing=processing
+        )
+
+    async def count_not_started_with_media(self, school_id: str) -> int:
+        n = 0
+        for event in self._by_id.values():
+            if (
+                event.school_id != school_id
+                or event.status is not EventStatus.ACTIVE  # archived can't be Processed
+                or event.processing_status is not EventProcessingStatus.NOT_STARTED
+            ):
+                continue
+            if self._media_repo is not None and await self._media_repo.list_by_event(
+                school_id, event.id
+            ):
+                n += 1
+        return n
 
     async def update(
         self,
@@ -578,6 +628,15 @@ class FakeMediaRepo:
             counts[m.processing_status] += 1
         return counts
 
+    async def school_status_counts(
+        self, school_id: str
+    ) -> dict[MediaProcessingStatus, int]:
+        counts = {s: 0 for s in MediaProcessingStatus}
+        for m in self._by_id.values():
+            if m.school_id == school_id:
+                counts[m.processing_status] += 1
+        return counts
+
 
 class FakeEventJobProducer:
     """EventJobProducer double: records enqueued jobs; configurable failure."""
@@ -616,6 +675,9 @@ class FakeMlResultsReader:
         self, school_id: str, media_id: str
     ) -> list[Appearance]:
         return [a for a in self._appearances if a.media_id == media_id]
+
+    async def count_needs_review(self, school_id: str) -> int:
+        return sum(1 for a in self._appearances if a.needs_review)
 
 
 class SeededContainer(Container):
@@ -659,6 +721,11 @@ class SeededContainer(Container):
         ):
             self._seed_users.link_cascade(self._seed_students.remove_by_user)
             self._seed_students.link_users(self._seed_users.email_of)
+        # Let the event repo see media presence (the not_started-with-media alert).
+        if isinstance(self._seed_events, FakeEventRepo) and isinstance(
+            self._seed_media, FakeMediaRepo
+        ):
+            self._seed_events.link_media(self._seed_media)
 
     def user_repo(self) -> UserRepository:
         return self._seed_users

@@ -21,6 +21,7 @@ import { mutate } from "swr";
 import { logout } from "@/lib/api/endpoints";
 import type { Role, UserResponse } from "@/lib/api/types";
 import { ROLE_LABELS } from "@/lib/auth/routes";
+import { useDashboard } from "@/lib/hooks/use-dashboard";
 import { cn } from "@/lib/utils";
 
 interface NavItem {
@@ -28,6 +29,17 @@ interface NavItem {
   label: string;
   icon: LucideIcon;
 }
+
+/** A small attention count shown on a nav item (information scent). */
+interface NavBadge {
+  count: number;
+  tone: "error" | "warning";
+}
+
+const BADGE_TONE: Record<NavBadge["tone"], string> = {
+  error: "bg-error-soft text-error-strong",
+  warning: "bg-warning-soft text-warning-strong",
+};
 
 // Nav is filtered to the caller's role.
 const NAV_BY_ROLE: Record<Role, NavItem[]> = {
@@ -50,10 +62,12 @@ const NAV_BY_ROLE: Record<Role, NavItem[]> = {
 function NavList({
   items,
   pathname,
+  badges,
   onNavigate,
 }: {
   items: NavItem[];
   pathname: string;
+  badges?: Record<string, NavBadge>;
   onNavigate?: () => void;
 }) {
   return (
@@ -61,6 +75,7 @@ function NavList({
       {items.map((item) => {
         const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
         const Icon = item.icon;
+        const badge = badges?.[item.href];
         return (
           <Link
             key={item.href}
@@ -76,6 +91,17 @@ function NavList({
           >
             <Icon className="size-4 shrink-0" aria-hidden="true" />
             {item.label}
+            {badge ? (
+              <span
+                className={cn(
+                  "ml-auto rounded-full px-1.5 py-0.5 text-body-sm font-medium tabular-nums",
+                  BADGE_TONE[badge.tone],
+                )}
+                aria-label={`${badge.count} need attention`}
+              >
+                {badge.count}
+              </span>
+            ) : null}
           </Link>
         );
       })}
@@ -111,6 +137,23 @@ export function AppShell({ user, children }: { user: UserResponse; children: Rea
   const [drawerOpen, setDrawerOpen] = useState(false);
   const items = NAV_BY_ROLE[user.role];
 
+  // Nav information scent — only staff have dashboard:view; the shared "dashboard" SWR
+  // key means this rides along with the dashboard page's fetch (no extra request).
+  const isSchoolStaff = user.role === "school_admin" || user.role === "teacher";
+  const { dashboard } = useDashboard(isSchoolStaff);
+  const navBadges: Record<string, NavBadge> = {};
+  if (dashboard) {
+    if (dashboard.students.failed > 0) {
+      navBadges["/students"] = { count: dashboard.students.failed, tone: "error" };
+    }
+    if (dashboard.needs_attention.events_undistributed > 0) {
+      navBadges["/events"] = {
+        count: dashboard.needs_attention.events_undistributed,
+        tone: "warning",
+      };
+    }
+  }
+
   // Close the mobile drawer if the viewport grows to desktop while it's open — otherwise
   // Radix keeps body scroll locked + focus trapped on a now-hidden (sm:hidden) panel.
   useEffect(() => {
@@ -142,7 +185,7 @@ export function AppShell({ user, children }: { user: UserResponse; children: Rea
         <div className="flex h-14 items-center border-b border-hairline px-5">
           <span className="text-headline text-ink">Photos</span>
         </div>
-        <NavList items={items} pathname={pathname} />
+        <NavList items={items} pathname={pathname} badges={navBadges} />
         <UserFooter user={user} onSignOut={handleLogout} />
       </aside>
 
@@ -179,6 +222,7 @@ export function AppShell({ user, children }: { user: UserResponse; children: Rea
                   <NavList
                     items={items}
                     pathname={pathname}
+                    badges={navBadges}
                     onNavigate={() => setDrawerOpen(false)}
                   />
                   <UserFooter user={user} onSignOut={handleLogout} />

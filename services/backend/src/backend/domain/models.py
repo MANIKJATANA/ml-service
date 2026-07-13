@@ -209,6 +209,20 @@ class EventJob:
 
 
 @dataclass(frozen=True, slots=True)
+class EventRollup:
+    """A school's events counted by lifecycle + inference state (BP1 dashboard).
+
+    ``processing`` is the count of events currently in flight (``processing_status`` in
+    ``{queued, processing}``) — a live "N events distributing" signal. Derived from one
+    grouped query in the adapter; the pure services never issue SQL."""
+
+    total: int
+    active: int
+    archived: int
+    processing: int
+
+
+@dataclass(frozen=True, slots=True)
 class Appearance:
     """One ``matches`` row: a student who appears in a media (decisions/0028).
 

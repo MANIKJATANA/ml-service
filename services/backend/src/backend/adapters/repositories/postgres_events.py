@@ -18,7 +18,16 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from backend.adapters.repositories._common import opt_uuid, req_uuid
 from backend.db.models import Event as EventRow
-from backend.domain.models import Event, EventProcessingStatus, EventStatus
+from backend.db.models import Media as MediaRow
+from backend.domain.models import (
+    Event,
+    EventProcessingStatus,
+    EventRollup,
+    EventStatus,
+)
+
+# Processing states that count as "currently distributing" for the dashboard rollup.
+_IN_FLIGHT = (EventProcessingStatus.QUEUED.value, EventProcessingStatus.PROCESSING.value)
 
 
 def _to_event(row: EventRow) -> Event:
@@ -91,6 +100,67 @@ class PostgresEventRepository:
                 .order_by(EventRow.created_at, EventRow.id)  # stable on ties
             )
             return [_to_event(r) for r in result.scalars().all()]
+
+    async def status_counts(self, school_id: str) -> EventRollup:
+        """A school's events counted by lifecycle + in-flight state (BP1 dashboard).
+
+        One grouped scan (``ix_events_school``) over ``(status, processing_status)``,
+        folded into the rollup: ``active``/``archived`` from the lifecycle column,
+        ``processing`` = rows whose ``processing_status`` is queued or processing."""
+        sid = opt_uuid(school_id)
+        if sid is None:
+            return EventRollup(total=0, active=0, archived=0, processing=0)
+        total = active = archived = processing = 0
+        async with self._sessionmaker() as session:
+            result = await session.execute(
+                select(EventRow.status, EventRow.processing_status, func.count())
+                .where(EventRow.school_id == sid)
+                .group_by(EventRow.status, EventRow.processing_status)
+            )
+            for status_value, processing_value, n in result.all():
+                total += n
+                if status_value == EventStatus.ACTIVE.value:
+                    active += n
+                elif status_value == EventStatus.ARCHIVED.value:
+                    archived += n
+                if processing_value in _IN_FLIGHT:
+                    processing += n
+        return EventRollup(
+            total=total, active=active, archived=archived, processing=processing
+        )
+
+    async def count_not_started_with_media(self, school_id: str) -> int:
+        """Active events that have >=1 photo but were never distributed (BP1 alert).
+
+        The "you uploaded photos but didn't press Process" signal: ``processing_status``
+        still ``not_started`` yet a ``media`` row exists. **Archived events are excluded**
+        — you can't Process an archived event (the route 400s), so surfacing one as
+        "ready to distribute" would point staff at an un-actionable event. One correlated
+        ``EXISTS`` query; both sides are tenant-scoped by ``school_id``."""
+        sid = opt_uuid(school_id)
+        if sid is None:
+            return 0
+        has_media = (
+            select(MediaRow.id)
+            .where(
+                MediaRow.event_id == EventRow.id,
+                MediaRow.school_id == sid,
+            )
+            .exists()
+        )
+        async with self._sessionmaker() as session:
+            result = await session.execute(
+                select(func.count())
+                .select_from(EventRow)
+                .where(
+                    EventRow.school_id == sid,
+                    EventRow.status == EventStatus.ACTIVE.value,
+                    EventRow.processing_status
+                    == EventProcessingStatus.NOT_STARTED.value,
+                    has_media,
+                )
+            )
+            return int(result.scalar_one())
 
     async def update(
         self,

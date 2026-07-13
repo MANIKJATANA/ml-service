@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import Row, select
+from sqlalchemy import Row, func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from backend.db.ml_read import matches
@@ -85,3 +85,22 @@ class PostgresMlResultsReader:
                 .order_by(matches.c.student_id)
             )
             return [_to_appearance(r) for r in result.all()]
+
+    async def count_needs_review(self, school_id: str) -> int:
+        """How many of a school's matches are flagged ``needs_review`` (BP1 dashboard).
+
+        One filtered count over the tenant's ``matches`` slice
+        (``ix (school_id, ...)``), touching only the already-declared
+        ``school_id``/``needs_review`` columns — so the Phase-7 contract test is
+        unaffected. It's a *match* (media × student) count, not a distinct-photo count:
+        the number of ambiguous appearances staff may want to triage."""
+        async with self._sessionmaker() as session:
+            result = await session.execute(
+                select(func.count())
+                .select_from(matches)
+                .where(
+                    matches.c.school_id == school_id,
+                    matches.c.needs_review.is_(True),
+                )
+            )
+            return int(result.scalar_one())

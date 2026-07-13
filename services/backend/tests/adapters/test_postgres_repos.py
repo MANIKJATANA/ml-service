@@ -25,6 +25,7 @@ from backend.db.base import Base
 from backend.db.session import make_engine, make_sessionmaker
 from backend.domain.errors import ConflictError, NotFoundError
 from backend.domain.models import (
+    EnrollmentStatus,
     EventProcessingStatus,
     EventStatus,
     MediaProcessingStatus,
@@ -275,6 +276,123 @@ async def test_media_list_by_ids_is_tenant_scoped_and_defensive(
     )
     assert {m.id for m in got} == {m1.id, m2.id}
     assert await media.list_by_ids(a.id, []) == []
+
+
+# ---- BP1 dashboard aggregates (decisions/0038) ------------------------
+
+
+async def test_student_enrollment_counts_is_tenant_scoped(
+    sm: async_sessionmaker[AsyncSession],
+) -> None:
+    schools = PostgresSchoolRepository(sm)
+    users = PostgresUserRepository(sm)
+    students = PostgresStudentRepository(sm)
+    a = await schools.create(name="A", max_teachers=5)
+    b = await schools.create(name="B", max_teachers=5)
+
+    async def add(school_id: str, email: str, status: EnrollmentStatus) -> None:
+        login = await users.create(
+            school_id=school_id, email=email, password_hash="h", role=Role.STUDENT
+        )
+        s = await students.create(
+            school_id=school_id, user_id=login.id, name="N",
+            reference_photo_path="p",
+        )
+        if status is not EnrollmentStatus.PENDING:  # create defaults to pending
+            await students.set_enrollment(s.id, status=status)
+
+    await add(a.id, "s1@a.io", EnrollmentStatus.ENROLLED)
+    await add(a.id, "s2@a.io", EnrollmentStatus.ENROLLED)
+    await add(a.id, "s3@a.io", EnrollmentStatus.PENDING)
+    await add(a.id, "s4@a.io", EnrollmentStatus.FAILED)
+    await add(b.id, "s5@b.io", EnrollmentStatus.ENROLLED)  # other school — noise
+
+    counts = await students.enrollment_counts(a.id)
+    assert counts[EnrollmentStatus.ENROLLED] == 2  # B's enrolled student excluded
+    assert counts[EnrollmentStatus.PENDING] == 1
+    assert counts[EnrollmentStatus.FAILED] == 1
+    # Zero-filled + tenant-safe on a malformed id.
+    assert await students.enrollment_counts("not-a-uuid") == {
+        s: 0 for s in EnrollmentStatus
+    }
+
+
+async def test_event_status_counts_and_undistributed_alert(
+    sm: async_sessionmaker[AsyncSession],
+) -> None:
+    schools = PostgresSchoolRepository(sm)
+    events = PostgresEventRepository(sm)
+    media = PostgresMediaRepository(sm)
+    a = await schools.create(name="A", max_teachers=5)
+    b = await schools.create(name="B", max_teachers=5)
+
+    async def mk(school_id: str, name: str) -> str:
+        ev = await events.create(
+            school_id=school_id, name=name, description=None, event_date=None,
+            created_by=None,
+        )
+        return ev.id
+
+    e1 = await mk(a.id, "not_started+media")  # active, not_started, has media
+    await mk(a.id, "not_started, no media")  # active, not_started, no media
+    e3 = await mk(a.id, "processing")  # active, processing, has media
+    e4 = await mk(a.id, "archived+completed")  # archived, completed
+    e5 = await mk(a.id, "archived not_started+media")  # archived, not_started, has media
+    await mk(b.id, "B-noise")  # other school
+
+    await events.set_processing(e3, status=EventProcessingStatus.PROCESSING)
+    await events.update(a.id, e4, status=EventStatus.ARCHIVED)
+    await events.set_processing(e4, status=EventProcessingStatus.COMPLETED)
+    await events.update(a.id, e5, status=EventStatus.ARCHIVED)
+
+    for ev_id, path in ((e1, "p1.jpg"), (e3, "p3.jpg"), (e5, "p5.jpg")):
+        await media.create(
+            school_id=a.id, event_id=ev_id, storage_path=path,
+            media_type=MediaType.IMAGE,
+        )
+
+    rollup = await events.status_counts(a.id)
+    # 5 events: e1/e2/e3 active, e4/e5 archived; only e3 in-flight.
+    assert (rollup.total, rollup.active, rollup.archived, rollup.processing) == (
+        5, 3, 2, 1,
+    )
+
+    # Only e1 is active AND not_started AND has ≥1 photo. e5 is not_started with media
+    # but ARCHIVED (can't be Processed), so it's excluded; e3 isn't not_started.
+    assert await events.count_not_started_with_media(a.id) == 1
+    assert await events.count_not_started_with_media("not-a-uuid") == 0
+
+
+async def test_media_school_status_counts_is_tenant_scoped(
+    sm: async_sessionmaker[AsyncSession],
+) -> None:
+    schools = PostgresSchoolRepository(sm)
+    events = PostgresEventRepository(sm)
+    media = PostgresMediaRepository(sm)
+    a = await schools.create(name="A", max_teachers=5)
+    b = await schools.create(name="B", max_teachers=5)
+    ea = await events.create(
+        school_id=a.id, name="EA", description=None, event_date=None, created_by=None
+    )
+    eb = await events.create(
+        school_id=b.id, name="EB", description=None, event_date=None, created_by=None
+    )
+    await media.create(
+        school_id=a.id, event_id=ea.id, storage_path="a1.jpg", media_type=MediaType.IMAGE
+    )
+    await media.create(
+        school_id=a.id, event_id=ea.id, storage_path="a2.mp4", media_type=MediaType.VIDEO
+    )
+    await media.create(
+        school_id=b.id, event_id=eb.id, storage_path="b1.jpg", media_type=MediaType.IMAGE
+    )  # other school — noise
+
+    counts = await media.school_status_counts(a.id)
+    assert counts[MediaProcessingStatus.PENDING] == 2  # recorded pending
+    assert sum(counts.values()) == 2  # tenant-scoped total (B excluded)
+    assert await media.school_status_counts("not-a-uuid") == {
+        s: 0 for s in MediaProcessingStatus
+    }
 
 
 async def test_student_get_by_user_id_is_tenant_scoped(

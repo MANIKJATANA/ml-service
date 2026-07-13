@@ -7,10 +7,11 @@ these reuse the same `GalleryService` methods staff use, bound to the caller's o
 
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, status
 
 from backend.api.deps import ContainerDep, GalleryScope, StudentSelfScope
 from backend.api.schemas.gallery import EventForStudentResponse, GalleryMediaResponse
+from backend.api.schemas.notifications import MyNotificationsResponse
 from backend.domain.errors import AuthorizationError
 
 router = APIRouter(prefix="/v1/me", tags=["me"])
@@ -43,3 +44,26 @@ async def my_media(
         school_id=scope.school_id, student_id=_student_id(scope), event_id=event_id
     )
     return [GalleryMediaResponse.from_media(m) for m in media]
+
+
+@router.get("/notifications", response_model=MyNotificationsResponse)
+async def my_notifications(
+    container: ContainerDep, scope: StudentSelfScope
+) -> MyNotificationsResponse:
+    """The student's "new photos" signal: an unseen tally + the announced events (BP4)."""
+    views = await container.notification_service().student_notifications(
+        school_id=scope.school_id, student_id=_student_id(scope)
+    )
+    return MyNotificationsResponse.from_views(views)
+
+
+@router.post(
+    "/notifications/{event_id}/seen", status_code=status.HTTP_204_NO_CONTENT
+)
+async def mark_notification_seen(
+    event_id: str, container: ContainerDep, scope: StudentSelfScope
+) -> None:
+    """Mark one event's photos seen (clears it from the student's new-photos signal)."""
+    await container.notification_service().mark_seen(
+        school_id=scope.school_id, student_id=_student_id(scope), event_id=event_id
+    )

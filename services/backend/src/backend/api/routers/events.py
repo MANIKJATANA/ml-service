@@ -20,6 +20,10 @@ from backend.api.schemas.events import (
     UpdateEventRequest,
 )
 from backend.api.schemas.media import EventStatusResponse
+from backend.api.schemas.notifications import (
+    NotificationRosterResponse,
+    NotifyResultResponse,
+)
 from backend.domain.models import User
 from backend.domain.permissions import Permission
 
@@ -28,6 +32,7 @@ router = APIRouter(prefix="/v1/events", tags=["events"])
 EventManager = Annotated[User, Depends(require_permissions(Permission.EVENT_MANAGE))]
 MediaUploader = Annotated[User, Depends(require_permissions(Permission.MEDIA_UPLOAD))]
 StatusViewer = Annotated[User, Depends(require_permissions(Permission.JOB_STATUS_VIEW))]
+Notifier = Annotated[User, Depends(require_permissions(Permission.NOTIFICATION_SEND))]
 
 
 @router.post("", status_code=status.HTTP_201_CREATED, response_model=EventResponse)
@@ -76,6 +81,7 @@ async def update_event(
         description=body.description,
         event_date=body.event_date,
         status=body.status,
+        auto_notify=body.auto_notify,
     )
     return EventResponse.from_event(event)
 
@@ -99,3 +105,26 @@ async def event_status(
         school_id=tenant_of(actor), event_id=event_id
     )
     return EventStatusResponse.from_view(view)
+
+
+@router.post("/{event_id}/notify", response_model=NotifyResultResponse)
+async def notify_students(
+    event_id: str, container: ContainerDep, actor: Notifier
+) -> NotifyResultResponse:
+    """Announce a completed event's photos to the students in them + fan out to the
+    configured channels. 400 if archived / not yet finished processing."""
+    notified = await container.notification_service().notify_event(
+        school_id=tenant_of(actor), event_id=event_id
+    )
+    return NotifyResultResponse(notified=notified)
+
+
+@router.get("/{event_id}/notifications", response_model=NotificationRosterResponse)
+async def notification_roster(
+    event_id: str, container: ContainerDep, actor: Notifier
+) -> NotificationRosterResponse:
+    """Who's been notified about this event + who has opened their photos."""
+    roster = await container.notification_service().event_roster(
+        school_id=tenant_of(actor), event_id=event_id
+    )
+    return NotificationRosterResponse.from_roster(roster)

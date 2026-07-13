@@ -59,6 +59,14 @@ class Settings(BaseSettings):
     # TTL of the short-lived signed download URLs the galleries mint on demand.
     download_url_ttl_s: int = 3600  # 1 hour
 
+    # --- notifications (BP4, decisions/0041) -----------------------------
+    # Outbound channels the "Notify students" action fans out to, comma-separated (like
+    # cors_origins). Resolved per-name via NOTIFICATION_CHANNEL_REGISTRY and wrapped in a
+    # CompositeNotifier, so they run together or one at a time. Default "log" (structured,
+    # PII-free). Empty -> a no-op notifier (outbound disabled; the in-app signal is
+    # unaffected). email/whatsapp are future channels — add the adapter + a registry entry.
+    notification_channels: str = "log"
+
     # --- database (shared Postgres; backend owns its own tables + chain) --
     database_url: str = "postgresql+asyncpg://app:app@postgres:5432/app"
     db_echo: bool = False

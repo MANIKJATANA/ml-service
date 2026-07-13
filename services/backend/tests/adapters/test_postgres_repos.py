@@ -18,6 +18,9 @@ from collections.abc import AsyncIterator
 import pytest
 from backend.adapters.repositories.postgres_events import PostgresEventRepository
 from backend.adapters.repositories.postgres_media import PostgresMediaRepository
+from backend.adapters.repositories.postgres_notification_reads import (
+    PostgresNotificationReadRepository,
+)
 from backend.adapters.repositories.postgres_schools import PostgresSchoolRepository
 from backend.adapters.repositories.postgres_students import PostgresStudentRepository
 from backend.adapters.repositories.postgres_users import PostgresUserRepository
@@ -450,6 +453,75 @@ async def test_bp2_platform_and_event_rollups(
     assert await events.counts_by_school() == {a.id: 1}
     assert await media.counts_by_event(a.id) == {ea.id: 2}
     assert await media.counts_by_event("not-a-uuid") == {}
+
+
+# ---- BP4 distribution (decisions/0041) --------------------------------
+
+
+async def test_set_processing_keeps_completed_at_on_requeue(
+    sm: async_sessionmaker[AsyncSession],
+) -> None:
+    schools = PostgresSchoolRepository(sm)
+    events = PostgresEventRepository(sm)
+    a = await schools.create(name="A", max_teachers=5)
+    ev = await events.create(
+        school_id=a.id, name="E", description=None, event_date=None, created_by=None
+    )
+    assert ev.auto_notify is True and ev.notified_at is None  # migration defaults
+
+    await events.set_processing(ev.id, status=EventProcessingStatus.COMPLETED)
+    done = await events.get(a.id, ev.id)
+    assert done is not None and done.completed_at is not None
+
+    # Redistribute (QUEUED) must NOT clear completed_at (BP4 set-forward — decisions/0041).
+    await events.set_processing(ev.id, status=EventProcessingStatus.QUEUED)
+    requeued = await events.get(a.id, ev.id)
+    assert requeued is not None
+    assert requeued.processing_status is EventProcessingStatus.QUEUED
+    assert requeued.completed_at is not None
+
+    # mark_notified stamps notified_at; auto toggle via update.
+    await events.mark_notified(ev.id)
+    notified = await events.get(a.id, ev.id)
+    assert notified is not None and notified.notified_at is not None
+    toggled = await events.update(a.id, ev.id, auto_notify=False)
+    assert toggled is not None and toggled.auto_notify is False
+
+
+async def test_notification_reads_upsert_and_scope(
+    sm: async_sessionmaker[AsyncSession],
+) -> None:
+    schools = PostgresSchoolRepository(sm)
+    users = PostgresUserRepository(sm)
+    students = PostgresStudentRepository(sm)
+    events = PostgresEventRepository(sm)
+    reads = PostgresNotificationReadRepository(sm)
+    a = await schools.create(name="A", max_teachers=5)
+    login = await users.create(
+        school_id=a.id, email="s@x.io", password_hash="h", role=Role.STUDENT
+    )
+    student = await students.create(
+        school_id=a.id, user_id=login.id, name="N", reference_photo_path="p"
+    )
+    ev = await events.create(
+        school_id=a.id, name="E", description=None, event_date=None, created_by=None
+    )
+
+    assert await reads.list_for_student(a.id, student.id) == {}
+    await reads.mark_seen(school_id=a.id, student_id=student.id, event_id=ev.id)
+    first = await reads.list_for_student(a.id, student.id)
+    assert set(first) == {ev.id}
+
+    # Upsert on the (student, event) natural key — no duplicate, seen_at moves forward.
+    await reads.mark_seen(school_id=a.id, student_id=student.id, event_id=ev.id)
+    again = await reads.list_for_student(a.id, student.id)
+    assert set(again) == {ev.id}
+    assert again[ev.id] >= first[ev.id]
+
+    # Event-side lookup (the staff roster) + tenant-safe on a malformed id.
+    assert set(await reads.list_for_event(a.id, ev.id)) == {student.id}
+    assert await reads.list_for_student("not-a-uuid", student.id) == {}
+    assert await reads.list_for_event("not-a-uuid", ev.id) == {}
 
 
 async def test_student_get_by_user_id_is_tenant_scoped(

@@ -22,6 +22,7 @@ import { logout } from "@/lib/api/endpoints";
 import type { Role, UserResponse } from "@/lib/api/types";
 import { ROLE_LABELS } from "@/lib/auth/routes";
 import { useDashboard } from "@/lib/hooks/use-dashboard";
+import { useMyNotifications } from "@/lib/hooks/use-my-notifications";
 import { cn } from "@/lib/utils";
 
 interface NavItem {
@@ -33,12 +34,15 @@ interface NavItem {
 /** A small attention count shown on a nav item (information scent). */
 interface NavBadge {
   count: number;
-  tone: "error" | "warning";
+  tone: "error" | "warning" | "accent";
+  /** Screen-reader text for the badge; defaults to an "attention" phrasing. */
+  label?: string;
 }
 
 const BADGE_TONE: Record<NavBadge["tone"], string> = {
   error: "bg-error-soft text-error-strong",
   warning: "bg-warning-soft text-warning-strong",
+  accent: "bg-accent/10 text-accent-dark",
 };
 
 // Nav is filtered to the caller's role.
@@ -97,7 +101,7 @@ function NavList({
                   "ml-auto rounded-full px-1.5 py-0.5 text-body-sm font-medium tabular-nums",
                   BADGE_TONE[badge.tone],
                 )}
-                aria-label={`${badge.count} need attention`}
+                aria-label={badge.label ?? `${badge.count} need attention`}
               >
                 {badge.count}
               </span>
@@ -141,6 +145,8 @@ export function AppShell({ user, children }: { user: UserResponse; children: Rea
   // key means this rides along with the dashboard page's fetch (no extra request).
   const isSchoolStaff = user.role === "school_admin" || user.role === "teacher";
   const { dashboard } = useDashboard(isSchoolStaff);
+  // Student "new photos" badge (BP4) — its own signal, gated off for non-students.
+  const { notifications } = useMyNotifications(user.role === "student");
   const navBadges: Record<string, NavBadge> = {};
   if (dashboard) {
     if (dashboard.students.failed > 0) {
@@ -152,6 +158,13 @@ export function AppShell({ user, children }: { user: UserResponse; children: Rea
         tone: "warning",
       };
     }
+  }
+  if (notifications && notifications.unseen_count > 0) {
+    navBadges["/me/events"] = {
+      count: notifications.unseen_count,
+      tone: "accent",
+      label: `${notifications.unseen_count} new`,
+    };
   }
 
   // Close the mobile drawer if the viewport grows to desktop while it's open — otherwise

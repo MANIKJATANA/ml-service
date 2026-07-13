@@ -82,6 +82,7 @@ class EventService:
         description: str | None = None,
         event_date: date | None = None,
         status: EventStatus | None = None,
+        auto_notify: bool | None = None,
     ) -> Event:
         updated = await self._events.update(
             school_id,
@@ -90,6 +91,7 @@ class EventService:
             description=description,
             event_date=event_date,
             status=status,
+            auto_notify=auto_notify,
         )
         if updated is None:
             raise NotFoundError(f"event not found: {event_id}")

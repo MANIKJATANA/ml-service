@@ -198,6 +198,14 @@ class Event(Base):
     completed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # BP4 distribution (migration 0005, decisions/0041): auto-announce on completion +
+    # the last manual "Notify students" timestamp.
+    auto_notify: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("true")
+    )
+    notified_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -273,4 +281,50 @@ class Media(Base):
             "processing_status IN ('pending', 'completed')",
             name="ck_media_processing_status",
         ),
+    )
+
+
+class NotificationRead(Base):
+    """Per-(student, event) 'seen' state for the in-app new-photos signal (migration 0005,
+    decisions/0041). One row per student×event; ``seen_at`` moves forward when the student
+    opens that event's photos. The natural key is ``(student_id, event_id)`` (the upsert
+    key); ``school_id`` is denormalized for tenant-scoped scans (like ``media``/``matches``)."""
+
+    __tablename__ = "notification_reads"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    school_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("schools.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    student_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("students.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    event_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("events.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        UniqueConstraint("student_id", "event_id", name="uq_notification_reads_pair"),
+        Index("ix_notification_reads_student", "school_id", "student_id"),
+        Index("ix_notification_reads_event", "school_id", "event_id"),
     )

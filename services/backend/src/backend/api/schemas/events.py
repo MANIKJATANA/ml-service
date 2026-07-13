@@ -24,6 +24,7 @@ class UpdateEventRequest(BaseModel):
     description: str | None = Field(default=None, max_length=2000)
     event_date: date | None = None
     status: EventStatus | None = None
+    auto_notify: bool | None = None  # BP4: auto-announce to students on completion
 
 
 class EventResponse(BaseModel):
@@ -36,6 +37,8 @@ class EventResponse(BaseModel):
     processing_status: EventProcessingStatus
     enqueued_at: datetime | None
     completed_at: datetime | None
+    auto_notify: bool
+    notified_at: datetime | None
     created_at: datetime
     updated_at: datetime
 
@@ -51,6 +54,8 @@ class EventResponse(BaseModel):
             processing_status=event.processing_status,
             enqueued_at=event.enqueued_at,
             completed_at=event.completed_at,
+            auto_notify=event.auto_notify,
+            notified_at=event.notified_at,
             created_at=event.created_at,
             updated_at=event.updated_at,
         )

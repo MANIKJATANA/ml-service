@@ -86,7 +86,7 @@ convention. Order = my recommended build order.
 - **Persona:** student (Pinterest). **Source lens:** T2, P9, D1, P7. **Acceptance:** the grid feels image-first;
   first-run + new-since cues render; download-all works; a11y floor holds.
 
-### BP4 — Distribution: "Photos are ready" · **Effort L · Impact H · BE + FE (+ migration, maybe email infra)** — the flagship
+### BP4 — Distribution: "Photos are ready" · **Effort L · Impact H · BE + FE (+ migration)** ✅ landed (decisions/0041) — the flagship
 - **Problem:** delivery is **strictly pull-only** — nothing reaches the student. The single biggest product gap.
   Fails **X1/T1**.
 - **Change (staged):** (a) an **in-app "New photos" state** — a per-student unseen-count + a "You're in N new

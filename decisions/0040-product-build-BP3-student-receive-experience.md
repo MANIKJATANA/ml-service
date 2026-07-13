@@ -1,7 +1,9 @@
 # 0040 — Product Build BP3: Student receive experience
 
 **Date:** 2026-07-14
-**Status:** Accepted
+**Status:** Accepted (the client-side `useNewSince` "new since last visit" is **superseded by BP4** — the
+authoritative server-side signal in [decisions/0041](0041-product-build-BP4-distribution.md); the hook was removed.
+The rest of BP3 stands.)
 
 ## Context
 

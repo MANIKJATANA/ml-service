@@ -87,6 +87,8 @@ export interface EventResponse {
   processing_status: EventProcessingStatus;
   enqueued_at: string | null;
   completed_at: string | null;
+  auto_notify: boolean; // BP4: auto-announce to students on completion
+  notified_at: string | null; // BP4: last manual "Notify students" push
   created_at: string;
   updated_at: string;
 }
@@ -171,6 +173,41 @@ export interface DashboardResponse {
     enrollment_failures: number;
     needs_review: number;
   };
+}
+
+/** The student's "new photos" signal (BP4, decisions/0041): an unseen tally + the
+ *  announced events (newest first). Authoritative + cross-device. */
+export interface MyNotificationEvent {
+  event_id: string;
+  name: string;
+  event_date: string | null;
+  media_count: number;
+  unseen: boolean;
+}
+export interface MyNotificationsResponse {
+  unseen_count: number;
+  events: MyNotificationEvent[];
+}
+
+/** The result of a staff "Notify students" push. */
+export interface NotifyResultResponse {
+  notified: number;
+}
+
+/** The staff "who's been notified / seen" roster for one event (BP4). */
+export interface NotificationRosterStudent {
+  student_id: string;
+  name: string;
+  media_count: number;
+  seen: boolean;
+}
+export interface NotificationRosterResponse {
+  announced: boolean;
+  auto_notify: boolean;
+  notified_at: string | null;
+  notified_count: number;
+  seen_count: number;
+  students: NotificationRosterStudent[];
 }
 
 /** What the BFF login handler returns to the browser — never the tokens. */

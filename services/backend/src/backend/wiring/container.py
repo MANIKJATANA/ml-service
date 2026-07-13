@@ -19,6 +19,7 @@ import threading
 
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
+from backend.adapters.notification.composite import CompositeNotifier
 from backend.db.session import make_engine, make_sessionmaker
 from backend.domain.ports import (
     EventJobProducer,
@@ -26,6 +27,8 @@ from backend.domain.ports import (
     MediaRepository,
     MlEnrollmentClient,
     MlResultsReader,
+    NotificationChannel,
+    NotificationReadRepository,
     ObjectStore,
     PasswordHasher,
     PermissionResolver,
@@ -40,6 +43,7 @@ from backend.services.event_service import EventService
 from backend.services.gallery_service import GalleryService
 from backend.services.listing_service import ListingService
 from backend.services.media_service import MediaService
+from backend.services.notification_service import NotificationService
 from backend.services.onboarding_service import OnboardingService
 from backend.services.student_service import StudentService
 from backend.settings import Settings
@@ -62,6 +66,8 @@ class Container:
         self._event_repo: EventRepository | None = None
         self._media_repo: MediaRepository | None = None
         self._ml_results_reader: MlResultsReader | None = None
+        self._notification_reads_repo: NotificationReadRepository | None = None
+        self._notifier: NotificationChannel | None = None
         self._event_job_producer: EventJobProducer | None = None
         self._object_store: ObjectStore | None = None
         self._ml_enrollment_client: MlEnrollmentClient | None = None
@@ -76,6 +82,7 @@ class Container:
         self._gallery_service: GalleryService | None = None
         self._dashboard_service: DashboardService | None = None
         self._listing_service: ListingService | None = None
+        self._notification_service: NotificationService | None = None
 
     @property
     def settings(self) -> Settings:
@@ -157,6 +164,37 @@ class Container:
                     )
                     self._ml_results_reader = cls(self.sessionmaker())
         return self._ml_results_reader
+
+    def notification_reads_repo(self) -> NotificationReadRepository:
+        if self._notification_reads_repo is None:
+            with self._lock:
+                if self._notification_reads_repo is None:
+                    cls = registry.resolve(
+                        registry.NOTIFICATION_READS_REPO_REGISTRY,
+                        self._s.repository_impl,
+                    )
+                    self._notification_reads_repo = cls(self.sessionmaker())
+        return self._notification_reads_repo
+
+    # ---- notifications: the composite of configured channels (BP4) ------
+
+    def notifier(self) -> NotificationChannel:
+        if self._notifier is None:
+            with self._lock:
+                if self._notifier is None:
+                    names = [
+                        n.strip()
+                        for n in self._s.notification_channels.split(",")
+                        if n.strip()
+                    ]
+                    channels: list[NotificationChannel] = []
+                    for name in names:
+                        cls = registry.resolve(
+                            registry.NOTIFICATION_CHANNEL_REGISTRY, name
+                        )
+                        channels.append(cls())  # log takes no args; future channels branch here
+                    self._notifier = CompositeNotifier(channels)
+        return self._notifier
 
     # ---- events: job producer (decisions/0027) -------------------------
 
@@ -352,6 +390,19 @@ class Container:
                         self.ml_results_reader(),
                     )
         return self._listing_service
+
+    def notification_service(self) -> NotificationService:
+        if self._notification_service is None:
+            with self._lock:
+                if self._notification_service is None:
+                    self._notification_service = NotificationService(
+                        self.event_repo(),
+                        self.ml_results_reader(),
+                        self.student_repo(),
+                        self.notification_reads_repo(),
+                        self.notifier(),
+                    )
+        return self._notification_service
 
     # ---- lifecycle -----------------------------------------------------
 

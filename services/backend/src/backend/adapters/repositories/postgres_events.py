@@ -5,8 +5,9 @@ so an event that belongs to another school is invisible (returned as ``None``/ab
 enforcing tenant isolation at the query layer (decisions/0022).
 
 ``set_processing`` is only used by the backend to set ``queued`` on Process (the ML
-worker owns the ``processing``/``completed`` writes); it stamps a fresh ``enqueued_at``
-and clears any prior ``completed_at`` so a redistribute restarts cleanly (decisions/0027).
+worker owns the ``processing``/``completed`` writes); it stamps a fresh ``enqueued_at``.
+It **keeps** ``completed_at`` set-forward across a redistribute (BP4, decisions/0041) — the
+prior clear-on-requeue was dropped so an auto-announced event doesn't un-announce mid-run.
 """
 
 from __future__ import annotations
@@ -42,6 +43,8 @@ def _to_event(row: EventRow) -> Event:
         processing_status=EventProcessingStatus(row.processing_status),
         enqueued_at=row.enqueued_at,
         completed_at=row.completed_at,
+        auto_notify=row.auto_notify,
+        notified_at=row.notified_at,
         created_at=row.created_at,
         updated_at=row.updated_at,
     )
@@ -182,6 +185,7 @@ class PostgresEventRepository:
         description: str | None = None,
         event_date: date | None = None,
         status: EventStatus | None = None,
+        auto_notify: bool | None = None,
     ) -> Event | None:
         sid = opt_uuid(school_id)
         eid = opt_uuid(event_id)
@@ -204,6 +208,8 @@ class PostgresEventRepository:
                 row.event_date = event_date
             if status is not None:
                 row.status = status.value
+            if auto_notify is not None:
+                row.auto_notify = auto_notify
             await session.flush()
             await session.refresh(row)
             return _to_event(row)
@@ -212,16 +218,25 @@ class PostgresEventRepository:
         self, event_id: str, *, status: EventProcessingStatus
     ) -> None:
         # The backend only ever sets ``queued`` on Process (the ML worker owns the
-        # processing/completed writes, decisions/0027). Stamp ``enqueued_at`` and clear
-        # any prior ``completed_at`` so a redistribute restarts cleanly.
+        # processing/completed writes, decisions/0027). Stamp ``enqueued_at``. NB (BP4,
+        # decisions/0041): ``completed_at`` is NO LONGER cleared on a redistribute — it is
+        # set-forward (the last completion time), so an auto-announced event doesn't
+        # un-announce mid-reprocess and the announce-time compare stays well-defined.
         key = req_uuid(event_id, field="event_id")
         values: dict[str, object] = {"processing_status": status.value}
         if status is EventProcessingStatus.QUEUED:
             values["enqueued_at"] = func.now()
-            values["completed_at"] = None
         elif status is EventProcessingStatus.COMPLETED:
             values["completed_at"] = func.now()
         async with self._sessionmaker() as session, session.begin():
             await session.execute(
                 update(EventRow).where(EventRow.id == key).values(**values)
+            )
+
+    async def mark_notified(self, event_id: str) -> None:
+        """Stamp ``notified_at = now()`` (a manual "Notify students" push; BP4)."""
+        key = req_uuid(event_id, field="event_id")
+        async with self._sessionmaker() as session, session.begin():
+            await session.execute(
+                update(EventRow).where(EventRow.id == key).values(notified_at=func.now())
             )

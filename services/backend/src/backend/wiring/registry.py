@@ -38,6 +38,13 @@ ML_RESULTS_READER_REGISTRY: dict[str, str] = {
     "postgres": "backend.adapters.repositories.ml_results:PostgresMlResultsReader",
 }
 
+NOTIFICATION_READS_REPO_REGISTRY: dict[str, str] = {
+    "postgres": (
+        "backend.adapters.repositories.postgres_notification_reads"
+        ":PostgresNotificationReadRepository"
+    ),
+}
+
 EVENT_JOB_PRODUCER_REGISTRY: dict[str, str] = {
     "redis": "backend.adapters.queue.redis_producer:RedisEventJobProducer",
     "inproc": "backend.adapters.queue.inproc_producer:InProcEventJobProducer",
@@ -51,6 +58,14 @@ OBJECT_STORE_REGISTRY: dict[str, str] = {
 ML_ENROLLMENT_CLIENT_REGISTRY: dict[str, str] = {
     "http": "backend.adapters.ml_client.http_enrollment:HttpMlEnrollmentClient",
     "fake": "backend.adapters.ml_client.fake_enrollment:FakeMlEnrollmentClient",
+}
+
+# Notification channels (BP4). Unlike the single-selector ports above, the container
+# resolves a LIST of these from the comma-separated ``BE_NOTIFICATION_CHANNELS`` and wraps
+# them in a CompositeNotifier — so channels run together or one at a time. email/whatsapp
+# are future one-line additions here + a construction branch.
+NOTIFICATION_CHANNEL_REGISTRY: dict[str, str] = {
+    "log": "backend.adapters.notification.log_channel:LogNotificationChannel",
 }
 
 PASSWORD_HASHER_REGISTRY: dict[str, str] = {

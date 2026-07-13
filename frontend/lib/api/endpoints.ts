@@ -12,6 +12,9 @@ import type {
   MediaAppearanceResponse,
   MediaResponse,
   MediaType,
+  MyNotificationsResponse,
+  NotificationRosterResponse,
+  NotifyResultResponse,
   SchoolResponse,
   SchoolWithRollup,
   StudentInEventResponse,
@@ -174,7 +177,13 @@ export function createEvent(
 /** Partial update — only supplied fields change; clearing a field to null is unsupported (0027). */
 export function updateEvent(
   eventId: string,
-  patch: { name?: string; description?: string; event_date?: string; status?: EventStatus },
+  patch: {
+    name?: string;
+    description?: string;
+    event_date?: string;
+    status?: EventStatus;
+    auto_notify?: boolean;
+  },
 ): Promise<EventResponse> {
   return bffFetch<EventResponse>(`/api/v1/events/${encodeURIComponent(eventId)}`, {
     method: "PATCH",
@@ -193,6 +202,36 @@ export function processEvent(eventId: string): Promise<EventResponse> {
 export function getEventStatus(eventId: string): Promise<EventStatusResponse> {
   return bffFetch<EventStatusResponse>(
     `/api/v1/events/${encodeURIComponent(eventId)}/status`,
+  );
+}
+
+// --- Notifications / distribution (BP4, decisions/0041) ---
+
+/** Announce a completed event's photos to the students in them + fan out to channels. */
+export function notifyStudents(eventId: string): Promise<NotifyResultResponse> {
+  return bffFetch<NotifyResultResponse>(
+    `/api/v1/events/${encodeURIComponent(eventId)}/notify`,
+    { method: "POST" },
+  );
+}
+
+/** The staff "notified / seen" roster for an event. */
+export function eventNotifications(eventId: string): Promise<NotificationRosterResponse> {
+  return bffFetch<NotificationRosterResponse>(
+    `/api/v1/events/${encodeURIComponent(eventId)}/notifications`,
+  );
+}
+
+/** The logged-in student's "new photos" signal (unseen tally + announced events). */
+export function myNotifications(): Promise<MyNotificationsResponse> {
+  return bffFetch<MyNotificationsResponse>("/api/v1/me/notifications");
+}
+
+/** Mark one event's photos seen (clears it from the student's new-photos signal). */
+export function markNotificationSeen(eventId: string): Promise<void> {
+  return bffFetch<void>(
+    `/api/v1/me/notifications/${encodeURIComponent(eventId)}/seen`,
+    { method: "POST" },
   );
 }
 

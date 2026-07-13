@@ -174,8 +174,30 @@ class Event:
     processing_status: EventProcessingStatus
     enqueued_at: datetime | None
     completed_at: datetime | None
+    # BP4 distribution (decisions/0041): auto_notify = announce to students on completion
+    # (a live gate); notified_at = last manual "Notify students" push (set-forward).
+    auto_notify: bool
+    notified_at: datetime | None
     created_at: datetime
     updated_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class NotificationEvent:
+    """The context handed to each notification channel (BP4, decisions/0041).
+
+    Immutable + channel-agnostic so a future email/WhatsApp channel needs no service
+    change. ``contact`` is the student's reachable address (email today) — resolved at
+    send time; the ``log`` channel never logs it (PII)."""
+
+    school_id: str
+    student_id: str
+    student_name: str
+    contact: str
+    event_id: str
+    event_name: str
+    event_date: date | None
+    media_count: int
 
 
 @dataclass(frozen=True, slots=True)

@@ -26,6 +26,7 @@ from backend.domain.models import (
     Media,
     MediaProcessingStatus,
     MediaType,
+    NotificationEvent,
     PhotoResult,
     Role,
     School,
@@ -42,6 +43,8 @@ from backend.domain.ports import (
     MediaRepository,
     MlEnrollmentClient,
     MlResultsReader,
+    NotificationChannel,
+    NotificationReadRepository,
     ObjectStore,
     SchoolRepository,
     StudentRepository,
@@ -131,6 +134,8 @@ def make_event(
     processing_status: EventProcessingStatus = EventProcessingStatus.NOT_STARTED,
     enqueued_at: datetime | None = None,
     completed_at: datetime | None = None,
+    auto_notify: bool = True,
+    notified_at: datetime | None = None,
 ) -> Event:
     return Event(
         id=id,
@@ -143,6 +148,8 @@ def make_event(
         processing_status=processing_status,
         enqueued_at=enqueued_at,
         completed_at=completed_at,
+        auto_notify=auto_notify,
+        notified_at=notified_at,
         created_at=_NOW,
         updated_at=_NOW,
     )
@@ -564,6 +571,7 @@ class FakeEventRepo:
         description: str | None = None,
         event_date: date | None = None,
         status: EventStatus | None = None,
+        auto_notify: bool | None = None,
     ) -> Event | None:
         event = await self.get(school_id, event_id)
         if event is None:
@@ -577,6 +585,8 @@ class FakeEventRepo:
             changes["event_date"] = event_date
         if status is not None:
             changes["status"] = status
+        if auto_notify is not None:
+            changes["auto_notify"] = auto_notify
         updated = replace(event, **changes)  # type: ignore[arg-type]
         self._by_id[event_id] = updated
         return updated
@@ -590,10 +600,15 @@ class FakeEventRepo:
         changes: dict[str, object] = {"processing_status": status}
         if status is EventProcessingStatus.QUEUED:
             changes["enqueued_at"] = _NOW
-            changes["completed_at"] = None
+            # completed_at kept set-forward on redistribute (BP4, decisions/0041).
         elif status is EventProcessingStatus.COMPLETED:
             changes["completed_at"] = _NOW
         self._by_id[event_id] = replace(event, **changes)  # type: ignore[arg-type]
+
+    async def mark_notified(self, event_id: str) -> None:
+        event = self._by_id.get(event_id)
+        if event is not None:
+            self._by_id[event_id] = replace(event, notified_at=_NOW)
 
 
 class FakeMediaRepo:
@@ -741,6 +756,50 @@ class FakeMlResultsReader:
         }
 
 
+class FakeNotificationReadRepo:
+    """NotificationReadRepository double: (student_id, event_id) -> seen_at."""
+
+    def __init__(self) -> None:
+        self._seen: dict[tuple[str, str], datetime] = {}
+
+    async def mark_seen(
+        self, *, school_id: str, student_id: str, event_id: str
+    ) -> None:
+        self._seen[(student_id, event_id)] = _NOW
+
+    async def list_for_student(
+        self, school_id: str, student_id: str
+    ) -> dict[str, datetime]:
+        return {
+            eid: seen for (sid, eid), seen in self._seen.items() if sid == student_id
+        }
+
+    async def list_for_event(
+        self, school_id: str, event_id: str
+    ) -> dict[str, datetime]:
+        return {
+            sid: seen for (sid, eid), seen in self._seen.items() if eid == event_id
+        }
+
+    def set_seen(self, student_id: str, event_id: str, when: datetime) -> None:
+        """Test helper: seed a read at a specific time (re-notify resurface tests)."""
+        self._seen[(student_id, event_id)] = when
+
+
+class FakeNotificationChannel:
+    """NotificationChannel double: records sent events; optionally raises (to exercise
+    the CompositeNotifier's best-effort isolation)."""
+
+    def __init__(self, *, raise_on_notify: Exception | None = None) -> None:
+        self._raise = raise_on_notify
+        self.sent: list[NotificationEvent] = []
+
+    async def notify(self, event: NotificationEvent) -> None:
+        if self._raise is not None:
+            raise self._raise
+        self.sent.append(event)
+
+
 class SeededContainer(Container):
     """Container with pre-seeded repos; JWT/argon2/RBAC/services stay real.
 
@@ -760,6 +819,8 @@ class SeededContainer(Container):
         media: MediaRepository | None = None,
         event_job_producer: EventJobProducer | None = None,
         ml_results_reader: MlResultsReader | None = None,
+        notification_reads: NotificationReadRepository | None = None,
+        notifier: NotificationChannel | None = None,
         jwt_secret: str = _TEST_JWT_SECRET,
     ) -> None:
         super().__init__(Settings(jwt_secret=SecretStr(jwt_secret)))
@@ -776,6 +837,10 @@ class SeededContainer(Container):
         self._seed_ml_results_reader: MlResultsReader = (
             ml_results_reader or FakeMlResultsReader()
         )
+        self._seed_notification_reads: NotificationReadRepository = (
+            notification_reads or FakeNotificationReadRepo()
+        )
+        self._seed_notifier: NotificationChannel = notifier or FakeNotificationChannel()
         # Wire the FK-cascade simulation so delete-student removes the profile too.
         if isinstance(self._seed_users, FakeUserRepo) and isinstance(
             self._seed_students, FakeStudentRepo
@@ -814,3 +879,9 @@ class SeededContainer(Container):
 
     def ml_results_reader(self) -> MlResultsReader:
         return self._seed_ml_results_reader
+
+    def notification_reads_repo(self) -> NotificationReadRepository:
+        return self._seed_notification_reads
+
+    def notifier(self) -> NotificationChannel:
+        return self._seed_notifier

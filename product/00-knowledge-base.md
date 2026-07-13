@@ -186,7 +186,7 @@ cache-invalidation, fail-loud on model-version mismatch; model swap = offline re
 | Event processing status + counts | BE + FE | ✅ | live polling; per-photo counts exist |
 | Galleries (event↔student↔media) | BE + FE | ✅ | All/By-student; student self-view |
 | Download (entitlement-scoped) | BE + FE | ✅ | signed URL; staff any in-school, student only own |
-| **Notify / deliver / share** | — | ❌ **absent** | no email/push/share-link; a student **download-all** (client-zip) landed in BP3, but there's still no *delivery* (BP4) |
+| **Notify / deliver / share** | BE + FE (BP4) | ⚠️ partial | **in-app delivery landed** (decisions/0041): authoritative student "new photos" signal + staff notify/auto/roster + a multi-channel notifier seam (`log` now). Still **no outbound push** (email/WhatsApp are future channels; auto is in-app only) and no share-link |
 | Dashboards / analytics / counts | BE + FE (BP1) | ⚠️ partial | **school command center landed** (decisions/0038): `GET /v1/dashboard` rollups + needs-attention + nav scent; list-row counts + platform/analytics rollups still pending (BP2+) |
 | Search / filter / sort on lists | FE (BP2) | ✅ | all four admin lists (schools/staff/students/events): client search + sort + status/enrollment filter chips + per-row counts (decisions/0039). **Bulk** actions still absent (BP7). |
 | Self-serve onboarding / bulk import / billing | — | ❌ **absent** | manual; `max_teachers` is the only quota |
@@ -217,24 +217,27 @@ Route map (17): `(auth)` `/login` `/change-password` · root `/` + `error`/`not-
 | `/events/[id]/upload` | Bulk upload | Multi-file dropzone + per-file progress | No inline retry; no size guidance; no "distribute next" hand-off |
 | `/events/[id]/gallery` | Browse + triage | Tabs All / By-student, masonry grid | **No needs-review lens**; no download-all; grid plain |
 | `/photos/[id]` | Inspect one photo | Big image + appearances (confidence + review pill) | Only place confidence/review show |
-| `/me/events` | Student "My Photos" | **Pinterest-grade (BP3)**: warm hero + first-visit welcome + "N new since last visit"; natural-aspect **masonry** w/ hover-download; **download-all** (client-zip); appearances hidden | Lightbox lacks per-photo event context (deferred) |
+| `/me/events` | Student "My Photos" | **Pinterest-grade (BP3)** + **authoritative "new photos" banner + nav badge (BP4)**: warm hero; natural-aspect **masonry** w/ hover-download; **download-all** (client-zip); appearances hidden; mark-seen on unmount | Lightbox lacks per-photo event context (deferred) |
 
-### 7b. Backend — 41 endpoints + the distribution model
+### 7b. Backend — 45 endpoints + the distribution model
 
 **Endpoint inventory (by area):** Auth (`/v1/auth/{login,refresh,change-password,me}`) · Dashboard
 (`GET /v1/dashboard` — BP1, `dashboard:view`) · Schools
 (`POST/GET /v1/schools`, `GET /v1/schools/{id}`, `POST /v1/schools/{id}/admins`, `GET /v1/schools/{id}/admins` — BP2
 roster; list responses carry rollups) · Staff (`POST/GET /v1/staff`) ·
 Students (`upload-url`, `POST/GET /v1/students`, `GET/DELETE /v1/students/{id}`, `POST …/{id}/enroll`) · Events
-(`POST/GET /v1/events`, `GET/PATCH /v1/events/{id}`, `POST …/{id}/process`, `GET …/{id}/status`) · Media
+(`POST/GET /v1/events`, `GET/PATCH /v1/events/{id}`, `POST …/{id}/process`, `GET …/{id}/status`) · **Notifications
+(BP4)** (`POST /v1/events/{id}/notify`, `GET /v1/events/{id}/notifications` — staff; `GET /v1/me/notifications`,
+`POST /v1/me/notifications/{id}/seen` — student) · Media
 (`…/media/upload-url`, `POST/GET …/media`, `GET /v1/media/{id}`) · Galleries (`GET …/{id}/students`,
 `…/students/{sid}/media`, `/v1/students/{id}/{events,media}`, `/v1/media/{id}/appearances`) · Self (`/v1/me/{events,media}`)
 · Download (`GET /v1/media/{id}/download` → signed URL, staff-any / student-own) · Health (`/healthz`,`/readyz`,`/metrics`).
 
-**The distribution mechanism = strictly pull-only.** Once processing completes, **nothing reaches the student**.
-No email, push, SMS, webhook, share link, bulk export, or download-all. The student must log in and browse
-`/v1/me/events` → `/v1/me/media`, then download each photo. Staff have only `GET …/status` polling — no
-backend-initiated signal.
+**The distribution mechanism (updated by BP4).** In-app delivery now exists: an event is **announced** to matched
+students (auto on completion, or a staff "Notify students" push), which drives an authoritative, cross-device
+**"new photos"** signal (`GET /v1/me/notifications` → a nav badge + banner; `…/seen` clears it) and a staff
+Notified·Seen roster. **Outbound push (email/WhatsApp) is still absent** — a `log` channel + a pluggable multi-channel
+seam ship now; auto drives only the in-app signal. No SMS/share-link.
 
 **Lifecycle & privacy posture:** events/media are **archive-not-delete** (no hard delete, no retention/expiry).
 Failed photos stay `pending` (no error state). Deleting a student does ML-delete-first (502 if ML down) then FK
@@ -243,7 +246,7 @@ cascade — but **historical `matches` for deleted students are silently skipped
 `school_id` always from the token (platform routes excepted).
 
 **RBAC:** platform_admin→`school:manage`; school_admin→`staff/student/event/media/job:status/gallery:view_all` +
-`dashboard:view` (BP1); teacher→ same minus `staff:manage`; student→`gallery:view_own`.
+`dashboard:view` (BP1) + `notification:send` (BP4); teacher→ same minus `staff:manage`; student→`gallery:view_own`.
 
 ### 7c. ML service — capabilities & limits
 

@@ -10,7 +10,7 @@ media repositories, the job producer, and the ML results reader (decisions/0027)
 from __future__ import annotations
 
 from collections.abc import Sequence
-from datetime import date
+from datetime import date, datetime
 from typing import Protocol
 
 from backend.domain.models import (
@@ -26,6 +26,7 @@ from backend.domain.models import (
     Media,
     MediaProcessingStatus,
     MediaType,
+    NotificationEvent,
     Role,
     School,
     SignedUpload,
@@ -120,10 +121,12 @@ class EventRepository(Protocol):
         description: str | None = None,
         event_date: date | None = None,
         status: EventStatus | None = None,
+        auto_notify: bool | None = None,
     ) -> Event | None: ...
     async def set_processing(
         self, event_id: str, *, status: EventProcessingStatus
     ) -> None: ...
+    async def mark_notified(self, event_id: str) -> None: ...
 
 
 class MediaRepository(Protocol):
@@ -209,6 +212,30 @@ class MlResultsReader(Protocol):
     async def student_appearance_counts(
         self, school_id: str
     ) -> dict[str, StudentAppearanceCounts]: ...
+
+
+class NotificationReadRepository(Protocol):
+    """Per-(student, event) 'seen' state for the in-app new-photos signal (BP4,
+    decisions/0041). Tenant-scoped by ``school_id`` like every other repo."""
+
+    async def mark_seen(
+        self, *, school_id: str, student_id: str, event_id: str
+    ) -> None: ...
+    async def list_for_student(
+        self, school_id: str, student_id: str
+    ) -> dict[str, datetime]: ...
+    async def list_for_event(
+        self, school_id: str, event_id: str
+    ) -> dict[str, datetime]: ...
+
+
+class NotificationChannel(Protocol):
+    """One outbound notification channel (BP4, decisions/0041). Best-effort: the
+    ``CompositeNotifier`` isolates failures, so an implementation may raise and it won't
+    block the other channels. Channels are added by config (``BE_NOTIFICATION_CHANNELS``),
+    so email/WhatsApp are future drop-ins with no service change."""
+
+    async def notify(self, event: NotificationEvent) -> None: ...
 
 
 class PasswordHasher(Protocol):

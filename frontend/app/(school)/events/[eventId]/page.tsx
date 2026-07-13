@@ -1,6 +1,6 @@
 "use client";
 
-import { Archive, Images, Pencil, Play, RotateCcw, Upload } from "lucide-react";
+import { Archive, Images, Pencil, Play, RotateCcw, Send, Upload } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { type FormEvent, useState } from "react";
@@ -18,9 +18,10 @@ import { PageHeader } from "@/components/ui/page-header";
 import { ProgressBar } from "@/components/ui/progress-bar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatusPill } from "@/components/ui/status-pill";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/ui/toast";
-import { processEvent, updateEvent } from "@/lib/api/endpoints";
+import { notifyStudents, processEvent, updateEvent } from "@/lib/api/endpoints";
 import { isApiError } from "@/lib/api/errors";
 import type { EventProcessingStatus, EventResponse } from "@/lib/api/types";
 import {
@@ -30,6 +31,7 @@ import {
   PROCESSING_TONE,
 } from "@/lib/events/status";
 import { useEvent } from "@/lib/hooks/use-events";
+import { useEventNotifications } from "@/lib/hooks/use-event-notifications";
 import { useEventStatus } from "@/lib/hooks/use-event-status";
 import { formatDate } from "@/lib/utils";
 
@@ -135,6 +137,129 @@ function EditEventDialog({
         </form>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** Staff distribution controls (BP4): auto-announce toggle, manual "Notify students", and
+ *  the notified/seen roster. Announcing needs a finished (completed) active event. */
+function DistributionCard({
+  event,
+  refresh,
+}: {
+  event: EventResponse;
+  refresh: () => void;
+}) {
+  const { toast } = useToast();
+  const { roster, mutate: rosterMutate } = useEventNotifications(event.id);
+  const [notifying, setNotifying] = useState(false);
+  const [togglingAuto, setTogglingAuto] = useState(false);
+
+  // Announce-able once the event has finished processing at least once, and isn't archived.
+  const canNotify = event.completed_at !== null && event.status === "active";
+
+  async function onNotify() {
+    setNotifying(true);
+    try {
+      const res = await notifyStudents(event.id);
+      toast(`Notified ${res.notified} ${res.notified === 1 ? "student" : "students"}.`, "success");
+      refresh(); // notified_at changed
+      void rosterMutate();
+    } catch (err) {
+      // 400 if archived / not finished; 502 if a channel is unreachable.
+      toast(isApiError(err) ? err.message : "Something went wrong", "error");
+    } finally {
+      setNotifying(false);
+    }
+  }
+
+  async function onToggleAuto(next: boolean) {
+    setTogglingAuto(true);
+    try {
+      await updateEvent(event.id, { auto_notify: next });
+      refresh();
+      void rosterMutate();
+    } catch (err) {
+      toast(isApiError(err) ? err.message : "Something went wrong", "error");
+    } finally {
+      setTogglingAuto(false);
+    }
+  }
+
+  return (
+    <Card className="flex flex-col gap-4 p-6">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-headline text-ink">Distribution</h2>
+        <StatusPill tone={roster?.announced ? "success" : "neutral"}>
+          {roster?.announced ? "Announced" : "Not announced"}
+        </StatusPill>
+      </div>
+      <p className="text-body-sm text-ink-secondary">
+        Students see their photos in “My Photos”. Auto-announce shows them in-app as soon as
+        processing finishes; “Notify students” also sends via any configured channels.
+      </p>
+
+      <label className="flex items-center gap-3">
+        <input
+          type="checkbox"
+          checked={event.auto_notify}
+          disabled={togglingAuto}
+          onChange={(e) => void onToggleAuto(e.target.checked)}
+          className="size-4 rounded accent-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        />
+        <span className="text-body text-ink">
+          Auto-announce to students when processing finishes
+        </span>
+      </label>
+
+      {roster?.announced ? (
+        <p className="text-body-sm text-ink-secondary">
+          Notified <span className="tabular-nums">{roster.notified_count}</span> ·{" "}
+          <span className="tabular-nums">{roster.seen_count}</span> opened
+          {roster.notified_at ? ` · last sent ${formatDate(roster.notified_at)}` : ""}
+        </p>
+      ) : null}
+
+      <div className="flex flex-col gap-2">
+        <Button onClick={onNotify} loading={notifying} disabled={!canNotify} className="w-fit">
+          <Send className="size-4" aria-hidden="true" />
+          {roster?.notified_at ? "Notify again" : "Notify students"}
+        </Button>
+        {!canNotify ? (
+          <p className="text-body-sm text-ink-muted">
+            Finish processing the photos before notifying.
+          </p>
+        ) : null}
+      </div>
+
+      {roster && roster.students.length > 0 ? (
+        <div className="overflow-hidden rounded-card border border-hairline">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Student</TableHead>
+                <TableHead>Photos</TableHead>
+                <TableHead>Status</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {roster.students.map((s) => (
+                <TableRow key={s.student_id}>
+                  <TableCell>{s.name}</TableCell>
+                  <TableCell className="tabular-nums text-ink-secondary">
+                    {s.media_count}
+                  </TableCell>
+                  <TableCell>
+                    <StatusPill tone={s.seen ? "success" : "neutral"}>
+                      {s.seen ? "Opened" : "Not opened"}
+                    </StatusPill>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      ) : null}
+    </Card>
   );
 }
 
@@ -365,6 +490,8 @@ export default function EventDetailPage() {
               </>
             )}
           </Card>
+
+          <DistributionCard event={event} refresh={() => void eventMutate()} />
         </>
       )}
 

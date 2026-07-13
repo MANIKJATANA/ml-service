@@ -1,7 +1,7 @@
 "use client";
 
 import { Download, Images, Sparkles } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { FilterChips } from "@/components/gallery/filter-chips";
 import { GridSkeleton } from "@/components/gallery/grid-skeleton";
@@ -9,10 +9,10 @@ import { PhotoGrid } from "@/components/gallery/photo-grid";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { useToast } from "@/components/ui/toast";
+import { markNotificationSeen } from "@/lib/api/endpoints";
 import { useDownloadAll } from "@/lib/hooks/use-download-all";
-import { useMe } from "@/lib/hooks/use-me";
 import { useMyEvents, useMyMedia } from "@/lib/hooks/use-my-gallery";
-import { useNewSince } from "@/lib/hooks/use-new-since";
+import { useMyNotifications } from "@/lib/hooks/use-my-notifications";
 
 function plural(n: number, one: string, many: string): string {
   return `${n} ${n === 1 ? one : many}`;
@@ -81,19 +81,30 @@ function PhotoArea({ eventId }: { eventId: string | null }) {
 }
 
 export default function MyPhotosPage() {
-  const { user } = useMe();
   const { events, isLoading, error, mutate } = useMyEvents();
-  // The full (all-events) set — for the "new since" tally; SWR dedupes this with
-  // PhotoArea's fetch on the default "All events" view.
-  const { media: allMedia } = useMyMedia(null);
+  const { notifications, mutate: mutateNotifications } = useMyNotifications();
   const [selected, setSelected] = useState(""); // "" = all events
 
   const totalPhotos = (events ?? []).reduce((s, e) => s + e.media_count, 0);
-  // Computed once at mount from the full set (a ref guard inside the hook).
-  const { newCount, firstVisit } = useNewSince(
-    user?.id,
-    allMedia?.map((m) => m.media_id),
-  );
+
+  // Landing on "My Photos" IS seeing them: mark the announced events seen ON LOAD (once) so
+  // it sticks across a browser refresh (an unmount handler wouldn't finish the POST before a
+  // reload). Snapshot the tally into state so this visit's banner persists while the nav
+  // badge clears — here, on refresh, and on another device.
+  const [newCount, setNewCount] = useState(0);
+  const marked = useRef(false);
+  useEffect(() => {
+    if (marked.current || !notifications) return;
+    marked.current = true;
+    const unseen = notifications.events.filter((e) => e.unseen).map((e) => e.event_id);
+    void (async () => {
+      setNewCount(notifications.unseen_count);
+      if (unseen.length > 0) {
+        await Promise.allSettled(unseen.map((id) => markNotificationSeen(id)));
+        void mutateNotifications();
+      }
+    })();
+  }, [notifications, mutateNotifications]);
 
   if (isLoading) {
     return (
@@ -137,15 +148,13 @@ export default function MyPhotosPage() {
           You&apos;re in {plural(totalPhotos, "photo", "photos")} from{" "}
           {plural(events.length, "event", "events")}. Only you can see these.
         </p>
-        {firstVisit ? (
-          <p className="mt-1 inline-flex w-fit items-center gap-2 rounded-full bg-accent/10 px-3 py-1 text-body-sm text-accent-dark">
+        {newCount > 0 ? (
+          <p
+            role="status"
+            className="mt-1 inline-flex w-fit items-center gap-2 rounded-full bg-accent/10 px-3 py-1 text-body-sm text-accent-dark"
+          >
             <Sparkles className="size-4" aria-hidden="true" />
-            Welcome — browse and download the ones you love.
-          </p>
-        ) : newCount > 0 ? (
-          <p className="mt-1 inline-flex w-fit items-center gap-2 rounded-full bg-accent/10 px-3 py-1 text-body-sm text-accent-dark">
-            <Sparkles className="size-4" aria-hidden="true" />
-            {plural(newCount, "new photo", "new photos")} since your last visit
+            New photos from {plural(newCount, "event", "events")} since your last visit
           </p>
         ) : null}
       </header>

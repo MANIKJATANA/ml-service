@@ -43,7 +43,7 @@ export function FilterChips({
             )}
           >
             {item.label}
-            <span className="text-tabular tabular-nums text-ink-muted">{item.count}</span>
+            <span className="text-tabular tabular-nums text-ink-secondary">{item.count}</span>
           </button>
         );
       })}

@@ -16,13 +16,24 @@ interface LightboxProps {
   index: number;
   onIndexChange: (index: number) => void;
   onClose: () => void;
+  /** Show the "In this photo" panel. Off for students — the appearances endpoint is
+   *  staff-only (gallery:view_all) and other students' names must not leak (0036). */
+  showAppearances?: boolean;
 }
 
 /** Full-screen photo viewer: image + ←/→/Esc navigation, download, and who appears. */
-export function Lightbox({ mediaIds, index, onIndexChange, onClose }: LightboxProps) {
+export function Lightbox({
+  mediaIds,
+  index,
+  onIndexChange,
+  onClose,
+  showAppearances = true,
+}: LightboxProps) {
   const mediaId = mediaIds[index];
   const { download } = useMediaDownload(mediaId, true);
-  const { appearances, isLoading: appsLoading } = useMediaAppearances(mediaId);
+  const { appearances, isLoading: appsLoading } = useMediaAppearances(
+    showAppearances ? mediaId : null,
+  );
   const { downloading, onDownload } = useDownloadToDisk(mediaId, download);
   const contentRef = useRef<HTMLDivElement>(null);
 
@@ -115,10 +126,12 @@ export function Lightbox({ mediaIds, index, onIndexChange, onClose }: LightboxPr
               Download
             </Button>
 
-            <div className="flex flex-col gap-2">
-              <h3 className="text-body-sm font-medium text-ink">In this photo</h3>
-              <AppearanceList appearances={appearances} isLoading={appsLoading} />
-            </div>
+            {showAppearances ? (
+              <div className="flex flex-col gap-2">
+                <h3 className="text-body-sm font-medium text-ink">In this photo</h3>
+                <AppearanceList appearances={appearances} isLoading={appsLoading} />
+              </div>
+            ) : null}
           </aside>
         </DialogPrimitive.Content>
       </DialogPrimitive.Portal>

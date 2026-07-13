@@ -8,7 +8,13 @@ import { PhotoTile } from "@/components/gallery/photo-tile";
 /** Masonry grid of lazily-loaded photo tiles; owns the Lightbox (open index + prev/next).
  *  `mediaIds` is the ordered id list — callers normalise MediaResponse/GalleryMediaResponse
  *  to ids before passing them in (decisions/0035). */
-export function PhotoGrid({ mediaIds }: { mediaIds: string[] }) {
+export function PhotoGrid({
+  mediaIds,
+  showAppearances = true,
+}: {
+  mediaIds: string[];
+  showAppearances?: boolean;
+}) {
   const [openIndex, setOpenIndex] = useState<number | null>(null);
 
   return (
@@ -24,6 +30,7 @@ export function PhotoGrid({ mediaIds }: { mediaIds: string[] }) {
           index={openIndex}
           onIndexChange={setOpenIndex}
           onClose={() => setOpenIndex(null)}
+          showAppearances={showAppearances}
         />
       ) : null}
     </>

@@ -254,3 +254,14 @@ export function mediaAppearances(mediaId: string): Promise<MediaAppearanceRespon
 export function downloadMedia(mediaId: string): Promise<DownloadResponse> {
   return bffFetch<DownloadResponse>(`/api/v1/media/${encodeURIComponent(mediaId)}/download`);
 }
+
+// --- Student self-view (F6, gallery:view_own — the caller's own student_id from the token) ---
+
+export function myEvents(): Promise<EventForStudentResponse[]> {
+  return bffFetch<EventForStudentResponse[]>("/api/v1/me/events");
+}
+
+export function myMedia(eventId?: string): Promise<GalleryMediaResponse[]> {
+  const query = eventId ? `?event_id=${encodeURIComponent(eventId)}` : "";
+  return bffFetch<GalleryMediaResponse[]>(`/api/v1/me/media${query}`);
+}

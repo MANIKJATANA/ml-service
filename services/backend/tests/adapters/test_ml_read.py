@@ -114,3 +114,27 @@ async def test_count_needs_review_is_tenant_scoped(
     assert await reader.count_needs_review("A") == 1  # B's flagged row excluded
     assert await reader.count_needs_review("B") == 1
     assert await reader.count_needs_review("Z") == 0  # no rows for this school
+
+
+async def test_event_and_student_match_counts_are_tenant_scoped(
+    sm: async_sessionmaker[AsyncSession],
+) -> None:
+    # School A, e1: st1 in m1 & m2 (m2 flagged); st2 in m1. e2: st1 in m3. B is noise.
+    await _insert(sm, school_id="A", event_id="e1", student_id="st1", media_id="m1")
+    await _insert(sm, school_id="A", event_id="e1", student_id="st1", media_id="m2",
+                  needs_review=True)
+    await _insert(sm, school_id="A", event_id="e1", student_id="st2", media_id="m1")
+    await _insert(sm, school_id="A", event_id="e2", student_id="st1", media_id="m3")
+    await _insert(sm, school_id="B", event_id="e1", student_id="st1", media_id="m1")
+    reader = PostgresMlResultsReader(sm)
+
+    ev = await reader.event_match_counts("A")
+    assert set(ev) == {"e1", "e2"}  # B's e1 row is excluded by school
+    assert ev["e1"].matched_students == 2  # st1, st2 (distinct)
+    assert ev["e1"].needs_review == 1
+    assert ev["e2"].matched_students == 1
+
+    st = await reader.student_appearance_counts("A")
+    assert st["st1"].appearance_count == 3  # m1, m2 (e1) + m3 (e2)
+    assert st["st1"].event_count == 2  # e1, e2 (distinct)
+    assert st["st2"].appearance_count == 1

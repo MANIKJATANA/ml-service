@@ -3,6 +3,7 @@ import type {
   DashboardResponse,
   DownloadResponse,
   EventForStudentResponse,
+  EventListItem,
   EventResponse,
   EventStatus,
   EventStatusResponse,
@@ -12,7 +13,9 @@ import type {
   MediaResponse,
   MediaType,
   SchoolResponse,
+  SchoolWithRollup,
   StudentInEventResponse,
+  StudentListItem,
   StudentResponse,
   UploadUrlResponse,
   UserResponse,
@@ -58,8 +61,8 @@ export function getDashboard(): Promise<DashboardResponse> {
 
 // --- Platform: schools + admins (F2, school:manage) ---
 
-export function listSchools(): Promise<SchoolResponse[]> {
-  return bffFetch<SchoolResponse[]>("/api/v1/schools");
+export function listSchools(): Promise<SchoolWithRollup[]> {
+  return bffFetch<SchoolWithRollup[]>("/api/v1/schools");
 }
 
 export function createSchool(name: string, maxTeachers: number): Promise<SchoolResponse> {
@@ -69,8 +72,13 @@ export function createSchool(name: string, maxTeachers: number): Promise<SchoolR
   });
 }
 
-export function getSchool(schoolId: string): Promise<SchoolResponse> {
-  return bffFetch<SchoolResponse>(`/api/v1/schools/${encodeURIComponent(schoolId)}`);
+export function getSchool(schoolId: string): Promise<SchoolWithRollup> {
+  return bffFetch<SchoolWithRollup>(`/api/v1/schools/${encodeURIComponent(schoolId)}`);
+}
+
+/** The school's administrator roster (BP2). */
+export function listSchoolAdmins(schoolId: string): Promise<UserResponse[]> {
+  return bffFetch<UserResponse[]>(`/api/v1/schools/${encodeURIComponent(schoolId)}/admins`);
 }
 
 export function createSchoolAdmin(
@@ -99,8 +107,8 @@ export function createStaff(email: string, password: string): Promise<UserRespon
 
 // --- Students + ML enrollment (F3, student:manage) ---
 
-export function listStudents(): Promise<StudentResponse[]> {
-  return bffFetch<StudentResponse[]>("/api/v1/students");
+export function listStudents(): Promise<StudentListItem[]> {
+  return bffFetch<StudentListItem[]>("/api/v1/students");
 }
 
 export function getStudent(studentId: string): Promise<StudentResponse> {
@@ -144,8 +152,8 @@ export function deleteStudent(studentId: string): Promise<void> {
 
 // --- Events (F4, event:manage / media:upload / job:status:view) ---
 
-export function listEvents(): Promise<EventResponse[]> {
-  return bffFetch<EventResponse[]>("/api/v1/events");
+export function listEvents(): Promise<EventListItem[]> {
+  return bffFetch<EventListItem[]>("/api/v1/events");
 }
 
 export function getEvent(eventId: string): Promise<EventResponse> {

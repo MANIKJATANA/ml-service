@@ -125,6 +125,22 @@ class PostgresMediaRepository:
                 counts[MediaProcessingStatus(status_value)] = n
         return counts
 
+    async def counts_by_event(self, school_id: str) -> dict[str, int]:
+        """Photo count per event for one school (BP2 events list).
+
+        One grouped scan of the tenant's ``media`` slice (``ix_media_event``); keys are
+        canonical UUID strings, matching the domain event ids."""
+        sid = opt_uuid(school_id)
+        if sid is None:
+            return {}
+        async with self._sessionmaker() as session:
+            result = await session.execute(
+                select(MediaRow.event_id, func.count())
+                .where(MediaRow.school_id == sid)
+                .group_by(MediaRow.event_id)
+            )
+            return {str(event_id): n for event_id, n in result.all()}
+
     async def school_status_counts(
         self, school_id: str
     ) -> dict[MediaProcessingStatus, int]:

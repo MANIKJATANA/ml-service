@@ -2,7 +2,7 @@
 
 import { Building2, Plus } from "lucide-react";
 import Link from "next/link";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -11,7 +11,9 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { PageHeader } from "@/components/ui/page-header";
+import { SearchInput } from "@/components/ui/search-input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { SortableHead } from "@/components/ui/sortable-head";
 import { StatusPill } from "@/components/ui/status-pill";
 import {
   Table,
@@ -24,13 +26,19 @@ import {
 import { useToast } from "@/components/ui/toast";
 import { createSchool } from "@/lib/api/endpoints";
 import { isApiError } from "@/lib/api/errors";
-import type { SchoolStatus } from "@/lib/api/types";
+import type { SchoolStatus, SchoolWithRollup } from "@/lib/api/types";
 import { useSchools } from "@/lib/hooks/use-schools";
-import { formatDate } from "@/lib/utils";
+import { useSort } from "@/lib/hooks/use-sort";
 
 const STATUS_TONE: Record<SchoolStatus, "success" | "warning"> = {
   active: "success",
   suspended: "warning",
+};
+
+const SORT: Record<string, (s: SchoolWithRollup) => string | number> = {
+  name: (s) => s.name.toLowerCase(),
+  students: (s) => s.rollup.students,
+  events: (s) => s.rollup.events,
 };
 
 function CreateSchoolDialog({ onCreated }: { onCreated: () => void }) {
@@ -119,6 +127,15 @@ function CreateSchoolDialog({ onCreated }: { onCreated: () => void }) {
 
 export default function SchoolsPage() {
   const { schools, isLoading, error, mutate } = useSchools();
+  const [query, setQuery] = useState("");
+
+  const filtered = useMemo(() => {
+    const rows = schools ?? [];
+    const q = query.trim().toLowerCase();
+    return q ? rows.filter((s) => s.name.toLowerCase().includes(q)) : rows;
+  }, [schools, query]);
+
+  const { sorted, sortKey, sortDir, toggle } = useSort(filtered, SORT, "name");
 
   return (
     <div className="flex flex-col gap-6">
@@ -153,40 +170,73 @@ export default function SchoolsPage() {
           action={<CreateSchoolDialog onCreated={() => mutate()} />}
         />
       ) : (
-        <Card className="overflow-hidden">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead className="text-right">Max teachers</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Created</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {schools.map((school) => (
-                <TableRow key={school.id} className="transition-colors hover:bg-surface">
-                  <TableCell>
-                    <Link
-                      href={`/schools/${school.id}`}
-                      className="rounded font-medium text-accent-hover hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    >
-                      {school.name}
-                    </Link>
-                  </TableCell>
-                  <TableCell className="text-right text-tabular tabular-nums">
-                    {school.max_teachers.toLocaleString()}
-                  </TableCell>
-                  <TableCell>
-                    <StatusPill tone={STATUS_TONE[school.status]}>{school.status}</StatusPill>
-                  </TableCell>
-                  <TableCell className="text-ink-secondary">{formatDate(school.created_at)}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </Card>
+        <div className="flex flex-col gap-4">
+          <div className="flex justify-end">
+            <SearchInput value={query} onChange={setQuery} placeholder="Search schools…" />
+          </div>
+          {sorted.length === 0 ? (
+            <EmptyState title="No matching schools" description="Try a different search." />
+          ) : (
+            <Card className="overflow-hidden">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <SortableHead label="Name" sortKey="name" activeKey={sortKey} dir={sortDir} onSort={toggle} />
+                    <TableHead>Admins</TableHead>
+                    <TableHead>Teachers</TableHead>
+                    <SortableHead label="Students" sortKey="students" activeKey={sortKey} dir={sortDir} onSort={toggle} />
+                    <SortableHead label="Events" sortKey="events" activeKey={sortKey} dir={sortDir} onSort={toggle} />
+                    <TableHead>Status</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {sorted.map((school) => {
+                    const atCap = school.rollup.teachers >= school.max_teachers;
+                    return (
+                      <TableRow key={school.id} className="transition-colors hover:bg-surface">
+                        <TableCell>
+                          <Link
+                            href={`/schools/${school.id}`}
+                            className="rounded font-medium text-accent-hover hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          >
+                            {school.name}
+                          </Link>
+                        </TableCell>
+                        <TableCell className="tabular-nums text-ink-secondary">
+                          {school.rollup.admins}
+                        </TableCell>
+                        <TableCell>
+                          <span
+                            className={cnCap(atCap)}
+                            title={atCap ? "Teacher limit reached" : undefined}
+                          >
+                            {school.rollup.teachers} / {school.max_teachers.toLocaleString()}
+                          </span>
+                        </TableCell>
+                        <TableCell className="tabular-nums text-ink-secondary">
+                          {school.rollup.students}
+                        </TableCell>
+                        <TableCell className="tabular-nums text-ink-secondary">
+                          {school.rollup.events}
+                        </TableCell>
+                        <TableCell>
+                          <StatusPill tone={STATUS_TONE[school.status]}>{school.status}</StatusPill>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </Card>
+          )}
+        </div>
       )}
     </div>
   );
+}
+
+function cnCap(atCap: boolean): string {
+  return atCap
+    ? "tabular-nums font-medium text-warning-strong"
+    : "tabular-nums text-ink-secondary";
 }

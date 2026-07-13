@@ -1,7 +1,7 @@
 "use client";
 
 import { UserPlus, Users } from "lucide-react";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useMemo, useState } from "react";
 
 import { RoleGate } from "@/components/role-gate";
 import { Button } from "@/components/ui/button";
@@ -11,14 +11,23 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { PageHeader } from "@/components/ui/page-header";
+import { SearchInput } from "@/components/ui/search-input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { SortableHead } from "@/components/ui/sortable-head";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/components/ui/toast";
 import { createStaff } from "@/lib/api/endpoints";
 import { isApiError } from "@/lib/api/errors";
 import type { UserResponse } from "@/lib/api/types";
+import { useSort } from "@/lib/hooks/use-sort";
 import { useStaff } from "@/lib/hooks/use-staff";
+import { formatDate } from "@/lib/utils";
+
+const SORT: Record<string, (u: UserResponse) => string | number> = {
+  email: (u) => u.email.toLowerCase(),
+  added: (u) => u.created_at,
+};
 
 function staffStatus(user: UserResponse): {
   tone: "success" | "warning" | "neutral";
@@ -113,6 +122,15 @@ function CreateTeacherDialog({ onCreated }: { onCreated: () => void }) {
 
 function StaffContent() {
   const { staff, isLoading, error, mutate } = useStaff();
+  const [query, setQuery] = useState("");
+
+  const filtered = useMemo(() => {
+    const rows = staff ?? [];
+    const q = query.trim().toLowerCase();
+    return q ? rows.filter((t) => t.email.toLowerCase().includes(q)) : rows;
+  }, [staff, query]);
+
+  const { sorted, sortKey, sortDir, toggle } = useSort(filtered, SORT, "email");
 
   return (
     <div className="flex flex-col gap-6">
@@ -147,29 +165,42 @@ function StaffContent() {
           action={<CreateTeacherDialog onCreated={() => mutate()} />}
         />
       ) : (
-        <Card className="overflow-hidden">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Email</TableHead>
-                <TableHead>Status</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {staff.map((teacher) => {
-                const status = staffStatus(teacher);
-                return (
-                  <TableRow key={teacher.id}>
-                    <TableCell>{teacher.email}</TableCell>
-                    <TableCell>
-                      <StatusPill tone={status.tone}>{status.label}</StatusPill>
-                    </TableCell>
+        <div className="flex flex-col gap-4">
+          <div className="flex justify-end">
+            <SearchInput value={query} onChange={setQuery} placeholder="Search by email…" />
+          </div>
+          {sorted.length === 0 ? (
+            <EmptyState title="No matching teachers" description="Try a different search." />
+          ) : (
+            <Card className="overflow-hidden">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <SortableHead label="Email" sortKey="email" activeKey={sortKey} dir={sortDir} onSort={toggle} />
+                    <TableHead>Status</TableHead>
+                    <SortableHead label="Added" sortKey="added" activeKey={sortKey} dir={sortDir} onSort={toggle} />
                   </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
-        </Card>
+                </TableHeader>
+                <TableBody>
+                  {sorted.map((teacher) => {
+                    const status = staffStatus(teacher);
+                    return (
+                      <TableRow key={teacher.id}>
+                        <TableCell>{teacher.email}</TableCell>
+                        <TableCell>
+                          <StatusPill tone={status.tone}>{status.label}</StatusPill>
+                        </TableCell>
+                        <TableCell className="text-ink-secondary">
+                          {formatDate(teacher.created_at)}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </Card>
+          )}
+        </div>
       )}
     </div>
   );

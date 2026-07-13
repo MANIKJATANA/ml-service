@@ -121,3 +121,20 @@ class PostgresUserRepository:
                 .order_by(UserRow.created_at, UserRow.id)  # stable when ties
             )
             return [_to_user(r) for r in result.scalars().all()]
+
+    async def role_counts_by_school(self) -> dict[str, dict[Role, int]]:
+        """Users grouped by (school, role) across all schools (BP2 platform rollup).
+
+        One grouped scan (``ix_users_school_role``); platform admins (null school) are
+        excluded. Cross-tenant on purpose (reachable only behind ``school:manage``).
+        Keys are canonical UUID strings; inner keys are ``Role`` members."""
+        counts: dict[str, dict[Role, int]] = {}
+        async with self._sessionmaker() as session:
+            result = await session.execute(
+                select(UserRow.school_id, UserRow.role, func.count())
+                .where(UserRow.school_id.is_not(None))
+                .group_by(UserRow.school_id, UserRow.role)
+            )
+            for school_id, role_value, n in result.all():
+                counts.setdefault(str(school_id), {})[Role(role_value)] = n
+        return counts

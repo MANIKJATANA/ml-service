@@ -223,6 +223,36 @@ class EventRollup:
 
 
 @dataclass(frozen=True, slots=True)
+class EventMatchCounts:
+    """Per-event match rollup for the events list (BP2). Derived from ``matches`` in one
+    grouped query: distinct students who appear + how many of the event's matches are
+    flagged for review."""
+
+    matched_students: int
+    needs_review: int
+
+
+@dataclass(frozen=True, slots=True)
+class StudentAppearanceCounts:
+    """Per-student appearance rollup for the students list (BP2). One grouped ``matches``
+    query: total appearances (photos the student is in) + distinct events."""
+
+    appearance_count: int
+    event_count: int
+
+
+@dataclass(frozen=True, slots=True)
+class SchoolRollup:
+    """Per-school rollup for the platform schools list/detail (BP2). Composed from batch
+    grouped counts over users/students/events — one query each, no per-school fan-out."""
+
+    admins: int
+    teachers: int
+    students: int
+    events: int
+
+
+@dataclass(frozen=True, slots=True)
 class Appearance:
     """One ``matches`` row: a student who appears in a media (decisions/0028).
 

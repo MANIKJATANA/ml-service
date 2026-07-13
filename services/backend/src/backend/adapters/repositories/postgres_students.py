@@ -131,6 +131,19 @@ class PostgresStudentRepository:
                 counts[EnrollmentStatus(status_value)] = n
         return counts
 
+    async def counts_by_school(self) -> dict[str, int]:
+        """Students per school across all schools (BP2 platform rollup).
+
+        One grouped scan; cross-tenant on purpose (reachable only behind
+        ``school:manage``). Keys are canonical UUID strings, matching the domain ids."""
+        async with self._sessionmaker() as session:
+            result = await session.execute(
+                select(StudentRow.school_id, func.count()).group_by(
+                    StudentRow.school_id
+                )
+            )
+            return {str(school_id): n for school_id, n in result.all()}
+
     async def set_enrollment(
         self, student_id: str, *, status: EnrollmentStatus
     ) -> None:

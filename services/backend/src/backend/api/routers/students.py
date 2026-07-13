@@ -16,6 +16,7 @@ from fastapi import APIRouter, Depends, status
 from backend.api.deps import ContainerDep, require_permissions, tenant_of
 from backend.api.schemas.students import (
     CreateStudentRequest,
+    StudentListItem,
     StudentResponse,
     UploadUrlResponse,
 )
@@ -56,14 +57,14 @@ async def create_student(
     return StudentResponse.from_student(student)
 
 
-@router.get("", response_model=list[StudentResponse])
+@router.get("", response_model=list[StudentListItem])
 async def list_students(
     container: ContainerDep, actor: StudentManager
-) -> list[StudentResponse]:
-    students = await container.student_service().list_students(
+) -> list[StudentListItem]:
+    listings = await container.listing_service().list_students(
         school_id=tenant_of(actor)
     )
-    return [StudentResponse.from_student(s) for s in students]
+    return [StudentListItem.from_listing(x) for x in listings]
 
 
 @router.get("/{student_id}", response_model=StudentResponse)

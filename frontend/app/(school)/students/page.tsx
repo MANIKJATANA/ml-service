@@ -2,7 +2,7 @@
 
 import { GraduationCap, UserPlus } from "lucide-react";
 import Link from "next/link";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useMemo, useState } from "react";
 
 import { StudentAvatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -11,18 +11,28 @@ import { Dialog, DialogClose, DialogContent, DialogTrigger } from "@/components/
 import { EmptyState } from "@/components/ui/empty-state";
 import { Field } from "@/components/ui/field";
 import { FileDropzone } from "@/components/ui/file-dropzone";
+import { type ChipItem, FilterChips } from "@/components/gallery/filter-chips";
 import { Input } from "@/components/ui/input";
 import { PageHeader } from "@/components/ui/page-header";
 import { ProgressBar } from "@/components/ui/progress-bar";
+import { SearchInput } from "@/components/ui/search-input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { SortableHead } from "@/components/ui/sortable-head";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/components/ui/toast";
 import { createStudent } from "@/lib/api/endpoints";
 import { isApiError } from "@/lib/api/errors";
 import { uploadReferencePhoto } from "@/lib/api/upload";
+import type { EnrollmentStatus, StudentListItem } from "@/lib/api/types";
 import { useStudents } from "@/lib/hooks/use-students";
+import { useSort } from "@/lib/hooks/use-sort";
 import { ENROLL_LABEL, ENROLL_TONE } from "@/lib/students/enrollment";
+
+const SORT: Record<string, (s: StudentListItem) => string | number> = {
+  name: (s) => s.name.toLowerCase(),
+  appearances: (s) => s.appearance_count,
+};
 
 function CreateStudentDialog({ onCreated }: { onCreated: () => void }) {
   const { toast } = useToast();
@@ -156,6 +166,33 @@ function CreateStudentDialog({ onCreated }: { onCreated: () => void }) {
 
 export default function StudentsPage() {
   const { students, isLoading, error, mutate } = useStudents();
+  const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState<"all" | EnrollmentStatus>("all");
+
+  const chips: ChipItem[] = useMemo(() => {
+    const all = students ?? [];
+    const by = (s: EnrollmentStatus) => all.filter((x) => x.enrollment_status === s).length;
+    return [
+      { id: "all", label: "All", count: all.length },
+      { id: "enrolled", label: "Enrolled", count: by("enrolled") },
+      { id: "pending", label: "Pending", count: by("pending") },
+      { id: "failed", label: "Failed", count: by("failed") },
+    ];
+  }, [students]);
+
+  const filtered = useMemo(() => {
+    let rows = students ?? [];
+    if (filter !== "all") rows = rows.filter((s) => s.enrollment_status === filter);
+    const q = query.trim().toLowerCase();
+    if (q) {
+      rows = rows.filter(
+        (s) => s.name.toLowerCase().includes(q) || s.email.toLowerCase().includes(q),
+      );
+    }
+    return rows;
+  }, [students, filter, query]);
+
+  const { sorted, sortKey, sortDir, toggle } = useSort(filtered, SORT, "name");
 
   return (
     <div className="flex flex-col gap-6">
@@ -190,38 +227,77 @@ export default function StudentsPage() {
           action={<CreateStudentDialog onCreated={() => mutate()} />}
         />
       ) : (
-        <Card className="overflow-hidden">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Student</TableHead>
-                <TableHead>Email</TableHead>
-                <TableHead>Enrollment</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {students.map((student) => (
-                <TableRow key={student.id} className="transition-colors hover:bg-surface">
-                  <TableCell>
-                    <Link
-                      href={`/students/${student.id}`}
-                      className="flex items-center gap-3 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    >
-                      <StudentAvatar name={student.name} />
-                      <span className="font-medium text-ink hover:underline">{student.name}</span>
-                    </Link>
-                  </TableCell>
-                  <TableCell className="text-ink-secondary">{student.email}</TableCell>
-                  <TableCell>
-                    <StatusPill tone={ENROLL_TONE[student.enrollment_status]}>
-                      {ENROLL_LABEL[student.enrollment_status]}
-                    </StatusPill>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </Card>
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <FilterChips
+              items={chips}
+              activeId={filter}
+              onSelect={(id) => setFilter(id as "all" | EnrollmentStatus)}
+              ariaLabel="Filter by enrollment status"
+            />
+            <SearchInput value={query} onChange={setQuery} placeholder="Search name or email…" />
+          </div>
+          {sorted.length === 0 ? (
+            <EmptyState title="No matching students" description="Try a different search or filter." />
+          ) : (
+            <Card className="overflow-hidden">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <SortableHead
+                      label="Student"
+                      sortKey="name"
+                      activeKey={sortKey}
+                      dir={sortDir}
+                      onSort={toggle}
+                    />
+                    <TableHead>Email</TableHead>
+                    <SortableHead
+                      label="Appears in"
+                      sortKey="appearances"
+                      activeKey={sortKey}
+                      dir={sortDir}
+                      onSort={toggle}
+                    />
+                    <TableHead>Enrollment</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {sorted.map((student) => (
+                    <TableRow key={student.id} className="transition-colors hover:bg-surface">
+                      <TableCell>
+                        <Link
+                          href={`/students/${student.id}`}
+                          className="flex items-center gap-3 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        >
+                          <StudentAvatar name={student.name} />
+                          <span className="font-medium text-ink hover:underline">{student.name}</span>
+                        </Link>
+                      </TableCell>
+                      <TableCell className="text-ink-secondary">{student.email}</TableCell>
+                      <TableCell className="text-ink-secondary">
+                        {student.appearance_count > 0 ? (
+                          <span className="tabular-nums">
+                            {student.appearance_count} photo
+                            {student.appearance_count === 1 ? "" : "s"} · {student.event_count} event
+                            {student.event_count === 1 ? "" : "s"}
+                          </span>
+                        ) : (
+                          "—"
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <StatusPill tone={ENROLL_TONE[student.enrollment_status]}>
+                          {ENROLL_LABEL[student.enrollment_status]}
+                        </StatusPill>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </Card>
+          )}
+        </div>
       )}
     </div>
   );

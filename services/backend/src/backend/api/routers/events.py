@@ -15,6 +15,7 @@ from fastapi import APIRouter, Depends, status
 from backend.api.deps import ContainerDep, require_permissions, tenant_of
 from backend.api.schemas.events import (
     CreateEventRequest,
+    EventListItem,
     EventResponse,
     UpdateEventRequest,
 )
@@ -43,12 +44,12 @@ async def create_event(
     return EventResponse.from_event(event)
 
 
-@router.get("", response_model=list[EventResponse])
+@router.get("", response_model=list[EventListItem])
 async def list_events(
     container: ContainerDep, actor: EventManager
-) -> list[EventResponse]:
-    events = await container.event_service().list_events(school_id=tenant_of(actor))
-    return [EventResponse.from_event(e) for e in events]
+) -> list[EventListItem]:
+    listings = await container.listing_service().list_events(school_id=tenant_of(actor))
+    return [EventListItem.from_listing(x) for x in listings]
 
 
 @router.get("/{event_id}", response_model=EventResponse)

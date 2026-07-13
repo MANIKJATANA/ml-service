@@ -188,7 +188,7 @@ cache-invalidation, fail-loud on model-version mismatch; model swap = offline re
 | Download (entitlement-scoped) | BE + FE | ✅ | signed URL; staff any in-school, student only own |
 | **Notify / deliver / share** | — | ❌ **absent** | no email/push/share-link/bulk-export/download-all |
 | Dashboards / analytics / counts | BE + FE (BP1) | ⚠️ partial | **school command center landed** (decisions/0038): `GET /v1/dashboard` rollups + needs-attention + nav scent; list-row counts + platform/analytics rollups still pending (BP2+) |
-| Search / filter / sort / bulk on lists | — | ❌ **absent** | none anywhere |
+| Search / filter / sort on lists | FE (BP2) | ✅ | all four admin lists (schools/staff/students/events): client search + sort + status/enrollment filter chips + per-row counts (decisions/0039). **Bulk** actions still absent (BP7). |
 | Self-serve onboarding / bulk import / billing | — | ❌ **absent** | manual; `max_teachers` is the only quota |
 | Retention / hard-delete / audit log | — | ❌ **absent** | archive-not-delete; no retention; no access audit |
 | Consent / compliance | — | ⛔ out of scope | handled by legal via school contracts |
@@ -206,24 +206,25 @@ Route map (17): `(auth)` `/login` `/change-password` · root `/` + `error`/`not-
 | View | Purpose | Renders today | Dark data / key gap |
 |---|---|---|---|
 | `/login`,`/change-password` | Get the right person in | Centered card; email+password; forced change | No recovery, no show-password, no brand moment |
-| `/schools` | Platform estate + create | Table [name · max_teachers · status · created] | No per-school **counts**; no search/sort |
-| `/schools/[id]` | Run one school | Info card + Add-admin dialog | **No admin roster** (add-only); no capacity rollup |
+| `/schools` | Platform estate + create | Table [name · **admins · teachers/max · students · events** · status] + search + sort (BP2) | Bulk still absent |
+| `/schools/[id]` | Run one school | Info + **rollup StatCards** + **admin roster** + Add-admin dialog (BP2) | — |
 | `/dashboard` | Staff home | **Command center (BP1)**: school name, stat cards (students/events/photos), needs-attention alerts, quick actions, first-run invitation | Now real; list-row counts + search/filter are BP2 |
-| `/staff` | Manage teachers | Table [email · status] | No edit/disable/resend; `created_at`; no capacity ("4 of 10") |
-| `/students` | Enroll + keep healthy | Table [avatar+name · email · enrollment] | No enrolled/failed **counts**; no reference **thumbnail**; no filter/search/bulk |
+| `/staff` | Manage teachers | Table [email · status · **added**] + search + sort (BP2) | No edit/disable/resend (BP7); no capacity pill |
+| `/students` | Enroll + keep healthy | Table [avatar+name · email · **appears-in counts** · enrollment] + enrollment filter + search + sort (BP2) | No reference **thumbnail** (needs a signed-URL endpoint — deferred); no bulk (BP7) |
 | `/students/[id]` | Fix one student + photos | Card + Re-enroll/Delete + "Appears in" gallery | No reference-photo view; no enrollment timestamp; no confidence in "appears in" |
-| `/events` | All events at a glance | Table [name · date · processing] | No **photo/match counts**; no active/archived filter; no search/sort |
+| `/events` | All events at a glance | Table [name · date · **photos · matched · needs-review** · processing] + active/archived filter + search + sort (BP2) | Per-event management still light |
 | `/events/[id]` | Run one event | Info + Photos card (progress + Upload/Process) | No student roster/match summary; no timeline; confusing Completed→Not-started flip |
 | `/events/[id]/upload` | Bulk upload | Multi-file dropzone + per-file progress | No inline retry; no size guidance; no "distribute next" hand-off |
 | `/events/[id]/gallery` | Browse + triage | Tabs All / By-student, masonry grid | **No needs-review lens**; no download-all; grid plain |
 | `/photos/[id]` | Inspect one photo | Big image + appearances (confidence + review pill) | Only place confidence/review show |
 | `/me/events` | Student "My Photos" | FilterChips + reused grid (appearances hidden) | No welcome, no context, no "new since," no download-all |
 
-### 7b. Backend — 40 endpoints + the distribution model
+### 7b. Backend — 41 endpoints + the distribution model
 
 **Endpoint inventory (by area):** Auth (`/v1/auth/{login,refresh,change-password,me}`) · Dashboard
 (`GET /v1/dashboard` — BP1, `dashboard:view`) · Schools
-(`POST/GET /v1/schools`, `GET /v1/schools/{id}`, `POST /v1/schools/{id}/admins`) · Staff (`POST/GET /v1/staff`) ·
+(`POST/GET /v1/schools`, `GET /v1/schools/{id}`, `POST /v1/schools/{id}/admins`, `GET /v1/schools/{id}/admins` — BP2
+roster; list responses carry rollups) · Staff (`POST/GET /v1/staff`) ·
 Students (`upload-url`, `POST/GET /v1/students`, `GET/DELETE /v1/students/{id}`, `POST …/{id}/enroll`) · Events
 (`POST/GET /v1/events`, `GET/PATCH /v1/events/{id}`, `POST …/{id}/process`, `GET …/{id}/status`) · Media
 (`…/media/upload-url`, `POST/GET …/media`, `GET /v1/media/{id}`) · Galleries (`GET …/{id}/students`,

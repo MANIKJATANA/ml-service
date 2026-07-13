@@ -3,10 +3,10 @@
 import useSWR from "swr";
 
 import { getEvent, listEvents } from "@/lib/api/endpoints";
-import type { EventResponse } from "@/lib/api/types";
+import type { EventListItem, EventResponse } from "@/lib/api/types";
 
 export function useEvents() {
-  const { data, error, isLoading, mutate } = useSWR<EventResponse[]>("events", listEvents);
+  const { data, error, isLoading, mutate } = useSWR<EventListItem[]>("events", listEvents);
   return { events: data, error, isLoading, mutate };
 }
 

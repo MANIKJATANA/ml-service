@@ -19,6 +19,7 @@ from backend.domain.models import (
     EnrollmentStatus,
     Event,
     EventJob,
+    EventMatchCounts,
     EventProcessingStatus,
     EventRollup,
     EventStatus,
@@ -29,6 +30,7 @@ from backend.domain.models import (
     School,
     SignedUpload,
     Student,
+    StudentAppearanceCounts,
     User,
 )
 from backend.domain.permissions import Permission
@@ -60,6 +62,7 @@ class UserRepository(Protocol):
     async def list_by_school_and_role(
         self, school_id: str, role: Role
     ) -> list[User]: ...
+    async def role_counts_by_school(self) -> dict[str, dict[Role, int]]: ...
     async def delete(self, user_id: str) -> None: ...
 
 
@@ -83,6 +86,7 @@ class StudentRepository(Protocol):
     async def enrollment_counts(
         self, school_id: str
     ) -> dict[EnrollmentStatus, int]: ...
+    async def counts_by_school(self) -> dict[str, int]: ...
     async def set_enrollment(
         self, student_id: str, *, status: EnrollmentStatus
     ) -> None: ...
@@ -106,6 +110,7 @@ class EventRepository(Protocol):
     async def list_by_school(self, school_id: str) -> list[Event]: ...
     async def status_counts(self, school_id: str) -> EventRollup: ...
     async def count_not_started_with_media(self, school_id: str) -> int: ...
+    async def counts_by_school(self) -> dict[str, int]: ...
     async def update(
         self,
         school_id: str,
@@ -145,6 +150,7 @@ class MediaRepository(Protocol):
     async def school_status_counts(
         self, school_id: str
     ) -> dict[MediaProcessingStatus, int]: ...
+    async def counts_by_event(self, school_id: str) -> dict[str, int]: ...
 
 
 class EventJobProducer(Protocol):
@@ -197,6 +203,12 @@ class MlResultsReader(Protocol):
         self, school_id: str, media_id: str
     ) -> list[Appearance]: ...
     async def count_needs_review(self, school_id: str) -> int: ...
+    async def event_match_counts(
+        self, school_id: str
+    ) -> dict[str, EventMatchCounts]: ...
+    async def student_appearance_counts(
+        self, school_id: str
+    ) -> dict[str, StudentAppearanceCounts]: ...
 
 
 class PasswordHasher(Protocol):

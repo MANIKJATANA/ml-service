@@ -13,6 +13,7 @@ from datetime import datetime
 from pydantic import BaseModel, EmailStr, Field
 
 from backend.domain.models import EnrollmentStatus, Student
+from backend.services.listing_service import StudentListing
 
 # argon2 has no input cap (0024) — bound provisioning passwords at the edge.
 _MAX_PASSWORD_LEN = 1024
@@ -55,4 +56,20 @@ class StudentResponse(BaseModel):
             enrollment_status=student.enrollment_status,
             created_at=student.created_at,
             updated_at=student.updated_at,
+        )
+
+
+class StudentListItem(StudentResponse):
+    """A students-list row: the student + how many photos/events they appear in (BP2).
+    The single-item GET/POST/enroll keep the leaner ``StudentResponse``."""
+
+    appearance_count: int
+    event_count: int
+
+    @classmethod
+    def from_listing(cls, listing: StudentListing) -> StudentListItem:
+        return cls(
+            **StudentResponse.from_student(listing.student).model_dump(),
+            appearance_count=listing.appearance_count,
+            event_count=listing.event_count,
         )

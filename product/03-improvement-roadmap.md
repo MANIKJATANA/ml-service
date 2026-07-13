@@ -65,7 +65,7 @@ convention. Order = my recommended build order.
 - **Acceptance:** dashboard shows correct live counts + only the non-zero alerts; fresh school → a first-run
   invitation; 403 for students; tenant strictly from the token; gates green.
 
-### BP2 — List data-richness & scale · **Effort M · Impact H · FE + query-only BE · no migration**
+### BP2 — List data-richness & scale · **Effort M · Impact H · FE + query-only BE · no migration** ✅ landed (decisions/0039)
 - **Problem:** the four admin lists (schools/staff/students/events) are thin and count-free, with **no
   search/filter/sort** anywhere. Fails **P1/P3/P5/P8/T5**.
 - **Change:** additive count fields on the list responses (event → media/matched/needs-review; student →

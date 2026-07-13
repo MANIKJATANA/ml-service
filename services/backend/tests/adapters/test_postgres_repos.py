@@ -395,6 +395,63 @@ async def test_media_school_status_counts_is_tenant_scoped(
     }
 
 
+async def test_bp2_platform_and_event_rollups(
+    sm: async_sessionmaker[AsyncSession],
+) -> None:
+    schools = PostgresSchoolRepository(sm)
+    users = PostgresUserRepository(sm)
+    students = PostgresStudentRepository(sm)
+    events = PostgresEventRepository(sm)
+    media = PostgresMediaRepository(sm)
+    a = await schools.create(name="A", max_teachers=5)
+    b = await schools.create(name="B", max_teachers=5)
+
+    # A: 1 admin + 2 teachers; B: 1 admin; + a platform admin (null school → excluded).
+    await users.create(
+        school_id=None, email="pa@x.io", password_hash="h", role=Role.PLATFORM_ADMIN
+    )
+    await users.create(
+        school_id=a.id, email="ad@a.io", password_hash="h", role=Role.SCHOOL_ADMIN
+    )
+    await users.create(
+        school_id=a.id, email="t1@a.io", password_hash="h", role=Role.TEACHER
+    )
+    await users.create(
+        school_id=a.id, email="t2@a.io", password_hash="h", role=Role.TEACHER
+    )
+    await users.create(
+        school_id=b.id, email="ad@b.io", password_hash="h", role=Role.SCHOOL_ADMIN
+    )
+    # Students: 2 in A, 1 in B (each needs a login user).
+    for i, sid in enumerate((a.id, a.id, b.id)):
+        login = await users.create(
+            school_id=sid, email=f"s{i}@x.io", password_hash="h", role=Role.STUDENT
+        )
+        await students.create(
+            school_id=sid, user_id=login.id, name="N", reference_photo_path="p"
+        )
+    ea = await events.create(
+        school_id=a.id, name="E", description=None, event_date=None, created_by=None
+    )
+    await media.create(
+        school_id=a.id, event_id=ea.id, storage_path="p1", media_type=MediaType.IMAGE
+    )
+    await media.create(
+        school_id=a.id, event_id=ea.id, storage_path="p2", media_type=MediaType.IMAGE
+    )
+
+    role_counts = await users.role_counts_by_school()
+    assert role_counts[a.id][Role.SCHOOL_ADMIN] == 1
+    assert role_counts[a.id][Role.TEACHER] == 2
+    assert role_counts[b.id][Role.SCHOOL_ADMIN] == 1
+    assert set(role_counts) == {a.id, b.id}  # platform admin (null school) excluded
+
+    assert await students.counts_by_school() == {a.id: 2, b.id: 1}
+    assert await events.counts_by_school() == {a.id: 1}
+    assert await media.counts_by_event(a.id) == {ea.id: 2}
+    assert await media.counts_by_event("not-a-uuid") == {}
+
+
 async def test_student_get_by_user_id_is_tenant_scoped(
     sm: async_sessionmaker[AsyncSession],
 ) -> None:

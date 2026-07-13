@@ -17,6 +17,7 @@ export interface UserResponse {
   school_id: string | null;
   status: UserStatus;
   must_change_password: boolean;
+  created_at: string; // BP2: staff "added" date + admin roster
 }
 
 /** A school (platform onboarding — decisions/0025). Timestamps are ISO strings. */
@@ -39,6 +40,23 @@ export interface StudentResponse {
   enrollment_status: EnrollmentStatus;
   created_at: string;
   updated_at: string;
+}
+
+/** A schools-list/detail row: the school + its rollup (BP2, decisions/0039). */
+export interface SchoolRollup {
+  admins: number;
+  teachers: number;
+  students: number;
+  events: number;
+}
+export interface SchoolWithRollup extends SchoolResponse {
+  rollup: SchoolRollup;
+}
+
+/** A students-list row: the student + how many photos/events they appear in (BP2). */
+export interface StudentListItem extends StudentResponse {
+  appearance_count: number;
+  event_count: number;
 }
 
 /** A short-lived direct-to-Supabase upload target (the token is inside `upload_url`). */
@@ -71,6 +89,13 @@ export interface EventResponse {
   completed_at: string | null;
   created_at: string;
   updated_at: string;
+}
+
+/** An events-list row: the event + its counts (BP2, decisions/0039). */
+export interface EventListItem extends EventResponse {
+  media_count: number;
+  matched_students: number;
+  needs_review: number;
 }
 
 /** One uploaded event photo + its per-photo processing state (decisions/0027). */

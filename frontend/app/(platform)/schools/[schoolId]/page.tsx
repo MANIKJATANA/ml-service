@@ -3,6 +3,7 @@
 import { UserPlus } from "lucide-react";
 import { useParams } from "next/navigation";
 import { type FormEvent, useState } from "react";
+import { useSWRConfig } from "swr";
 
 import { Breadcrumb } from "@/components/ui/breadcrumb";
 import { Button } from "@/components/ui/button";
@@ -13,14 +14,26 @@ import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { PageHeader } from "@/components/ui/page-header";
 import { Skeleton } from "@/components/ui/skeleton";
+import { StatCard } from "@/components/ui/stat-card";
 import { StatusPill } from "@/components/ui/status-pill";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/components/ui/toast";
 import { createSchoolAdmin } from "@/lib/api/endpoints";
 import { isApiError } from "@/lib/api/errors";
-import { useSchool } from "@/lib/hooks/use-schools";
+import type { UserResponse } from "@/lib/api/types";
+import { useSchool, useSchoolAdmins } from "@/lib/hooks/use-schools";
 import { formatDate } from "@/lib/utils";
 
-function AddAdminDialog({ schoolId }: { schoolId: string }) {
+function adminStatus(user: UserResponse): {
+  tone: "success" | "warning" | "neutral";
+  label: string;
+} {
+  if (user.status === "disabled") return { tone: "neutral", label: "Disabled" };
+  if (user.must_change_password) return { tone: "warning", label: "Awaiting sign-in" };
+  return { tone: "success", label: "Active" };
+}
+
+function AddAdminDialog({ schoolId, onAdded }: { schoolId: string; onAdded: () => void }) {
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
   const [email, setEmail] = useState("");
@@ -40,9 +53,8 @@ function AddAdminDialog({ schoolId }: { schoolId: string }) {
     setSubmitting(true);
     try {
       const admin = await createSchoolAdmin(schoolId, email.trim(), password);
-      // There is no "list a school's admins" endpoint, so nothing to revalidate —
-      // the toast is the confirmation (decisions/0032).
       toast(`Administrator ${admin.email} added.`, "success");
+      onAdded(); // revalidate the roster (BP2 added the list endpoint)
       handleOpenChange(false);
     } catch (err) {
       toast(isApiError(err) ? err.message : "Something went wrong", "error");
@@ -102,9 +114,69 @@ function AddAdminDialog({ schoolId }: { schoolId: string }) {
   );
 }
 
+function AdminRoster({ schoolId }: { schoolId: string }) {
+  const { admins, isLoading, error, mutate } = useSchoolAdmins(schoolId);
+
+  return (
+    <section className="flex flex-col gap-3">
+      <h2 className="text-headline text-ink">Administrators</h2>
+      {isLoading ? (
+        <Card className="flex flex-col gap-2 p-4">
+          {[0, 1].map((i) => (
+            <Skeleton key={i} className="h-10 w-full" />
+          ))}
+        </Card>
+      ) : error ? (
+        <EmptyState
+          role="alert"
+          title="Couldn't load administrators"
+          description="Something went wrong reaching the server."
+          action={
+            <Button variant="secondary" onClick={() => mutate()}>
+              Retry
+            </Button>
+          }
+        />
+      ) : !admins || admins.length === 0 ? (
+        <EmptyState title="No administrators yet" description="Add one to let them run this school." />
+      ) : (
+        <Card className="overflow-hidden">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Email</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Added</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {admins.map((admin) => {
+                const status = adminStatus(admin);
+                return (
+                  <TableRow key={admin.id}>
+                    <TableCell>{admin.email}</TableCell>
+                    <TableCell>
+                      <StatusPill tone={status.tone}>{status.label}</StatusPill>
+                    </TableCell>
+                    <TableCell className="text-ink-secondary">
+                      {formatDate(admin.created_at)}
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        </Card>
+      )}
+    </section>
+  );
+}
+
 export default function SchoolDetailPage() {
   const { schoolId } = useParams<{ schoolId: string }>();
   const { school, isLoading, error, mutate } = useSchool(schoolId);
+  // Revalidate the roster (owned by <AdminRoster/>) by its shared SWR key after an add.
+  const { mutate: mutateKey } = useSWRConfig();
 
   const notFound = isApiError(error) && error.status === 404;
 
@@ -139,7 +211,25 @@ export default function SchoolDetailPage() {
         />
       ) : (
         <>
-          <PageHeader title={school.name} actions={<AddAdminDialog schoolId={school.id} />} />
+          <PageHeader
+            title={school.name}
+            actions={
+              <AddAdminDialog
+                schoolId={school.id}
+                onAdded={() => mutateKey(`schools/${school.id}/admins`)}
+              />
+            }
+          />
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <StatCard label="Administrators" value={school.rollup.admins} />
+            <StatCard
+              label="Teachers"
+              value={school.rollup.teachers}
+              hint={`of ${school.max_teachers.toLocaleString()} allowed`}
+            />
+            <StatCard label="Students" value={school.rollup.students} />
+            <StatCard label="Events" value={school.rollup.events} />
+          </div>
           <Card className="p-6">
             <dl className="grid gap-6 sm:grid-cols-3">
               <div className="flex flex-col gap-1">
@@ -162,9 +252,7 @@ export default function SchoolDetailPage() {
               </div>
             </dl>
           </Card>
-          <p className="text-body-sm text-ink-muted">
-            Administrators you add sign in and manage this school&apos;s staff, students, and events.
-          </p>
+          <AdminRoster schoolId={school.id} />
         </>
       )}
     </div>

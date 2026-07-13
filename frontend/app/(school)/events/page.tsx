@@ -2,8 +2,9 @@
 
 import { CalendarDays, Plus } from "lucide-react";
 import Link from "next/link";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useMemo, useState } from "react";
 
+import { type ChipItem, FilterChips } from "@/components/gallery/filter-chips";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Dialog, DialogClose, DialogContent, DialogTrigger } from "@/components/ui/dialog";
@@ -11,13 +12,16 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { PageHeader } from "@/components/ui/page-header";
+import { SearchInput } from "@/components/ui/search-input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { SortableHead } from "@/components/ui/sortable-head";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/ui/toast";
 import { createEvent } from "@/lib/api/endpoints";
 import { isApiError } from "@/lib/api/errors";
+import type { EventListItem, EventStatus } from "@/lib/api/types";
 import {
   EVENT_STATUS_LABEL,
   EVENT_STATUS_TONE,
@@ -25,7 +29,15 @@ import {
   PROCESSING_TONE,
 } from "@/lib/events/status";
 import { useEvents } from "@/lib/hooks/use-events";
+import { useSort } from "@/lib/hooks/use-sort";
 import { formatDate } from "@/lib/utils";
+
+const SORT: Record<string, (e: EventListItem) => string | number> = {
+  name: (e) => e.name.toLowerCase(),
+  date: (e) => e.event_date ?? "",
+  photos: (e) => e.media_count,
+  matched: (e) => e.matched_students,
+};
 
 function CreateEventDialog({ onCreated }: { onCreated: () => void }) {
   const { toast } = useToast();
@@ -114,6 +126,27 @@ function CreateEventDialog({ onCreated }: { onCreated: () => void }) {
 
 export default function EventsPage() {
   const { events, isLoading, error, mutate } = useEvents();
+  const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState<"all" | EventStatus>("all");
+
+  const chips: ChipItem[] = useMemo(() => {
+    const all = events ?? [];
+    return [
+      { id: "all", label: "All", count: all.length },
+      { id: "active", label: "Active", count: all.filter((e) => e.status === "active").length },
+      { id: "archived", label: "Archived", count: all.filter((e) => e.status === "archived").length },
+    ];
+  }, [events]);
+
+  const filtered = useMemo(() => {
+    let rows = events ?? [];
+    if (filter !== "all") rows = rows.filter((e) => e.status === filter);
+    const q = query.trim().toLowerCase();
+    if (q) rows = rows.filter((e) => e.name.toLowerCase().includes(q));
+    return rows;
+  }, [events, filter, query]);
+
+  const { sorted, sortKey, sortDir, toggle } = useSort(filtered, SORT, "date", "desc");
 
   return (
     <div className="flex flex-col gap-6">
@@ -148,46 +181,76 @@ export default function EventsPage() {
           action={<CreateEventDialog onCreated={() => mutate()} />}
         />
       ) : (
-        <Card className="overflow-hidden">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Date</TableHead>
-                <TableHead>Processing</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {events.map((event) => (
-                <TableRow key={event.id} className="transition-colors hover:bg-surface">
-                  <TableCell>
-                    <div className="flex items-center gap-2">
-                      <Link
-                        href={`/events/${event.id}`}
-                        className="rounded font-medium text-accent-hover hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                      >
-                        {event.name}
-                      </Link>
-                      {event.status === "archived" ? (
-                        <StatusPill tone={EVENT_STATUS_TONE.archived}>
-                          {EVENT_STATUS_LABEL.archived}
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <FilterChips
+              items={chips}
+              activeId={filter}
+              onSelect={(id) => setFilter(id as "all" | EventStatus)}
+              ariaLabel="Filter by event status"
+            />
+            <SearchInput value={query} onChange={setQuery} placeholder="Search events…" />
+          </div>
+          {sorted.length === 0 ? (
+            <EmptyState title="No matching events" description="Try a different search or filter." />
+          ) : (
+            <Card className="overflow-hidden">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <SortableHead label="Name" sortKey="name" activeKey={sortKey} dir={sortDir} onSort={toggle} />
+                    <SortableHead label="Date" sortKey="date" activeKey={sortKey} dir={sortDir} onSort={toggle} />
+                    <SortableHead label="Photos" sortKey="photos" activeKey={sortKey} dir={sortDir} onSort={toggle} />
+                    <SortableHead label="Matched" sortKey="matched" activeKey={sortKey} dir={sortDir} onSort={toggle} />
+                    <TableHead>Processing</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {sorted.map((event) => (
+                    <TableRow key={event.id} className="transition-colors hover:bg-surface">
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <Link
+                            href={`/events/${event.id}`}
+                            className="rounded font-medium text-accent-hover hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          >
+                            {event.name}
+                          </Link>
+                          {event.status === "archived" ? (
+                            <StatusPill tone={EVENT_STATUS_TONE.archived}>
+                              {EVENT_STATUS_LABEL.archived}
+                            </StatusPill>
+                          ) : null}
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-ink-secondary">
+                        {event.event_date ? formatDate(event.event_date) : "—"}
+                      </TableCell>
+                      <TableCell className="tabular-nums text-ink-secondary">
+                        {event.media_count}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <span className="tabular-nums text-ink-secondary">
+                            {event.matched_students}
+                          </span>
+                          {event.needs_review > 0 ? (
+                            <StatusPill tone="warning">{event.needs_review} to review</StatusPill>
+                          ) : null}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <StatusPill tone={PROCESSING_TONE[event.processing_status]}>
+                          {PROCESSING_LABEL[event.processing_status]}
                         </StatusPill>
-                      ) : null}
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-ink-secondary">
-                    {event.event_date ? formatDate(event.event_date) : "—"}
-                  </TableCell>
-                  <TableCell>
-                    <StatusPill tone={PROCESSING_TONE[event.processing_status]}>
-                      {PROCESSING_LABEL[event.processing_status]}
-                    </StatusPill>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </Card>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </Card>
+          )}
+        </div>
       )}
     </div>
   );

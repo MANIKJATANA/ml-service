@@ -162,6 +162,17 @@ class PostgresEventRepository:
             )
             return int(result.scalar_one())
 
+    async def counts_by_school(self) -> dict[str, int]:
+        """Events per school across all schools (BP2 platform rollup).
+
+        One grouped scan; cross-tenant on purpose (reachable only behind
+        ``school:manage``). Keys are canonical UUID strings."""
+        async with self._sessionmaker() as session:
+            result = await session.execute(
+                select(EventRow.school_id, func.count()).group_by(EventRow.school_id)
+            )
+            return {str(school_id): n for school_id, n in result.all()}
+
     async def update(
         self,
         school_id: str,

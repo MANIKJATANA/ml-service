@@ -7,6 +7,8 @@ password hash can never leak.
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from pydantic import BaseModel, EmailStr, Field
 
 from backend.domain.models import Role, User, UserStatus
@@ -29,6 +31,7 @@ class UserResponse(BaseModel):
     school_id: str | None
     status: UserStatus
     must_change_password: bool
+    created_at: datetime  # BP2: staff "added" date + admin roster; harmless on /me
 
     @classmethod
     def from_user(cls, user: User) -> UserResponse:
@@ -39,4 +42,5 @@ class UserResponse(BaseModel):
             school_id=user.school_id,
             status=user.status,
             must_change_password=user.must_change_password,
+            created_at=user.created_at,
         )

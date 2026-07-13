@@ -3,10 +3,10 @@
 import useSWR from "swr";
 
 import { getStudent, listStudents } from "@/lib/api/endpoints";
-import type { StudentResponse } from "@/lib/api/types";
+import type { StudentListItem, StudentResponse } from "@/lib/api/types";
 
 export function useStudents() {
-  const { data, error, isLoading, mutate } = useSWR<StudentResponse[]>("students", listStudents);
+  const { data, error, isLoading, mutate } = useSWR<StudentListItem[]>("students", listStudents);
   return { students: data, error, isLoading, mutate };
 }
 

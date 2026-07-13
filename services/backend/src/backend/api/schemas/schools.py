@@ -7,6 +7,7 @@ from datetime import datetime
 from pydantic import BaseModel, Field
 
 from backend.domain.models import School, SchoolStatus
+from backend.services.listing_service import SchoolListing
 
 
 class CreateSchoolRequest(BaseModel):
@@ -31,4 +32,30 @@ class SchoolResponse(BaseModel):
             status=school.status,
             created_at=school.created_at,
             updated_at=school.updated_at,
+        )
+
+
+class SchoolRollupResponse(BaseModel):
+    admins: int
+    teachers: int
+    students: int
+    events: int
+
+
+class SchoolWithRollupResponse(SchoolResponse):
+    """A schools list/detail row: the school + its rollup (BP2). ``teachers`` vs
+    ``max_teachers`` (inherited) gives capacity used at a glance."""
+
+    rollup: SchoolRollupResponse
+
+    @classmethod
+    def from_listing(cls, listing: SchoolListing) -> SchoolWithRollupResponse:
+        return cls(
+            **SchoolResponse.from_school(listing.school).model_dump(),
+            rollup=SchoolRollupResponse(
+                admins=listing.rollup.admins,
+                teachers=listing.rollup.teachers,
+                students=listing.rollup.students,
+                events=listing.rollup.events,
+            ),
         )

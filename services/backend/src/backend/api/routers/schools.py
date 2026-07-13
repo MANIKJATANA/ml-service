@@ -10,7 +10,11 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, status
 
 from backend.api.deps import ContainerDep, require_permissions
-from backend.api.schemas.schools import CreateSchoolRequest, SchoolResponse
+from backend.api.schemas.schools import (
+    CreateSchoolRequest,
+    SchoolResponse,
+    SchoolWithRollupResponse,
+)
 from backend.api.schemas.users import CreateUserRequest, UserResponse
 from backend.domain.permissions import Permission
 
@@ -31,16 +35,27 @@ async def create_school(
     return SchoolResponse.from_school(school)
 
 
-@router.get("", response_model=list[SchoolResponse])
-async def list_schools(container: ContainerDep) -> list[SchoolResponse]:
-    schools = await container.onboarding_service().list_schools()
-    return [SchoolResponse.from_school(s) for s in schools]
+@router.get("", response_model=list[SchoolWithRollupResponse])
+async def list_schools(container: ContainerDep) -> list[SchoolWithRollupResponse]:
+    listings = await container.listing_service().list_schools()
+    return [SchoolWithRollupResponse.from_listing(x) for x in listings]
 
 
-@router.get("/{school_id}", response_model=SchoolResponse)
-async def get_school(school_id: str, container: ContainerDep) -> SchoolResponse:
-    school = await container.onboarding_service().get_school(school_id)
-    return SchoolResponse.from_school(school)
+@router.get("/{school_id}", response_model=SchoolWithRollupResponse)
+async def get_school(
+    school_id: str, container: ContainerDep
+) -> SchoolWithRollupResponse:
+    listing = await container.listing_service().get_school(school_id=school_id)
+    return SchoolWithRollupResponse.from_listing(listing)
+
+
+@router.get("/{school_id}/admins", response_model=list[UserResponse])
+async def list_school_admins(
+    school_id: str, container: ContainerDep
+) -> list[UserResponse]:
+    """The school's administrator roster (BP2). Add-admin is the existing POST."""
+    admins = await container.listing_service().list_school_admins(school_id=school_id)
+    return [UserResponse.from_user(u) for u in admins]
 
 
 @router.post(

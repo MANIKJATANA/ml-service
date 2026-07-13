@@ -15,7 +15,11 @@ from sqlalchemy import Row, func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from backend.db.ml_read import matches
-from backend.domain.models import Appearance
+from backend.domain.models import (
+    Appearance,
+    EventMatchCounts,
+    StudentAppearanceCounts,
+)
 
 # Exactly the columns db/ml_read.py declares as consumed (guarded by the Phase-7
 # information_schema contract test).
@@ -104,3 +108,50 @@ class PostgresMlResultsReader:
                 )
             )
             return int(result.scalar_one())
+
+    async def event_match_counts(
+        self, school_id: str
+    ) -> dict[str, EventMatchCounts]:
+        """Per-event match rollup for one school (BP2 events list).
+
+        One grouped scan over the tenant's ``matches`` slice (``ix (school_id,
+        event_id)``): distinct matched students + review-flagged matches per event.
+        Touches only already-declared columns → the Phase-7 contract test is unaffected."""
+        async with self._sessionmaker() as session:
+            result = await session.execute(
+                select(
+                    matches.c.event_id,
+                    func.count(func.distinct(matches.c.student_id)),
+                    func.count().filter(matches.c.needs_review.is_(True)),
+                )
+                .where(matches.c.school_id == school_id)
+                .group_by(matches.c.event_id)
+            )
+            return {
+                event_id: EventMatchCounts(matched_students=matched, needs_review=review)
+                for event_id, matched, review in result.all()
+            }
+
+    async def student_appearance_counts(
+        self, school_id: str
+    ) -> dict[str, StudentAppearanceCounts]:
+        """Per-student appearance rollup for one school (BP2 students list).
+
+        One grouped scan (``ix (school_id, student_id)``): total appearances + distinct
+        events per student. Only already-declared columns are read (contract-safe)."""
+        async with self._sessionmaker() as session:
+            result = await session.execute(
+                select(
+                    matches.c.student_id,
+                    func.count(),
+                    func.count(func.distinct(matches.c.event_id)),
+                )
+                .where(matches.c.school_id == school_id)
+                .group_by(matches.c.student_id)
+            )
+            return {
+                student_id: StudentAppearanceCounts(
+                    appearance_count=appearances, event_count=events
+                )
+                for student_id, appearances, events in result.all()
+            }

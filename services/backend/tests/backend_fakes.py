@@ -19,6 +19,7 @@ from backend.domain.models import (
     EnrollmentStatus,
     Event,
     EventJob,
+    EventMatchCounts,
     EventProcessingStatus,
     EventRollup,
     EventStatus,
@@ -31,6 +32,7 @@ from backend.domain.models import (
     SchoolStatus,
     SignedUpload,
     Student,
+    StudentAppearanceCounts,
     User,
     UserStatus,
 )
@@ -305,6 +307,15 @@ class FakeUserRepo:
             if u.school_id == school_id and u.role is role
         ]
 
+    async def role_counts_by_school(self) -> dict[str, dict[Role, int]]:
+        counts: dict[str, dict[Role, int]] = {}
+        for u in self._by_id.values():
+            if u.school_id is None:  # platform admins excluded
+                continue
+            per = counts.setdefault(u.school_id, {})
+            per[u.role] = per.get(u.role, 0) + 1
+        return counts
+
     def mutate(self, user_id: str, **changes: object) -> None:
         """Test helper: replace a stored user's fields (simulate out-of-band change)."""
         user = self._by_id[user_id]
@@ -387,6 +398,12 @@ class FakeStudentRepo:
         for student in self._by_id.values():
             if student.school_id == school_id:
                 counts[student.enrollment_status] += 1
+        return counts
+
+    async def counts_by_school(self) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for student in self._by_id.values():
+            counts[student.school_id] = counts.get(student.school_id, 0) + 1
         return counts
 
     async def set_enrollment(
@@ -497,6 +514,12 @@ class FakeEventRepo:
 
     async def list_by_school(self, school_id: str) -> list[Event]:
         return [e for e in self._by_id.values() if e.school_id == school_id]
+
+    async def counts_by_school(self) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for e in self._by_id.values():
+            counts[e.school_id] = counts.get(e.school_id, 0) + 1
+        return counts
 
     async def status_counts(self, school_id: str) -> EventRollup:
         total = active = archived = processing = 0
@@ -637,6 +660,13 @@ class FakeMediaRepo:
                 counts[m.processing_status] += 1
         return counts
 
+    async def counts_by_event(self, school_id: str) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for m in self._by_id.values():
+            if m.school_id == school_id:
+                counts[m.event_id] = counts.get(m.event_id, 0) + 1
+        return counts
+
 
 class FakeEventJobProducer:
     """EventJobProducer double: records enqueued jobs; configurable failure."""
@@ -678,6 +708,37 @@ class FakeMlResultsReader:
 
     async def count_needs_review(self, school_id: str) -> int:
         return sum(1 for a in self._appearances if a.needs_review)
+
+    async def event_match_counts(
+        self, school_id: str
+    ) -> dict[str, EventMatchCounts]:
+        by_event: dict[str, set[str]] = {}
+        review: dict[str, int] = {}
+        for a in self._appearances:
+            by_event.setdefault(a.event_id, set()).add(a.student_id)
+            if a.needs_review:
+                review[a.event_id] = review.get(a.event_id, 0) + 1
+        return {
+            event_id: EventMatchCounts(
+                matched_students=len(students), needs_review=review.get(event_id, 0)
+            )
+            for event_id, students in by_event.items()
+        }
+
+    async def student_appearance_counts(
+        self, school_id: str
+    ) -> dict[str, StudentAppearanceCounts]:
+        appearances: dict[str, int] = {}
+        events: dict[str, set[str]] = {}
+        for a in self._appearances:
+            appearances[a.student_id] = appearances.get(a.student_id, 0) + 1
+            events.setdefault(a.student_id, set()).add(a.event_id)
+        return {
+            student_id: StudentAppearanceCounts(
+                appearance_count=n, event_count=len(events[student_id])
+            )
+            for student_id, n in appearances.items()
+        }
 
 
 class SeededContainer(Container):

@@ -7,6 +7,7 @@ from datetime import date, datetime
 from pydantic import BaseModel, Field
 
 from backend.domain.models import Event, EventProcessingStatus, EventStatus
+from backend.services.listing_service import EventListing
 
 
 class CreateEventRequest(BaseModel):
@@ -52,4 +53,22 @@ class EventResponse(BaseModel):
             completed_at=event.completed_at,
             created_at=event.created_at,
             updated_at=event.updated_at,
+        )
+
+
+class EventListItem(EventResponse):
+    """An events-list row: the event + its counts (BP2). The single-item GET/POST/PATCH
+    keep the leaner ``EventResponse`` — counts belong to list rows only."""
+
+    media_count: int
+    matched_students: int
+    needs_review: int
+
+    @classmethod
+    def from_listing(cls, listing: EventListing) -> EventListItem:
+        return cls(
+            **EventResponse.from_event(listing.event).model_dump(),
+            media_count=listing.media_count,
+            matched_students=listing.matched_students,
+            needs_review=listing.needs_review,
         )

@@ -38,6 +38,7 @@ from backend.services.auth_service import AuthService
 from backend.services.dashboard_service import DashboardService
 from backend.services.event_service import EventService
 from backend.services.gallery_service import GalleryService
+from backend.services.listing_service import ListingService
 from backend.services.media_service import MediaService
 from backend.services.onboarding_service import OnboardingService
 from backend.services.student_service import StudentService
@@ -74,6 +75,7 @@ class Container:
         self._media_service: MediaService | None = None
         self._gallery_service: GalleryService | None = None
         self._dashboard_service: DashboardService | None = None
+        self._listing_service: ListingService | None = None
 
     @property
     def settings(self) -> Settings:
@@ -336,6 +338,20 @@ class Container:
                         self.ml_results_reader(),
                     )
         return self._dashboard_service
+
+    def listing_service(self) -> ListingService:
+        if self._listing_service is None:
+            with self._lock:
+                if self._listing_service is None:
+                    self._listing_service = ListingService(
+                        self.school_repo(),
+                        self.user_repo(),
+                        self.student_repo(),
+                        self.event_repo(),
+                        self.media_repo(),
+                        self.ml_results_reader(),
+                    )
+        return self._listing_service
 
     # ---- lifecycle -----------------------------------------------------
 

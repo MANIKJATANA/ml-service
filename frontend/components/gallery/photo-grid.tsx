@@ -13,11 +13,18 @@ import { cn } from "@/lib/utils";
 export function PhotoGrid({
   mediaIds,
   showAppearances = true,
+  canManageAppearances = false,
   variant = "grid",
+  onNotMe,
 }: {
   mediaIds: string[];
   showAppearances?: boolean;
+  /** Staff surface (BP5): make the lightbox appearances panel editable (confirm/reject/undo
+   *  + add-a-missed-student) for any photo. Server-gated by `match:review`. */
+  canManageAppearances?: boolean;
   variant?: "grid" | "masonry";
+  /** Student surface (BP5): a "This isn't me" action per photo in the lightbox. */
+  onNotMe?: (mediaId: string) => Promise<void>;
 }) {
   const [openIndex, setOpenIndex] = useState<number | null>(null);
 
@@ -42,6 +49,8 @@ export function PhotoGrid({
           onIndexChange={setOpenIndex}
           onClose={() => setOpenIndex(null)}
           showAppearances={showAppearances}
+          canManageAppearances={canManageAppearances}
+          onNotMe={onNotMe}
         />
       ) : null}
     </>

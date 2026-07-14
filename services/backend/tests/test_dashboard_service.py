@@ -15,6 +15,8 @@ from backend.domain.models import (
     Event,
     EventProcessingStatus,
     EventStatus,
+    MatchCorrection,
+    MatchVerdict,
     Media,
     MediaProcessingStatus,
     School,
@@ -23,12 +25,14 @@ from backend.domain.models import (
 from backend.services.dashboard_service import DashboardService
 from backend_fakes import (
     FakeEventRepo,
+    FakeMatchCorrectionRepo,
     FakeMediaRepo,
     FakeMlResultsReader,
     FakeSchoolRepo,
     FakeStudentRepo,
     make_appearance,
     make_event,
+    make_match_correction,
     make_media,
     make_school,
     make_student,
@@ -44,6 +48,7 @@ def _svc(
     events: list[Event] | None = None,
     media: list[Media] | None = None,
     appearances: list[Appearance] | None = None,
+    corrections: list[MatchCorrection] | None = None,
 ) -> DashboardService:
     event_repo = FakeEventRepo(events or [])
     media_repo = FakeMediaRepo(media or [])
@@ -55,6 +60,7 @@ def _svc(
         event_repo,
         media_repo,
         FakeMlResultsReader(appearances or []),
+        FakeMatchCorrectionRepo(corrections or []),
     )
 
 
@@ -136,6 +142,42 @@ async def test_archived_not_started_event_with_media_is_not_flagged() -> None:
     )
     d = await svc.school_summary(school_id=_S1)
     assert d.events_undistributed == 0
+
+
+async def test_needs_review_subtracts_resolved_corrections_and_clamps() -> None:
+    # BP5: the "needs review" signal is raw flagged matches MINUS resolved corrections,
+    # clamped at 0 (so review-churn can never drive it negative).
+    events = [make_event(id="e1", school_id=_S1,
+                         processing_status=EventProcessingStatus.COMPLETED)]
+    appearances = [
+        make_appearance(student_id="a", media_id="m1", event_id="e1", needs_review=True),
+        make_appearance(student_id="b", media_id="m1", event_id="e1", needs_review=True),
+    ]
+    # One flag resolved by staff -> count drops from 2 to 1.
+    svc = _svc(
+        events=events,
+        appearances=appearances,
+        corrections=[
+            make_match_correction(media_id="m1", student_id="a", event_id="e1",
+                                  verdict=MatchVerdict.CONFIRMED, resolves_review=True),
+        ],
+    )
+    assert (await svc.school_summary(school_id=_S1)).needs_review == 1
+
+    # More resolutions than raw flags (re-inference churn) -> clamps at 0, never negative.
+    svc2 = _svc(
+        events=events,
+        appearances=appearances,
+        corrections=[
+            make_match_correction(media_id="m1", student_id="a", event_id="e1",
+                                  verdict=MatchVerdict.CONFIRMED, resolves_review=True),
+            make_match_correction(media_id="m1", student_id="b", event_id="e1",
+                                  verdict=MatchVerdict.REJECTED, resolves_review=True),
+            make_match_correction(media_id="m9", student_id="c", event_id="e1",
+                                  verdict=MatchVerdict.REJECTED, resolves_review=True),
+        ],
+    )
+    assert (await svc2.school_summary(school_id=_S1)).needs_review == 0
 
 
 async def test_counts_are_tenant_scoped() -> None:

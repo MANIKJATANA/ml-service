@@ -9,6 +9,13 @@ to the rows in-Python: **no N+1**. Pure reads — no migration, no ML change.
 
 Views: events + per-event counts, students + per-student counts, and (platform) schools +
 per-school rollups + a school's administrator roster.
+
+Divergence (deliberate, BP5/decisions/0042): these list counts are **raw ML** — they do
+NOT apply the ``match_corrections`` overlay. The galleries (``GalleryService``) are the
+effective source of truth; a staff-rejected match still counts here until reconciliation
+is a dedicated follow-up. So an events/students list may show one more "matched" than the
+gallery after a rejection. Kept raw for v1 (small early correction volume; no N+1 overlay
+batch here yet).
 """
 
 from __future__ import annotations

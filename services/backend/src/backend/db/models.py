@@ -328,3 +328,72 @@ class NotificationRead(Base):
         Index("ix_notification_reads_student", "school_id", "student_id"),
         Index("ix_notification_reads_event", "school_id", "event_id"),
     )
+
+
+class MatchCorrection(Base):
+    """A staff/student correction over the ML ``matches`` (migration 0006, decisions/0042).
+
+    Backend-owned; keyed on the stable ``(media_id, student_id)`` pair (the ML match's
+    natural key) so it survives higher-confidence re-inference — no FK to the ML-owned
+    ``matches`` table. The gallery reads overlay these: ``rejected`` hides a match (+ blocks
+    the student's download); ``added`` unions a missed student in; ``confirmed`` stands.
+    ``resolves_review`` is set when the corrected match was ``needs_review`` at the time."""
+
+    __tablename__ = "match_corrections"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    school_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("schools.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    media_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("media.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    student_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("students.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    event_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("events.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    verdict: Mapped[str] = mapped_column(String, nullable=False)
+    resolves_review: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
+    )
+    # The corrector (staff user, or the student themselves for a self "not me"). SET NULL so
+    # a correction outlives the account that made it.
+    corrected_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    reason: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        UniqueConstraint("media_id", "student_id", name="uq_match_corrections_pair"),
+        Index("ix_match_corrections_media", "school_id", "media_id"),
+        Index("ix_match_corrections_event", "school_id", "event_id"),
+        Index("ix_match_corrections_student", "school_id", "student_id"),
+        # Lockstep with the MatchVerdict domain enum.
+        CheckConstraint(
+            "verdict IN ('confirmed', 'rejected', 'added')",
+            name="ck_match_corrections_verdict",
+        ),
+    )

@@ -29,10 +29,20 @@ export function AppearanceList({
         <li key={appearance.student_id} className="flex items-center justify-between gap-2">
           <span className="min-w-0 flex-1 truncate text-body-sm text-ink">{appearance.name}</span>
           <div className="flex shrink-0 items-center gap-2">
-            {appearance.needs_review ? <StatusPill tone="warning">Review</StatusPill> : null}
-            <span className="text-tabular tabular-nums text-ink-secondary">
-              {Math.round(appearance.confidence * 100)}%
-            </span>
+            {appearance.verdict === "added" ? (
+              <StatusPill tone="info">Added</StatusPill>
+            ) : appearance.verdict === "confirmed" ? (
+              <StatusPill tone="success">Confirmed</StatusPill>
+            ) : appearance.verdict === "rejected" ? (
+              <StatusPill tone="error">Rejected</StatusPill>
+            ) : appearance.needs_review ? (
+              <StatusPill tone="warning">Review</StatusPill>
+            ) : null}
+            {appearance.confidence !== null ? (
+              <span className="text-tabular tabular-nums text-ink-secondary">
+                {Math.round(appearance.confidence * 100)}%
+              </span>
+            ) : null}
           </div>
         </li>
       ))}

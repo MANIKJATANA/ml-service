@@ -17,6 +17,9 @@ from collections.abc import AsyncIterator
 
 import pytest
 from backend.adapters.repositories.postgres_events import PostgresEventRepository
+from backend.adapters.repositories.postgres_match_corrections import (
+    PostgresMatchCorrectionRepository,
+)
 from backend.adapters.repositories.postgres_media import PostgresMediaRepository
 from backend.adapters.repositories.postgres_notification_reads import (
     PostgresNotificationReadRepository,
@@ -31,6 +34,7 @@ from backend.domain.models import (
     EnrollmentStatus,
     EventProcessingStatus,
     EventStatus,
+    MatchVerdict,
     MediaProcessingStatus,
     MediaType,
     Role,
@@ -522,6 +526,62 @@ async def test_notification_reads_upsert_and_scope(
     assert set(await reads.list_for_event(a.id, ev.id)) == {student.id}
     assert await reads.list_for_student("not-a-uuid", student.id) == {}
     assert await reads.list_for_event("not-a-uuid", ev.id) == {}
+
+
+async def test_match_corrections_upsert_get_delete_list_and_scope(
+    sm: async_sessionmaker[AsyncSession],
+) -> None:
+    schools = PostgresSchoolRepository(sm)
+    users = PostgresUserRepository(sm)
+    students = PostgresStudentRepository(sm)
+    events = PostgresEventRepository(sm)
+    media = PostgresMediaRepository(sm)
+    corr = PostgresMatchCorrectionRepository(sm)
+    a = await schools.create(name="A", max_teachers=5)
+    login = await users.create(
+        school_id=a.id, email="s@x.io", password_hash="h", role=Role.STUDENT
+    )
+    student = await students.create(
+        school_id=a.id, user_id=login.id, name="N", reference_photo_path="p"
+    )
+    staff = await users.create(
+        school_id=a.id, email="t@x.io", password_hash="h", role=Role.TEACHER
+    )
+    ev = await events.create(
+        school_id=a.id, name="E", description=None, event_date=None, created_by=None
+    )
+    m = await media.create(
+        school_id=a.id, event_id=ev.id, storage_path="p1.jpg", media_type=MediaType.IMAGE
+    )
+
+    assert await corr.get(a.id, m.id, student.id) is None
+    await corr.upsert(
+        school_id=a.id, media_id=m.id, student_id=student.id, event_id=ev.id,
+        verdict=MatchVerdict.REJECTED, corrected_by=staff.id, reason="x",
+        resolves_review=True,
+    )
+    got = await corr.get(a.id, m.id, student.id)
+    assert got is not None
+    assert got.verdict is MatchVerdict.REJECTED and got.resolves_review is True
+    assert await corr.count_resolved(a.id) == 1
+
+    # Upsert on the (media, student) natural key — latest verdict wins, no duplicate.
+    await corr.upsert(
+        school_id=a.id, media_id=m.id, student_id=student.id, event_id=ev.id,
+        verdict=MatchVerdict.CONFIRMED, corrected_by=staff.id, reason=None,
+        resolves_review=False,
+    )
+    again = await corr.get(a.id, m.id, student.id)
+    assert again is not None and again.verdict is MatchVerdict.CONFIRMED
+    assert await corr.count_resolved(a.id) == 0  # resolves_review flipped off
+
+    assert {c.student_id for c in await corr.list_for_media(a.id, m.id)} == {student.id}
+    assert {c.media_id for c in await corr.list_for_event(a.id, ev.id)} == {m.id}
+    assert {c.media_id for c in await corr.list_for_student(a.id, student.id)} == {m.id}
+    assert await corr.list_for_media("not-a-uuid", m.id) == []  # tenant-safe
+
+    await corr.delete(a.id, m.id, student.id)
+    assert await corr.get(a.id, m.id, student.id) is None
 
 
 async def test_student_get_by_user_id_is_tenant_scoped(

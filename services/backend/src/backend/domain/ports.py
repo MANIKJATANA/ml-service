@@ -23,6 +23,8 @@ from backend.domain.models import (
     EventProcessingStatus,
     EventRollup,
     EventStatus,
+    MatchCorrection,
+    MatchVerdict,
     Media,
     MediaProcessingStatus,
     MediaType,
@@ -212,6 +214,43 @@ class MlResultsReader(Protocol):
     async def student_appearance_counts(
         self, school_id: str
     ) -> dict[str, StudentAppearanceCounts]: ...
+
+
+class MatchCorrectionRepository(Protocol):
+    """Backend-owned corrections over the ML ``matches`` (BP5, decisions/0042).
+
+    Keyed on the stable ``(media_id, student_id)`` pair (upsert). The gallery reads overlay
+    these onto the ML appearances (drop ``rejected``, union ``added``); the write use-cases
+    live in the ``ReviewService``. Tenant-scoped by ``school_id``."""
+
+    async def upsert(
+        self,
+        *,
+        school_id: str,
+        media_id: str,
+        student_id: str,
+        event_id: str,
+        verdict: MatchVerdict,
+        corrected_by: str | None,
+        reason: str | None,
+        resolves_review: bool,
+    ) -> None: ...
+    async def get(
+        self, school_id: str, media_id: str, student_id: str
+    ) -> MatchCorrection | None: ...
+    async def delete(
+        self, school_id: str, media_id: str, student_id: str
+    ) -> None: ...
+    async def list_for_media(
+        self, school_id: str, media_id: str
+    ) -> list[MatchCorrection]: ...
+    async def list_for_event(
+        self, school_id: str, event_id: str
+    ) -> list[MatchCorrection]: ...
+    async def list_for_student(
+        self, school_id: str, student_id: str
+    ) -> list[MatchCorrection]: ...
+    async def count_resolved(self, school_id: str) -> int: ...
 
 
 class NotificationReadRepository(Protocol):

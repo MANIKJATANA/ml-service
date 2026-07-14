@@ -27,10 +27,15 @@ from backend.domain.models import (
 )
 from backend.domain.ports import (
     EventRepository,
+    MatchCorrectionRepository,
     MlResultsReader,
     NotificationChannel,
     NotificationReadRepository,
     StudentRepository,
+)
+from backend.services.gallery_service import (
+    effective_event_pairs,
+    effective_student_pairs,
 )
 
 
@@ -83,12 +88,14 @@ class NotificationService:
         students: StudentRepository,
         reads: NotificationReadRepository,
         notifier: NotificationChannel,
+        corrections: MatchCorrectionRepository,
     ) -> None:
         self._events = events
         self._reader = reader
         self._students = students
         self._reads = reads
         self._notifier = notifier
+        self._corrections = corrections
 
     # ---- staff: manual notify + roster ---------------------------------
 
@@ -148,7 +155,12 @@ class NotificationService:
         self, *, school_id: str, student_id: str
     ) -> list[StudentNotification]:
         appearances = await self._reader.list_student_appearances(school_id, student_id)
-        media_counts = Counter(a.event_id for a in appearances)
+        corrections = await self._corrections.list_for_student(school_id, student_id)
+        # Overlay corrections (BP5, decisions/0042): a student's own "new photos" signal must
+        # not count photos staff rejected for them, and must count report-a-miss additions.
+        media_counts = Counter(
+            eid for eid, _ in effective_student_pairs(appearances, corrections)
+        )
         reads = await self._reads.list_for_student(school_id, student_id)
         events = {e.id: e for e in await self._events.list_by_school(school_id)}
 
@@ -184,10 +196,14 @@ class NotificationService:
     async def _matched_students(
         self, school_id: str, event_id: str
     ) -> list[tuple[Student, int]]:
-        """Students who appear in the event ∩ the current roster (drops since-deleted
-        students), each with their photo count — the notify targets + the roster."""
+        """Students who *effectively* appear in the event ∩ the current roster (drops
+        since-deleted students), each with their effective photo count — the notify targets
+        + the roster. Applies the BP5 correction overlay (decisions/0042) so a staff-rejected
+        student is never notified/rostered for a photo now hidden from their gallery, and a
+        report-a-miss ``added`` student IS — mirroring ``GalleryService.event_students``."""
         appearances = await self._reader.list_event_appearances(school_id, event_id)
-        counts = Counter(a.student_id for a in appearances)
+        corrections = await self._corrections.list_for_event(school_id, event_id)
+        counts = Counter(sid for sid, _ in effective_event_pairs(appearances, corrections))
         roster = await self._students.list_by_school(school_id)
         return [(s, counts[s.id]) for s in roster if s.id in counts]
 

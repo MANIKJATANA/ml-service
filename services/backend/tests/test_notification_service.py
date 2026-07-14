@@ -17,17 +17,21 @@ from backend.domain.models import (
     Event,
     EventProcessingStatus,
     EventStatus,
+    MatchCorrection,
+    MatchVerdict,
     Student,
 )
 from backend.services.notification_service import NotificationService
 from backend_fakes import (
     FakeEventRepo,
+    FakeMatchCorrectionRepo,
     FakeMlResultsReader,
     FakeNotificationChannel,
     FakeNotificationReadRepo,
     FakeStudentRepo,
     make_appearance,
     make_event,
+    make_match_correction,
     make_student,
 )
 
@@ -41,6 +45,7 @@ def _svc(
     events: list[Event] | None = None,
     students: list[Student] | None = None,
     appearances: list[Appearance] | None = None,
+    corrections: list[MatchCorrection] | None = None,
     reads: FakeNotificationReadRepo | None = None,
     notifier: FakeNotificationChannel | None = None,
 ) -> NotificationService:
@@ -50,6 +55,7 @@ def _svc(
         FakeStudentRepo(students or []),
         reads or FakeNotificationReadRepo(),
         notifier or FakeNotificationChannel(),
+        FakeMatchCorrectionRepo(corrections or []),
     )
 
 
@@ -79,6 +85,7 @@ async def test_notify_event_fans_out_to_matched_students_and_stamps() -> None:
         ),
         FakeNotificationReadRepo(),
         notifier,
+        FakeMatchCorrectionRepo(),
     )
 
     count = await svc.notify_event(school_id=_S1, event_id="e1")
@@ -124,6 +131,7 @@ async def test_notify_event_with_no_matched_students_returns_zero() -> None:
         FakeStudentRepo([make_student(id="a", school_id=_S1, user_id="ua")]),
         FakeNotificationReadRepo(),
         FakeNotificationChannel(),
+        FakeMatchCorrectionRepo(),
     )
     assert await svc.notify_event(school_id=_S1, event_id="e1") == 0
     event = await events.get(_S1, "e1")
@@ -246,6 +254,54 @@ async def test_event_roster_reports_matched_and_seen() -> None:
     assert by_id["b"].seen is False
 
 
+# ---- BP5 correction overlay (decisions/0042) ---------------------------
+
+
+async def test_notify_targets_and_roster_apply_correction_overlay() -> None:
+    # Staff rejected Bob's only match + added Cara (report-a-miss): Bob must NOT be notified
+    # or rostered (the photo is hidden from him), Cara MUST be.
+    notifier = FakeNotificationChannel()
+    svc = _svc(
+        events=[make_event(id="e1", school_id=_S1, completed_at=_T0)],
+        students=[
+            make_student(id="a", school_id=_S1, user_id="ua", name="Ann"),
+            make_student(id="b", school_id=_S1, user_id="ub", name="Bob"),
+            make_student(id="c", school_id=_S1, user_id="uc", name="Cara"),
+        ],
+        appearances=[
+            make_appearance(student_id="a", media_id="m1", event_id="e1"),
+            make_appearance(student_id="b", media_id="m1", event_id="e1"),
+        ],
+        corrections=[
+            make_match_correction(media_id="m1", student_id="b", event_id="e1",
+                                  verdict=MatchVerdict.REJECTED),
+            make_match_correction(media_id="m2", student_id="c", event_id="e1",
+                                  verdict=MatchVerdict.ADDED),
+        ],
+        notifier=notifier,
+    )
+    count = await svc.notify_event(school_id=_S1, event_id="e1")
+    assert count == 2
+    assert {n.student_id for n in notifier.sent} == {"a", "c"}  # Bob dropped, Cara added
+
+    roster = await svc.event_roster(school_id=_S1, event_id="e1")
+    assert {e.student.id for e in roster.entries} == {"a", "c"}
+
+
+async def test_student_signal_drops_event_whose_photos_were_all_rejected() -> None:
+    # Bob's only photo in e1 was staff-rejected -> the event disappears from HIS signal.
+    svc = _svc(
+        events=[make_event(id="e1", school_id=_S1, auto_notify=True, completed_at=_T0)],
+        students=[make_student(id="b", school_id=_S1, user_id="ub")],
+        appearances=[make_appearance(student_id="b", media_id="m1", event_id="e1")],
+        corrections=[
+            make_match_correction(media_id="m1", student_id="b", event_id="e1",
+                                  verdict=MatchVerdict.REJECTED)
+        ],
+    )
+    assert await svc.student_notifications(school_id=_S1, student_id="b") == []
+
+
 # ---- composite best-effort ---------------------------------------------
 
 
@@ -262,6 +318,7 @@ async def test_composite_notifier_isolates_a_failing_channel() -> None:
         FakeStudentRepo([make_student(id="a", school_id=_S1, user_id="ua")]),
         FakeNotificationReadRepo(),
         composite,
+        FakeMatchCorrectionRepo(),
     )
     # The failing channel must not abort the notify nor the healthy channel.
     count = await svc.notify_event(school_id=_S1, event_id="e1")

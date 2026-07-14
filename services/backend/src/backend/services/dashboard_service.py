@@ -22,6 +22,7 @@ from backend.domain.models import (
 )
 from backend.domain.ports import (
     EventRepository,
+    MatchCorrectionRepository,
     MediaRepository,
     MlResultsReader,
     SchoolRepository,
@@ -65,7 +66,9 @@ class DashboardService:
         events: EventRepository,
         media: MediaRepository,
         reader: MlResultsReader,
+        corrections: MatchCorrectionRepository,
     ) -> None:
+        self._corrections = corrections
         self._schools = schools
         self._students = students
         self._events = events
@@ -81,7 +84,12 @@ class DashboardService:
         events = await self._events.status_counts(school_id)
         photos = await self._media.school_status_counts(school_id)
         undistributed = await self._events.count_not_started_with_media(school_id)
-        needs_review = await self._reader.count_needs_review(school_id)
+        # Unresolved needs-review (BP5): raw ambiguous matches minus those staff have
+        # confirmed/rejected — so the alert drops as the review lane is worked. Clamped ≥ 0
+        # (re-inference churn can leave a resolved match's flag stale); an approximation.
+        raw_review = await self._reader.count_needs_review(school_id)
+        resolved = await self._corrections.count_resolved(school_id)
+        needs_review = max(0, raw_review - resolved)
 
         return _to_dashboard(
             school_name=school.name,

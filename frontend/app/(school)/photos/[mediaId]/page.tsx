@@ -3,7 +3,7 @@
 import { Download } from "lucide-react";
 import { useParams } from "next/navigation";
 
-import { AppearanceList } from "@/components/gallery/appearance-list";
+import { AppearanceEditor } from "@/components/gallery/appearance-editor";
 import { SignedImage } from "@/components/gallery/signed-image";
 import { Breadcrumb } from "@/components/ui/breadcrumb";
 import { Button } from "@/components/ui/button";
@@ -19,7 +19,8 @@ export default function PhotoDetailPage() {
   const { mediaId } = useParams<{ mediaId: string }>();
   const { media, isLoading, error } = useMedia(mediaId);
   const { download } = useMediaDownload(mediaId, true);
-  const { appearances, isLoading: appsLoading } = useMediaAppearances(mediaId);
+  const { appearances, isLoading: appsLoading, mutate: mutateAppearances } =
+    useMediaAppearances(mediaId);
   const { downloading, onDownload } = useDownloadToDisk(mediaId, download);
 
   const notFound = isApiError(error) && error.status === 404;
@@ -53,7 +54,7 @@ export default function PhotoDetailPage() {
           { label: "Photo" },
         ]}
       />
-      <div className="grid gap-6 lg:grid-cols-[1fr_20rem]">
+      <div className="grid gap-6 lg:grid-cols-[1fr_22rem]">
         <Card className="flex items-center justify-center overflow-hidden bg-surface-2 p-2">
           <SignedImage
             mediaId={mediaId}
@@ -67,9 +68,14 @@ export default function PhotoDetailPage() {
             <Download className="size-4" aria-hidden="true" />
             Download
           </Button>
-          <div className="flex flex-col gap-2">
+          <div className="flex flex-col gap-3">
             <h2 className="text-body-sm font-medium text-ink">In this photo</h2>
-            <AppearanceList appearances={appearances} isLoading={appsLoading} />
+            <AppearanceEditor
+              mediaId={mediaId}
+              appearances={appearances}
+              isLoading={appsLoading}
+              onChanged={() => mutateAppearances()}
+            />
           </div>
         </Card>
       </div>

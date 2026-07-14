@@ -1,9 +1,10 @@
 "use client";
 
 import * as DialogPrimitive from "@radix-ui/react-dialog";
-import { ChevronLeft, ChevronRight, Download, X } from "lucide-react";
-import { useEffect, useRef } from "react";
+import { ChevronLeft, ChevronRight, Download, UserX, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 
+import { AppearanceEditor } from "@/components/gallery/appearance-editor";
 import { AppearanceList } from "@/components/gallery/appearance-list";
 import { SignedImage } from "@/components/gallery/signed-image";
 import { Button } from "@/components/ui/button";
@@ -19,6 +20,13 @@ interface LightboxProps {
   /** Show the "In this photo" panel. Off for students — the appearances endpoint is
    *  staff-only (gallery:view_all) and other students' names must not leak (0036). */
   showAppearances?: boolean;
+  /** Staff (BP5): make the appearances panel EDITABLE — confirm/reject/undo each match +
+   *  add a student the ML missed — for any photo, right here in the viewer. Requires
+   *  `showAppearances`. Server-gated by `match:review` (decisions/0042). */
+  canManageAppearances?: boolean;
+  /** When set (the student surface, BP5), shows a "This isn't me" action for the current
+   *  photo. The caller rejects the match + refreshes; the viewer closes after. */
+  onNotMe?: (mediaId: string) => Promise<void>;
 }
 
 /** Full-screen photo viewer: image + ←/→/Esc navigation, download, and who appears. */
@@ -28,14 +36,27 @@ export function Lightbox({
   onIndexChange,
   onClose,
   showAppearances = true,
+  canManageAppearances = false,
+  onNotMe,
 }: LightboxProps) {
   const mediaId = mediaIds[index];
   const { download } = useMediaDownload(mediaId, true);
-  const { appearances, isLoading: appsLoading } = useMediaAppearances(
-    showAppearances ? mediaId : null,
-  );
+  const { appearances, isLoading: appsLoading, mutate: mutateAppearances } =
+    useMediaAppearances(showAppearances ? mediaId : null);
   const { downloading, onDownload } = useDownloadToDisk(mediaId, download);
   const contentRef = useRef<HTMLDivElement>(null);
+  const [notMeBusy, setNotMeBusy] = useState(false);
+
+  async function handleNotMe() {
+    if (!onNotMe) return;
+    setNotMeBusy(true);
+    try {
+      await onNotMe(mediaId);
+      onClose();
+    } finally {
+      setNotMeBusy(false);
+    }
+  }
 
   const canPrev = index > 0;
   const canNext = index < mediaIds.length - 1;
@@ -126,10 +147,31 @@ export function Lightbox({
               Download
             </Button>
 
+            {onNotMe ? (
+              <Button
+                variant="secondary"
+                onClick={handleNotMe}
+                loading={notMeBusy}
+                disabled={notMeBusy}
+              >
+                <UserX className="size-4" aria-hidden="true" />
+                This isn&apos;t me
+              </Button>
+            ) : null}
+
             {showAppearances ? (
               <div className="flex flex-col gap-2">
                 <h3 className="text-body-sm font-medium text-ink">In this photo</h3>
-                <AppearanceList appearances={appearances} isLoading={appsLoading} />
+                {canManageAppearances ? (
+                  <AppearanceEditor
+                    mediaId={mediaId}
+                    appearances={appearances}
+                    isLoading={appsLoading}
+                    onChanged={() => mutateAppearances()}
+                  />
+                ) : (
+                  <AppearanceList appearances={appearances} isLoading={appsLoading} />
+                )}
               </div>
             ) : null}
           </aside>

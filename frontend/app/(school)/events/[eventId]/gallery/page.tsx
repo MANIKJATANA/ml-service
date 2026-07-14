@@ -1,12 +1,14 @@
 "use client";
 
 import { Images } from "lucide-react";
+import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useState } from "react";
 
 import { FilterChips } from "@/components/gallery/filter-chips";
 import { GridSkeleton } from "@/components/gallery/grid-skeleton";
 import { PhotoGrid } from "@/components/gallery/photo-grid";
+import { SignedImage } from "@/components/gallery/signed-image";
 import { Breadcrumb } from "@/components/ui/breadcrumb";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -15,6 +17,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useEvent } from "@/lib/hooks/use-events";
 import {
   useEventMedia,
+  useEventReview,
   useEventStudentMedia,
   useEventStudents,
 } from "@/lib/hooks/use-galleries";
@@ -46,7 +49,7 @@ function AllPhotos({ eventId }: { eventId: string }) {
       />
     );
   }
-  return <PhotoGrid mediaIds={media.map((m) => m.id)} />;
+  return <PhotoGrid mediaIds={media.map((m) => m.id)} canManageAppearances />;
 }
 
 function EventStudentPhotos({ eventId, studentId }: { eventId: string; studentId: string }) {
@@ -57,7 +60,7 @@ function EventStudentPhotos({ eventId, studentId }: { eventId: string; studentId
   if (!media || media.length === 0) {
     return <p className="text-body-sm text-ink-secondary">No photos for this student.</p>;
   }
-  return <PhotoGrid mediaIds={media.map((m) => m.media_id)} />;
+  return <PhotoGrid mediaIds={media.map((m) => m.media_id)} canManageAppearances />;
 }
 
 function ByStudent({ eventId }: { eventId: string }) {
@@ -102,9 +105,66 @@ function ByStudent({ eventId }: { eventId: string }) {
   );
 }
 
+function NeedsReview({ eventId }: { eventId: string }) {
+  const { reviews, isLoading, error, mutate } = useEventReview(eventId);
+
+  if (isLoading) return <GridSkeleton />;
+  if (error) {
+    return (
+      <EmptyState
+        role="alert"
+        title="Couldn't load review items"
+        description="Something went wrong reaching the server."
+        action={
+          <Button variant="secondary" onClick={() => mutate()}>
+            Retry
+          </Button>
+        }
+      />
+    );
+  }
+  if (!reviews || reviews.length === 0) {
+    return (
+      <EmptyState
+        title="Nothing to review"
+        description="Ambiguous matches show up here to confirm or reject. You're all caught up."
+      />
+    );
+  }
+  return (
+    <ul className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+      {reviews.map((r) => (
+        <li key={r.media_id}>
+          <Link
+            href={`/photos/${r.media_id}`}
+            className="block overflow-hidden rounded-card border border-hairline transition-colors hover:border-hairline-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <SignedImage
+              mediaId={r.media_id}
+              alt=""
+              loading="square"
+              className="aspect-square w-full"
+              imgClassName="block w-full align-top"
+              fallbackText="Unavailable"
+            />
+            <div className="flex flex-col gap-1 p-3">
+              <p className="text-body-sm text-ink">
+                Is this {r.candidates.map((c) => c.name).join(" or ")}?
+              </p>
+              <span className="text-body-sm font-medium text-accent-hover">Review →</span>
+            </div>
+          </Link>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 export default function EventGalleryPage() {
   const { eventId } = useParams<{ eventId: string }>();
   const { event } = useEvent(eventId);
+  const { reviews } = useEventReview(eventId);
+  const reviewCount = reviews?.length ?? 0;
 
   return (
     <div className="flex flex-col gap-6">
@@ -121,12 +181,18 @@ export default function EventGalleryPage() {
         <TabsList>
           <TabsTrigger value="all">All photos</TabsTrigger>
           <TabsTrigger value="by-student">By student</TabsTrigger>
+          <TabsTrigger value="review">
+            Needs review{reviewCount > 0 ? ` (${reviewCount})` : ""}
+          </TabsTrigger>
         </TabsList>
         <TabsContent value="all">
           <AllPhotos eventId={eventId} />
         </TabsContent>
         <TabsContent value="by-student">
           <ByStudent eventId={eventId} />
+        </TabsContent>
+        <TabsContent value="review">
+          <NeedsReview eventId={eventId} />
         </TabsContent>
       </Tabs>
     </div>

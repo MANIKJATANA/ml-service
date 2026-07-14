@@ -23,6 +23,8 @@ from backend.domain.models import (
     EventProcessingStatus,
     EventRollup,
     EventStatus,
+    MatchCorrection,
+    MatchVerdict,
     Media,
     MediaProcessingStatus,
     MediaType,
@@ -40,6 +42,7 @@ from backend.domain.models import (
 from backend.domain.ports import (
     EventJobProducer,
     EventRepository,
+    MatchCorrectionRepository,
     MediaRepository,
     MlEnrollmentClient,
     MlResultsReader,
@@ -192,6 +195,27 @@ def make_appearance(
         event_id=event_id,
         confidence=confidence,
         needs_review=needs_review,
+    )
+
+
+def make_match_correction(
+    *,
+    media_id: str = "media-1",
+    student_id: str = "student-1",
+    event_id: str = "event-1",
+    verdict: MatchVerdict = MatchVerdict.CONFIRMED,
+    resolves_review: bool = False,
+) -> MatchCorrection:
+    # NB: ``event_id`` defaults to "event-1". For ADDED corrections consumed by the
+    # event-scoped reads (event_students / event_student_media, keyed on event_id),
+    # pass event_id to match the media's event — else list_for_event won't surface it
+    # and a test can pass for the wrong reason.
+    return MatchCorrection(
+        media_id=media_id,
+        student_id=student_id,
+        event_id=event_id,
+        verdict=verdict,
+        resolves_review=resolves_review,
     )
 
 
@@ -756,6 +780,62 @@ class FakeMlResultsReader:
         }
 
 
+class FakeMatchCorrectionRepo:
+    """MatchCorrectionRepository double: keyed on (media_id, student_id). Ignores school_id
+    scoping (tests use unique ids; the real adapter still filters by school_id)."""
+
+    def __init__(self, corrections: list[MatchCorrection] | None = None) -> None:
+        self._by_pair: dict[tuple[str, str], MatchCorrection] = {
+            (c.media_id, c.student_id): c for c in (corrections or [])
+        }
+
+    async def upsert(
+        self,
+        *,
+        school_id: str,
+        media_id: str,
+        student_id: str,
+        event_id: str,
+        verdict: MatchVerdict,
+        corrected_by: str | None,
+        reason: str | None,
+        resolves_review: bool,
+    ) -> None:
+        self._by_pair[(media_id, student_id)] = MatchCorrection(
+            media_id=media_id,
+            student_id=student_id,
+            event_id=event_id,
+            verdict=verdict,
+            resolves_review=resolves_review,
+        )
+
+    async def get(
+        self, school_id: str, media_id: str, student_id: str
+    ) -> MatchCorrection | None:
+        return self._by_pair.get((media_id, student_id))
+
+    async def delete(self, school_id: str, media_id: str, student_id: str) -> None:
+        self._by_pair.pop((media_id, student_id), None)
+
+    async def list_for_media(
+        self, school_id: str, media_id: str
+    ) -> list[MatchCorrection]:
+        return [c for c in self._by_pair.values() if c.media_id == media_id]
+
+    async def list_for_event(
+        self, school_id: str, event_id: str
+    ) -> list[MatchCorrection]:
+        return [c for c in self._by_pair.values() if c.event_id == event_id]
+
+    async def list_for_student(
+        self, school_id: str, student_id: str
+    ) -> list[MatchCorrection]:
+        return [c for c in self._by_pair.values() if c.student_id == student_id]
+
+    async def count_resolved(self, school_id: str) -> int:
+        return sum(1 for c in self._by_pair.values() if c.resolves_review)
+
+
 class FakeNotificationReadRepo:
     """NotificationReadRepository double: (student_id, event_id) -> seen_at."""
 
@@ -819,6 +899,7 @@ class SeededContainer(Container):
         media: MediaRepository | None = None,
         event_job_producer: EventJobProducer | None = None,
         ml_results_reader: MlResultsReader | None = None,
+        match_corrections: MatchCorrectionRepository | None = None,
         notification_reads: NotificationReadRepository | None = None,
         notifier: NotificationChannel | None = None,
         jwt_secret: str = _TEST_JWT_SECRET,
@@ -836,6 +917,9 @@ class SeededContainer(Container):
         )
         self._seed_ml_results_reader: MlResultsReader = (
             ml_results_reader or FakeMlResultsReader()
+        )
+        self._seed_match_corrections: MatchCorrectionRepository = (
+            match_corrections or FakeMatchCorrectionRepo()
         )
         self._seed_notification_reads: NotificationReadRepository = (
             notification_reads or FakeNotificationReadRepo()
@@ -879,6 +963,9 @@ class SeededContainer(Container):
 
     def ml_results_reader(self) -> MlResultsReader:
         return self._seed_ml_results_reader
+
+    def match_correction_repo(self) -> MatchCorrectionRepository:
+        return self._seed_match_corrections
 
     def notification_reads_repo(self) -> NotificationReadRepository:
         return self._seed_notification_reads

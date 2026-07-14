@@ -3,6 +3,7 @@
 import useSWR from "swr";
 
 import {
+  eventReview,
   eventStudentMedia,
   eventStudents,
   getMedia,
@@ -16,6 +17,7 @@ import type {
   GalleryMediaResponse,
   MediaAppearanceResponse,
   MediaResponse,
+  MediaReviewResponse,
   StudentInEventResponse,
 } from "@/lib/api/types";
 
@@ -73,11 +75,20 @@ export function useMedia(mediaId: string) {
   return { media: data, error, isLoading };
 }
 
-/** Who appears in one photo (names + confidence + needs_review). */
+/** Who appears in one photo (names + confidence + needs_review + verdict). */
 export function useMediaAppearances(mediaId: string | null) {
-  const { data, error, isLoading } = useSWR<MediaAppearanceResponse[]>(
+  const { data, error, isLoading, mutate } = useSWR<MediaAppearanceResponse[]>(
     mediaId ? `media/${mediaId}/appearances` : null,
     () => mediaAppearances(mediaId as string),
   );
-  return { appearances: data, error, isLoading };
+  return { appearances: data, error, isLoading, mutate };
+}
+
+/** The event's unresolved ambiguous matches grouped by photo — the review lane (BP5). */
+export function useEventReview(eventId: string) {
+  const { data, error, isLoading, mutate } = useSWR<MediaReviewResponse[]>(
+    eventId ? `events/${eventId}/review` : null,
+    () => eventReview(eventId),
+  );
+  return { reviews: data, error, isLoading, mutate };
 }

@@ -158,9 +158,9 @@ management; no processing **timeline/duration**; a post-distribute upload flips 
 (top-K=2) → decide (threshold + gap) → dedupe** → writes `matches` (+ `needs_review`) + the detection audit → marks
 each media `completed`, then the event `completed`. Reproducible (model versions + thresholds stamped per match).
 
-**J6 — Staff browse & triage** *(staff)*: event gallery (All / By-student), photo detail with appearances
-(confidence + review flag), download any in-school media. Gaps: **no needs-review filter/triage**, no download-all,
-no video timeline.
+**J6 — Staff browse & triage** *(staff)*: event gallery (All / By-student / **Needs review**), photo detail with
+appearances (confidence + verdict) → **confirm/reject/undo + report-a-miss** (BP5, decisions/0042), download any
+in-school media. Gaps: no download-all, no video timeline.
 
 **J7 — Student receives photos** *(student)* — **the weak journey**: the student must **know to log in**, open
 `/me/events`, filter by event, open a photo, download it one at a time. **There is no trigger** — no email/push/
@@ -180,7 +180,7 @@ cache-invalidation, fail-loud on model-version mismatch; model swap = offline re
 | Match faces in **video** | ML | ❌ **dark** | full FPS frame pipeline + timestamps built; **no UI renders video** |
 | Per-school tenant isolation | ML + BE | ✅ | structural; no cross-school search |
 | Reproducibility / model versioning | ML | ✅ (internal) | versions + thresholds stamped per match |
-| `needs_review` (ambiguous match) | ML → BE → FE | ⚠️ partial | shown on photo-detail only; **no filter/triage/feedback** |
+| `needs_review` (ambiguous match) + corrections | ML → BE → FE | ✅ (BP5) | **trust loop landed** (decisions/0042): a staff needs-review lane (`GET /events/{id}/review`) → confirm/reject/undo, report-a-miss (staff add / student "this isn't me"), a backend `match_corrections` overlay that **hides rejected + blocks download** and feeds galleries/dashboard/notifications. Threshold-tuning UI still deferred |
 | Per-face **detection audit** (timeline, candidates) | ML | ❌ **dark** | rich per-frame/per-face data; only the dev test UI renders it |
 | Confidence score | ML → BE → FE | ⚠️ partial | photo-detail only; not on tiles/lists/dashboards |
 | Event processing status + counts | BE + FE | ✅ | live polling; per-photo counts exist |
@@ -215,8 +215,8 @@ Route map (17): `(auth)` `/login` `/change-password` · root `/` + `error`/`not-
 | `/events` | All events at a glance | Table [name · date · **photos · matched · needs-review** · processing] + active/archived filter + search + sort (BP2) | Per-event management still light |
 | `/events/[id]` | Run one event | Info + Photos card (progress + Upload/Process) | No student roster/match summary; no timeline; confusing Completed→Not-started flip |
 | `/events/[id]/upload` | Bulk upload | Multi-file dropzone + per-file progress | No inline retry; no size guidance; no "distribute next" hand-off |
-| `/events/[id]/gallery` | Browse + triage | Tabs All / By-student, masonry grid | **No needs-review lens**; no download-all; grid plain |
-| `/photos/[id]` | Inspect one photo | Big image + appearances (confidence + review pill) | Only place confidence/review show |
+| `/events/[id]/gallery` | Browse + triage | Tabs All / By-student / **Needs review (N)** (BP5), masonry grid | No download-all; grid plain |
+| `/photos/[id]` | Inspect + **correct** one photo | Big image + appearances (confidence + verdict) → confirm/reject/undo + add-a-missed-student (BP5) | Only place confidence shows |
 | `/me/events` | Student "My Photos" | **Pinterest-grade (BP3)** + **authoritative "new photos" banner + nav badge (BP4)**: warm hero; natural-aspect **masonry** w/ hover-download; **download-all** (client-zip); appearances hidden; mark-seen on unmount | Lightbox lacks per-photo event context (deferred) |
 
 ### 7b. Backend — 45 endpoints + the distribution model
@@ -258,9 +258,11 @@ cascade — but **historical `matches` for deleted students are silently skipped
   frame detect→embed→search→decide, millisecond timestamps. Decision (locked): threshold filter → top-K=2 → gap:
   0 above = unknown (logged, no record); 1 = emit; 2 = emit top-1 alone if gap>threshold else **both with
   `needs_review=true`**. Dedupe best per `(student_id, media_id)` (two-layer idempotency).
-- **`needs_review` + detection audit:** ambiguity flag is persisted and a **rich per-frame/per-face audit**
-  (`media_detections`/`media_frames`/`face_detections`/`face_detection_candidates` + a `student_media_appearances`
-  view) is written — but **no human-in-the-loop** consumes them (no confirm/reject/report-a-miss, no feedback loop).
+- **`needs_review` + detection audit:** the ambiguity flag now drives a **human-in-the-loop** (BP5, decisions/0042):
+  a backend `match_corrections` overlay (confirm/reject/add) consumed by galleries + download + notifications + the
+  dashboard. **Still dark:** the **rich per-frame/per-face audit** (`media_detections`/`media_frames`/
+  `face_detections`/`face_detection_candidates` + the `student_media_appearances` view) — only the dev test UI renders
+  it — and there's **no ML feedback loop** (corrections are a backend overlay; the ML model/thresholds are untouched).
 - **Multi-tenancy/scale:** strict per-school isolation; `IndexFlatIP` exact search (~≤50k students/school); LRU cache
   ~32 schools/worker; **single-replica enrollment serializes writes fleet-wide** (SPOF/bottleneck; Redis-lock
   Option B documented, not built). Model-version mismatch on read = fail loud.
@@ -294,8 +296,9 @@ of "functional but not a great product."
 
 **Distribution/engagement:** notifications (email/push/SMS), announcements, "new since last visit", share links,
 bulk export, download-all. **Experience/data:** dashboards with real stats, search/filter/sort, bulk actions, the
-reference-photo thumbnail, video UI, needs-review triage. **Trust/accuracy:** review/confirm/correct workflow,
-report-a-miss, threshold-tuning UI, feedback loop, reference-photo quality gating. **Onboarding/business:**
+reference-photo thumbnail, video UI. *(needs-review triage + review/confirm/correct + report-a-miss **shipped** in
+BP5, decisions/0042.)* **Trust/accuracy (still deferred):** threshold-tuning UI, an **ML feedback loop** (corrections
+are a backend overlay only), reference-photo quality gating. **Onboarding/business:**
 self-serve school signup, CSV student import, plans/tiers/billing, per-school analytics. **Ops/scale:** multi-replica
 enrollment (Redis lock), rate limiting, retention/erasure policy, access audit log, OTel tracing, security headers,
 image thumbnails/derivatives, batch signed-URL minting. **Model:** re-enrollment cadence for growing children,

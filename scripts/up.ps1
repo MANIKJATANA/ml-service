@@ -64,16 +64,21 @@ Write-Host "Starting backing services (kept running): $($infra -join ', ')" -For
 docker compose up -d @infra
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-# 2) DB migrations: one-shot, must finish before the apps start. Run explicitly
-# here because step 3 uses --no-deps (which would otherwise skip the dependency).
+# 2) DB migrations: BOTH one-shot chains (ML `migrate` + `backend-migrate`), each with
+# its own Alembic chain / version table in the shared DB. Run BOTH explicitly here
+# because step 3 starts the apps with --no-deps, which skips Compose's dependency edges
+# (incl. backend -> backend-migrate) that would otherwise apply them. Missing either
+# chain surfaces at runtime as an UndefinedTable error on the first query.
 Write-Host "Applying DB migrations (alembic upgrade head)..." -ForegroundColor Cyan
-$migrateArgs = @("compose", "run", "--rm")
-if (-not $NoBuild) { $migrateArgs += "--build" }
-$migrateArgs += "migrate"
-& docker @migrateArgs
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "Migrations failed - not starting apps." -ForegroundColor Red
-    exit $LASTEXITCODE
+foreach ($migSvc in @("migrate", "backend-migrate")) {
+    $migrateArgs = @("compose", "run", "--rm")
+    if (-not $NoBuild) { $migrateArgs += "--build" }
+    $migrateArgs += $migSvc
+    & docker @migrateArgs
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "Migrations failed ($migSvc) - not starting apps." -ForegroundColor Red
+        exit $LASTEXITCODE
+    }
 }
 
 # 3) App services. --no-deps so Compose won't also stop postgres/redis on Ctrl+C.

@@ -9,16 +9,25 @@ from __future__ import annotations
 
 import pytest
 from backend.domain.errors import NotFoundError
-from backend.domain.models import Appearance, Event, Media, Student
+from backend.domain.models import (
+    Appearance,
+    Event,
+    MatchCorrection,
+    MatchVerdict,
+    Media,
+    Student,
+)
 from backend.services.gallery_service import GalleryService
 from backend_fakes import (
     FakeEventRepo,
+    FakeMatchCorrectionRepo,
     FakeMediaRepo,
     FakeMlResultsReader,
     FakeObjectStore,
     FakeStudentRepo,
     make_appearance,
     make_event,
+    make_match_correction,
     make_media,
     make_student,
 )
@@ -32,6 +41,7 @@ def _svc(
     events: list[Event] | None = None,
     media: list[Media] | None = None,
     appearances: list[Appearance] | None = None,
+    corrections: list[MatchCorrection] | None = None,
     ttl: int = 3600,
 ) -> GalleryService:
     return GalleryService(
@@ -39,6 +49,7 @@ def _svc(
         FakeStudentRepo(students or []),
         FakeEventRepo(events or []),
         FakeMediaRepo(media or []),
+        FakeMatchCorrectionRepo(corrections or []),
         FakeObjectStore(),
         download_url_ttl_s=ttl,
     )
@@ -249,3 +260,175 @@ async def test_download_student_only_when_appearing() -> None:
         await svc.download_url(
             school_id=_S1, media_id="m2", restrict_to_student_id="a"
         )
+
+# ---- BP5 correction overlay (decisions/0042) ---------------------------
+
+
+async def test_download_blocked_for_rejected_match() -> None:
+    svc = _svc(
+        students=[make_student(id="a", school_id=_S1, user_id="ua")],
+        media=[make_media(id="m1", school_id=_S1)],
+        appearances=[make_appearance(student_id="a", media_id="m1", event_id="e1")],
+        corrections=[
+            make_match_correction(media_id="m1", student_id="a", verdict=MatchVerdict.REJECTED)
+        ],
+    )
+    with pytest.raises(NotFoundError):
+        await svc.download_url(school_id=_S1, media_id="m1", restrict_to_student_id="a")
+
+
+async def test_download_allowed_for_added_student() -> None:
+    # No ML match, but staff added them (report-a-miss) -> they may download.
+    svc = _svc(
+        students=[make_student(id="a", school_id=_S1, user_id="ua")],
+        media=[make_media(id="m1", school_id=_S1)],
+        appearances=[],
+        corrections=[
+            make_match_correction(media_id="m1", student_id="a", verdict=MatchVerdict.ADDED)
+        ],
+    )
+    signed = await svc.download_url(
+        school_id=_S1, media_id="m1", restrict_to_student_id="a"
+    )
+    assert signed.download_url
+
+
+async def test_download_allowed_for_plain_and_confirmed_match() -> None:
+    svc = _svc(
+        students=[make_student(id="a", school_id=_S1, user_id="ua")],
+        media=[make_media(id="m1", school_id=_S1)],
+        appearances=[make_appearance(student_id="a", media_id="m1", event_id="e1")],
+        corrections=[
+            make_match_correction(media_id="m1", student_id="a", verdict=MatchVerdict.CONFIRMED)
+        ],
+    )
+    assert (
+        await svc.download_url(school_id=_S1, media_id="m1", restrict_to_student_id="a")
+    ).download_url
+
+
+async def test_student_media_hides_rejected_and_adds_missed() -> None:
+    svc = _svc(
+        students=[make_student(id="a", school_id=_S1, user_id="ua")],
+        events=[make_event(id="e1", school_id=_S1)],
+        media=[
+            make_media(id="m1", school_id=_S1, event_id="e1"),
+            make_media(id="m2", school_id=_S1, event_id="e1"),
+            make_media(id="m3", school_id=_S1, event_id="e1"),
+        ],
+        appearances=[
+            make_appearance(student_id="a", media_id="m1", event_id="e1"),
+            make_appearance(student_id="a", media_id="m2", event_id="e1"),
+        ],
+        corrections=[
+            make_match_correction(media_id="m2", student_id="a", verdict=MatchVerdict.REJECTED),
+            make_match_correction(
+                media_id="m3", student_id="a", event_id="e1", verdict=MatchVerdict.ADDED
+            ),
+        ],
+    )
+    media = await svc.student_media(school_id=_S1, student_id="a")
+    assert {m.id for m in media} == {"m1", "m3"}  # m2 rejected out, m3 added in
+
+
+async def test_event_students_media_count_is_effective() -> None:
+    svc = _svc(
+        students=[
+            make_student(id="a", school_id=_S1, user_id="ua"),
+            make_student(id="b", school_id=_S1, user_id="ub"),
+        ],
+        events=[make_event(id="e1", school_id=_S1)],
+        appearances=[
+            make_appearance(student_id="a", media_id="m1", event_id="e1"),
+            make_appearance(student_id="a", media_id="m2", event_id="e1"),
+            make_appearance(student_id="b", media_id="m1", event_id="e1"),
+        ],
+        corrections=[
+            make_match_correction(
+                media_id="m1", student_id="b", event_id="e1", verdict=MatchVerdict.REJECTED
+            )
+        ],
+    )
+    views = await svc.event_students(school_id=_S1, event_id="e1")
+    counts = {v.student.id: v.media_count for v in views}
+    assert counts == {"a": 2}  # b's only photo was rejected -> b drops out entirely
+
+
+async def test_media_appearances_carries_verdict_and_added_has_null_confidence() -> None:
+    svc = _svc(
+        students=[
+            make_student(id="a", school_id=_S1, user_id="ua"),
+            make_student(id="b", school_id=_S1, user_id="ub"),
+            make_student(id="c", school_id=_S1, user_id="uc"),
+        ],
+        media=[make_media(id="m1", school_id=_S1)],
+        appearances=[
+            make_appearance(
+                student_id="a", media_id="m1", event_id="e1", confidence=0.9, needs_review=True
+            ),
+            make_appearance(student_id="c", media_id="m1", event_id="e1"),
+        ],
+        corrections=[
+            make_match_correction(media_id="m1", student_id="a", verdict=MatchVerdict.CONFIRMED),
+            make_match_correction(media_id="m1", student_id="b", verdict=MatchVerdict.ADDED),
+            make_match_correction(media_id="m1", student_id="c", verdict=MatchVerdict.REJECTED),
+        ],
+    )
+    apps = {ap.student.id: ap for ap in await svc.media_appearances(school_id=_S1, media_id="m1")}
+    # The staff review surface shows ALL matches incl. rejected (with the verdict) so staff
+    # can undo; only the student-facing reads hide rejected.
+    assert set(apps) == {"a", "b", "c"}
+    assert apps["a"].verdict is MatchVerdict.CONFIRMED and apps["a"].confidence == 0.9
+    assert apps["b"].verdict is MatchVerdict.ADDED and apps["b"].confidence is None
+    assert apps["c"].verdict is MatchVerdict.REJECTED
+
+
+async def test_event_student_media_hides_rejected_and_adds_missed() -> None:
+    # The per-student photo list inside an event applies the same overlay.
+    svc = _svc(
+        students=[make_student(id="a", school_id=_S1, user_id="ua")],
+        events=[make_event(id="e1", school_id=_S1)],
+        media=[
+            make_media(id="m1", school_id=_S1, event_id="e1"),
+            make_media(id="m2", school_id=_S1, event_id="e1"),
+            make_media(id="m3", school_id=_S1, event_id="e1"),
+        ],
+        appearances=[
+            make_appearance(student_id="a", media_id="m1", event_id="e1"),
+            make_appearance(student_id="a", media_id="m2", event_id="e1"),
+        ],
+        corrections=[
+            make_match_correction(
+                media_id="m2", student_id="a", event_id="e1", verdict=MatchVerdict.REJECTED
+            ),
+            make_match_correction(
+                media_id="m3", student_id="a", event_id="e1", verdict=MatchVerdict.ADDED
+            ),
+        ],
+    )
+    media = await svc.event_student_media(school_id=_S1, event_id="e1", student_id="a")
+    assert {m.id for m in media} == {"m1", "m3"}  # m2 rejected out, m3 added in
+
+
+async def test_student_events_drops_event_whose_only_photo_was_rejected() -> None:
+    # A student's event rollup: an event drops entirely once its sole photo for the
+    # student is rejected; its effective media_count reflects the overlay.
+    svc = _svc(
+        students=[make_student(id="a", school_id=_S1, user_id="ua")],
+        events=[
+            make_event(id="e1", school_id=_S1),
+            make_event(id="e2", school_id=_S1),
+        ],
+        appearances=[
+            make_appearance(student_id="a", media_id="m1", event_id="e1"),
+            make_appearance(student_id="a", media_id="m2", event_id="e2"),
+        ],
+        corrections=[
+            make_match_correction(
+                media_id="m2", student_id="a", event_id="e2", verdict=MatchVerdict.REJECTED
+            )
+        ],
+    )
+    views = await svc.student_events(school_id=_S1, student_id="a")
+    rollups = {v.event.id: v.media_count for v in views}
+    assert rollups == {"e1": 1}  # e2 gone — its only photo for a was rejected

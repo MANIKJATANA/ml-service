@@ -97,13 +97,19 @@ convention. Order = my recommended build order.
 - **Persona:** student + staff. **Source lens:** T1, X1, P2, D1. **Acceptance:** a student learns photos exist
   **without being told out-of-band**; staff can drive + see delivery. **Migration + new infra — scope carefully.**
 
-### BP5 — Trust & Accuracy loop · **Effort L · Impact H · BE + FE (+ migration)**
+### BP5 — Trust & Accuracy loop · **Effort L · Impact H · BE + FE (+ migration)** ✅ landed (decisions/0042)
 - **Problem:** `needs_review` + the rich detection audit are **dead data** — no confirm/reject/report-a-miss, no
   feedback loop; thresholds untunable without DB edits. Fails **X2/T3**.
-- **Change:** a staff **needs-review lane** (filter to ambiguous matches → confirm/reject, writing a corrections
-  table), a **report-a-miss** ("I should be in this / this isn't me") for staff and students, confidence surfaced
-  legibly, and (later) per-school **threshold tuning** in-product. Corrections captured as the feedback foundation.
-- **Persona:** staff (+ student). **Source lens:** T3, X2, P7. **Acceptance:** an ambiguous match can be
+- **Shipped:** a backend-owned **`match_corrections`** overlay (verdict `confirmed`/`rejected`/`added`) keyed on the
+  stable **`(media_id, student_id)`** — **no ML change, no cross-seam SQL join**. A staff **needs-review lane**
+  (`GET /events/{id}/review`) → **confirm/reject/undo** on the photo detail; **report-a-miss** — staff **add** a missed
+  student (they then see + can download) and students **self-serve "this isn't me"** (`POST /me/media/{id}/not-me`,
+  membership-checked); **reject → hides the photo + blocks download** (the effective-appearance gate, unit-tested truth
+  table). Corrections overlay all 6 gallery reads + the download gate + (revising BP4) the notification targets/roster/
+  student signal, and drive the dashboard "N to review" (`raw − resolved`). Migration `0006`; new `match:review` perm.
+- **Deferred:** per-school **threshold tuning** in-product (ML-owned `school_thresholds` — a separate write, out of BP5
+  scope); reconciling the BP2 list rollups to effective counts; surfacing the `reason` field.
+- **Persona:** staff (+ student). **Source lens:** T3, X2, P7. **Acceptance (met):** an ambiguous match can be
   confirmed/rejected and the gallery reflects it; a miss can be reported; corrections persist.
 
 ### BP6 — Video end-to-end · **Effort S–M · Impact M · mostly FE · no migration**

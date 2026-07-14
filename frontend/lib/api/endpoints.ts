@@ -11,6 +11,7 @@ import type {
   LoginResult,
   MediaAppearanceResponse,
   MediaResponse,
+  MediaReviewResponse,
   MediaType,
   MyNotificationsResponse,
   NotificationRosterResponse,
@@ -302,6 +303,50 @@ export function mediaAppearances(mediaId: string): Promise<MediaAppearanceRespon
   return bffFetch<MediaAppearanceResponse[]>(
     `/api/v1/media/${encodeURIComponent(mediaId)}/appearances`,
   );
+}
+
+// --- Match review / trust & accuracy (BP5, match:review) ---
+
+/** Confirm or reject a match. Rejecting hides the photo from the student. */
+export function setMatchVerdict(
+  mediaId: string,
+  studentId: string,
+  verdict: "confirmed" | "rejected",
+): Promise<void> {
+  return bffFetch<void>(
+    `/api/v1/media/${encodeURIComponent(mediaId)}/appearances/${encodeURIComponent(studentId)}`,
+    { method: "POST", body: JSON.stringify({ verdict }) },
+  );
+}
+
+/** Report-a-miss: add a student the ML missed to this photo. */
+export function addMissedStudent(mediaId: string, studentId: string): Promise<void> {
+  return bffFetch<void>(`/api/v1/media/${encodeURIComponent(mediaId)}/appearances`, {
+    method: "POST",
+    body: JSON.stringify({ student_id: studentId }),
+  });
+}
+
+/** Undo a correction — reverts to the raw ML truth. */
+export function undoCorrection(mediaId: string, studentId: string): Promise<void> {
+  return bffFetch<void>(
+    `/api/v1/media/${encodeURIComponent(mediaId)}/appearances/${encodeURIComponent(studentId)}`,
+    { method: "DELETE" },
+  );
+}
+
+/** The event's unresolved ambiguous matches grouped by photo (the review lane). */
+export function eventReview(eventId: string): Promise<MediaReviewResponse[]> {
+  return bffFetch<MediaReviewResponse[]>(
+    `/api/v1/events/${encodeURIComponent(eventId)}/review`,
+  );
+}
+
+/** A student's "this isn't me" on their own photo — removes it from their gallery. */
+export function reportNotMe(mediaId: string): Promise<void> {
+  return bffFetch<void>(`/api/v1/me/media/${encodeURIComponent(mediaId)}/not-me`, {
+    method: "POST",
+  });
 }
 
 /** Mint a short-lived signed URL for one media's bytes (entitlement-gated: staff any

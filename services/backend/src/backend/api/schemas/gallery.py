@@ -11,7 +11,7 @@ from datetime import date
 
 from pydantic import BaseModel
 
-from backend.domain.models import Media, MediaType, SignedDownload
+from backend.domain.models import MatchVerdict, Media, MediaType, SignedDownload
 from backend.services.gallery_service import (
     EventForStudent,
     MediaAppearance,
@@ -78,12 +78,15 @@ class EventForStudentResponse(BaseModel):
 
 
 class MediaAppearanceResponse(BaseModel):
-    """A student who appears in one photo + that match's decision facts."""
+    """A student who appears in one photo + that match's decision facts + the correction
+    verdict (BP5). ``verdict`` null = an uncorrected ML match ("pending"); ``confidence``
+    null = an ``added`` (staff-added) student with no ML score."""
 
     student_id: str
     name: str
-    confidence: float
+    confidence: float | None
     needs_review: bool
+    verdict: MatchVerdict | None
 
     @classmethod
     def from_view(cls, view: MediaAppearance) -> MediaAppearanceResponse:
@@ -92,6 +95,7 @@ class MediaAppearanceResponse(BaseModel):
             name=view.student.name,
             confidence=view.confidence,
             needs_review=view.needs_review,
+            verdict=view.verdict,
         )
 
 

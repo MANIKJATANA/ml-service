@@ -1,16 +1,15 @@
-"""Gallery use-cases — the distribution UX reads (decisions/0028).
+"""Gallery use-cases — the distribution UX reads, with the BP5 correction overlay.
 
-Depends only on ports (no HTTP, no RBAC): authorization is at the route via
-`require_permissions(gallery:view_all)` / the student-self scope, and the tenant is the
-caller's token `school_id`, never the URL/body. The ML service writes `matches` (who
-appears in what); this service reads it via `MlResultsReader` and joins those facts to the
-backend's own students/events/media rows for all display data — `matches` stays a pure
-"who-is-where" index. Grouping/filtering is in-Python: a school's event/roster is bounded
-and the reads are single indexed scans; materializing student→events is deferred (0022).
+Depends only on ports (no HTTP, no RBAC): authorization is at the route, tenant is the
+caller's token `school_id`. The ML service writes `matches` (who appears in what); this
+service reads it via `MlResultsReader` and joins those facts to the backend's own rows.
 
-Views: event→students (+counts), event→student→photos, student→events (+counts),
-student→photos (optionally within one event), media→appearances, and an
-entitlement-checked signed download.
+BP5 (decisions/0042) overlays backend-owned `match_corrections` on every read: a
+**rejected** `(media, student)` pair is removed from the effective appearances (and its
+download is blocked); an **added** pair (report-a-miss) is unioned in (no ML confidence);
+**confirmed** stands. The overlay is composed in-Python from the reader's appearances + the
+corrections repo — never a SQL join to the isolated `matches` seam. The pure `effective_*`
+helpers are shared with `ReviewService` so the "who really appears" rule lives in one place.
 """
 
 from __future__ import annotations
@@ -19,9 +18,18 @@ from collections import Counter
 from dataclasses import dataclass
 
 from backend.domain.errors import NotFoundError
-from backend.domain.models import Event, Media, SignedDownload, Student
+from backend.domain.models import (
+    Appearance,
+    Event,
+    MatchCorrection,
+    MatchVerdict,
+    Media,
+    SignedDownload,
+    Student,
+)
 from backend.domain.ports import (
     EventRepository,
+    MatchCorrectionRepository,
     MediaRepository,
     MlResultsReader,
     ObjectStore,
@@ -31,12 +39,7 @@ from backend.domain.ports import (
 
 @dataclass(frozen=True, slots=True)
 class StudentInEvent:
-    """A student who appears in an event + how many of its photos they're in.
-
-    ``media_count`` is derived from ``matches``; it equals the number of photos
-    ``event_student_media`` actually returns only while deletes are deferred (0028 is
-    archive-only). If a future phase deletes a ``media`` row but leaves its ``matches``
-    rows, the count could exceed the returned photos — revisit here then."""
+    """A student who appears in an event + how many of its photos they're in (effective)."""
 
     student: Student
     media_count: int
@@ -44,10 +47,7 @@ class StudentInEvent:
 
 @dataclass(frozen=True, slots=True)
 class EventForStudent:
-    """An event a student appears in + how many of its photos they're in.
-
-    ``media_count`` is derived from ``matches`` (see ``StudentInEvent``): it tracks the
-    returned-photo count only while deletes are deferred (0028)."""
+    """An event a student appears in + how many of its photos they're in (effective)."""
 
     event: Event
     media_count: int
@@ -55,11 +55,75 @@ class EventForStudent:
 
 @dataclass(frozen=True, slots=True)
 class MediaAppearance:
-    """A student who appears in one media + that match's decision facts."""
+    """A student who appears in one photo + that match's decision facts + the correction
+    verdict (None = an uncorrected ML match). ``confidence`` is None for an ``added``
+    (staff-added) student — there is no ML score."""
 
     student: Student
-    confidence: float
+    confidence: float | None
     needs_review: bool
+    verdict: MatchVerdict | None
+
+
+# ---- pure overlay helpers (shared with ReviewService + NotificationService) ----
+
+
+def effective_media_student_ids(
+    appearances: list[Appearance], corrections: list[MatchCorrection]
+) -> set[str]:
+    """The student ids who effectively appear in one media: ML matches whose verdict isn't
+    ``rejected``, unioned with ``added``/``confirmed`` corrections (a ``confirmed`` stands
+    even if a re-inference later dropped the raw match — staff vouched for it)."""
+    by_student = {c.student_id: c for c in corrections}
+    ids: set[str] = set()
+    for a in appearances:
+        c = by_student.get(a.student_id)
+        if c is None or c.verdict is not MatchVerdict.REJECTED:
+            ids.add(a.student_id)
+    for student_id, c in by_student.items():
+        if c.verdict in (MatchVerdict.ADDED, MatchVerdict.CONFIRMED):
+            ids.add(student_id)
+    return ids
+
+
+def effective_event_pairs(
+    appearances: list[Appearance], corrections: list[MatchCorrection]
+) -> list[tuple[str, str]]:
+    """(student_id, media_id) pairs that effectively appear across an event."""
+    rejected = {
+        (c.media_id, c.student_id)
+        for c in corrections
+        if c.verdict is MatchVerdict.REJECTED
+    }
+    pairs = [
+        (a.student_id, a.media_id)
+        for a in appearances
+        if (a.media_id, a.student_id) not in rejected
+    ]
+    seen = set(pairs)
+    for c in corrections:
+        if c.verdict is MatchVerdict.ADDED and (c.student_id, c.media_id) not in seen:
+            pairs.append((c.student_id, c.media_id))
+    return pairs
+
+
+def effective_student_pairs(
+    appearances: list[Appearance], corrections: list[MatchCorrection]
+) -> list[tuple[str, str]]:
+    """(event_id, media_id) pairs a student effectively appears in."""
+    rejected_media = {
+        c.media_id for c in corrections if c.verdict is MatchVerdict.REJECTED
+    }
+    pairs = [
+        (a.event_id, a.media_id)
+        for a in appearances
+        if a.media_id not in rejected_media
+    ]
+    seen_media = {media_id for _, media_id in pairs}
+    for c in corrections:
+        if c.verdict is MatchVerdict.ADDED and c.media_id not in seen_media:
+            pairs.append((c.event_id, c.media_id))
+    return pairs
 
 
 class GalleryService:
@@ -69,6 +133,7 @@ class GalleryService:
         students: StudentRepository,
         events: EventRepository,
         media: MediaRepository,
+        corrections: MatchCorrectionRepository,
         object_store: ObjectStore,
         *,
         download_url_ttl_s: int,
@@ -77,6 +142,7 @@ class GalleryService:
         self._students = students
         self._events = events
         self._media = media
+        self._corrections = corrections
         self._object_store = object_store
         self._ttl = download_url_ttl_s
 
@@ -87,8 +153,9 @@ class GalleryService:
     ) -> list[StudentInEvent]:
         await self._require_event(school_id, event_id)
         appearances = await self._reader.list_event_appearances(school_id, event_id)
-        counts = Counter(a.student_id for a in appearances)
-        # Iterate the ordered roster, keep only appearing students -> deterministic order.
+        corrections = await self._corrections.list_for_event(school_id, event_id)
+        pairs = effective_event_pairs(appearances, corrections)
+        counts = Counter(student_id for student_id, _ in pairs)
         roster = await self._students.list_by_school(school_id)
         return [
             StudentInEvent(student=s, media_count=counts[s.id])
@@ -102,7 +169,9 @@ class GalleryService:
         await self._require_event(school_id, event_id)
         await self._require_student(school_id, student_id)
         appearances = await self._reader.list_event_appearances(school_id, event_id)
-        media_ids = [a.media_id for a in appearances if a.student_id == student_id]
+        corrections = await self._corrections.list_for_event(school_id, event_id)
+        pairs = effective_event_pairs(appearances, corrections)
+        media_ids = [m for s, m in pairs if s == student_id]
         return await self._media.list_by_ids(school_id, media_ids)
 
     # ---- student-centric views -----------------------------------------
@@ -112,7 +181,9 @@ class GalleryService:
     ) -> list[EventForStudent]:
         await self._require_student(school_id, student_id)
         appearances = await self._reader.list_student_appearances(school_id, student_id)
-        counts = Counter(a.event_id for a in appearances)
+        corrections = await self._corrections.list_for_student(school_id, student_id)
+        pairs = effective_student_pairs(appearances, corrections)
+        counts = Counter(event_id for event_id, _ in pairs)
         events = await self._events.list_by_school(school_id)
         return [
             EventForStudent(event=e, media_count=counts[e.id])
@@ -127,33 +198,57 @@ class GalleryService:
         if event_id is not None:
             await self._require_event(school_id, event_id)
         appearances = await self._reader.list_student_appearances(school_id, student_id)
-        media_ids = [
-            a.media_id
-            for a in appearances
-            if event_id is None or a.event_id == event_id
-        ]
+        corrections = await self._corrections.list_for_student(school_id, student_id)
+        pairs = effective_student_pairs(appearances, corrections)
+        media_ids = [m for e, m in pairs if event_id is None or e == event_id]
         return await self._media.list_by_ids(school_id, media_ids)
 
-    # ---- media-centric view --------------------------------------------
+    # ---- media-centric view (staff photo detail + the review surface) --
 
     async def media_appearances(
         self, *, school_id: str, media_id: str
     ) -> list[MediaAppearance]:
         await self._require_media(school_id, media_id)
         appearances = await self._reader.list_media_appearances(school_id, media_id)
+        corrections = {
+            c.student_id: c
+            for c in await self._corrections.list_for_media(school_id, media_id)
+        }
         roster = {s.id: s for s in await self._students.list_by_school(school_id)}
+        # This is the staff-only review surface (gallery:view_all) — so it shows EVERY
+        # match, including ``rejected`` ones (with the verdict), so staff can see + undo
+        # a rejection. The student-facing reads (student_*/event_students/download) exclude
+        # rejected via the effective-pair helpers above.
         out: list[MediaAppearance] = []
+        matched_ids: set[str] = set()
         for a in appearances:
+            c = corrections.get(a.student_id)
             student = roster.get(a.student_id)
             if student is None:
-                continue  # a match for a since-deleted student — skip
+                continue  # match for a since-deleted student
+            matched_ids.add(a.student_id)
             out.append(
                 MediaAppearance(
                     student=student,
                     confidence=a.confidence,
                     needs_review=a.needs_review,
+                    verdict=c.verdict if c is not None else None,
                 )
             )
+        # Added students (report-a-miss) not already an ML match.
+        for student_id, c in corrections.items():
+            if c.verdict is MatchVerdict.ADDED and student_id not in matched_ids:
+                student = roster.get(student_id)
+                if student is None:
+                    continue
+                out.append(
+                    MediaAppearance(
+                        student=student,
+                        confidence=None,
+                        needs_review=False,
+                        verdict=MatchVerdict.ADDED,
+                    )
+                )
         return out
 
     # ---- download ------------------------------------------------------
@@ -161,16 +256,18 @@ class GalleryService:
     async def download_url(
         self, *, school_id: str, media_id: str, restrict_to_student_id: str | None
     ) -> SignedDownload:
-        """A short-lived signed URL to fetch one media (decisions/0028).
+        """A short-lived signed URL to fetch one media (decisions/0028 + BP5).
 
-        ``restrict_to_student_id=None`` -> staff: any media in the school. Otherwise the
-        media must be one the student appears in, else 404 — the endpoint never confirms
-        the existence of a photo the student isn't entitled to see.
-        """
+        ``restrict_to_student_id=None`` -> staff (any media in the school). Otherwise the
+        media must be one the student **effectively** appears in (an un-rejected ML match or
+        an ``added`` correction), else 404 — a rejected match blocks the download."""
         media = await self._require_media(school_id, media_id)
         if restrict_to_student_id is not None:
             appearances = await self._reader.list_media_appearances(school_id, media_id)
-            if not any(a.student_id == restrict_to_student_id for a in appearances):
+            corrections = await self._corrections.list_for_media(school_id, media_id)
+            if restrict_to_student_id not in effective_media_student_ids(
+                appearances, corrections
+            ):
                 raise NotFoundError(f"media not found: {media_id}")
         url = await self._object_store.create_signed_download_url(
             media.storage_path, expires_in_s=self._ttl

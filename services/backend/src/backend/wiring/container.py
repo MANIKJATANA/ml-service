@@ -24,6 +24,7 @@ from backend.db.session import make_engine, make_sessionmaker
 from backend.domain.ports import (
     EventJobProducer,
     EventRepository,
+    MatchCorrectionRepository,
     MediaRepository,
     MlEnrollmentClient,
     MlResultsReader,
@@ -45,6 +46,7 @@ from backend.services.listing_service import ListingService
 from backend.services.media_service import MediaService
 from backend.services.notification_service import NotificationService
 from backend.services.onboarding_service import OnboardingService
+from backend.services.review_service import ReviewService
 from backend.services.student_service import StudentService
 from backend.settings import Settings
 from backend.wiring import registry
@@ -66,6 +68,7 @@ class Container:
         self._event_repo: EventRepository | None = None
         self._media_repo: MediaRepository | None = None
         self._ml_results_reader: MlResultsReader | None = None
+        self._match_correction_repo: MatchCorrectionRepository | None = None
         self._notification_reads_repo: NotificationReadRepository | None = None
         self._notifier: NotificationChannel | None = None
         self._event_job_producer: EventJobProducer | None = None
@@ -83,6 +86,7 @@ class Container:
         self._dashboard_service: DashboardService | None = None
         self._listing_service: ListingService | None = None
         self._notification_service: NotificationService | None = None
+        self._review_service: ReviewService | None = None
 
     @property
     def settings(self) -> Settings:
@@ -164,6 +168,17 @@ class Container:
                     )
                     self._ml_results_reader = cls(self.sessionmaker())
         return self._ml_results_reader
+
+    def match_correction_repo(self) -> MatchCorrectionRepository:
+        if self._match_correction_repo is None:
+            with self._lock:
+                if self._match_correction_repo is None:
+                    cls = registry.resolve(
+                        registry.MATCH_CORRECTION_REPO_REGISTRY,
+                        self._s.repository_impl,
+                    )
+                    self._match_correction_repo = cls(self.sessionmaker())
+        return self._match_correction_repo
 
     def notification_reads_repo(self) -> NotificationReadRepository:
         if self._notification_reads_repo is None:
@@ -359,10 +374,24 @@ class Container:
                         self.student_repo(),
                         self.event_repo(),
                         self.media_repo(),
+                        self.match_correction_repo(),
                         self.object_store(),
                         download_url_ttl_s=self._s.download_url_ttl_s,
                     )
         return self._gallery_service
+
+    def review_service(self) -> ReviewService:
+        if self._review_service is None:
+            with self._lock:
+                if self._review_service is None:
+                    self._review_service = ReviewService(
+                        self.ml_results_reader(),
+                        self.match_correction_repo(),
+                        self.media_repo(),
+                        self.student_repo(),
+                        self.event_repo(),
+                    )
+        return self._review_service
 
     def dashboard_service(self) -> DashboardService:
         if self._dashboard_service is None:
@@ -374,6 +403,7 @@ class Container:
                         self.event_repo(),
                         self.media_repo(),
                         self.ml_results_reader(),
+                        self.match_correction_repo(),
                     )
         return self._dashboard_service
 
@@ -401,6 +431,7 @@ class Container:
                         self.student_repo(),
                         self.notification_reads_repo(),
                         self.notifier(),
+                        self.match_correction_repo(),
                     )
         return self._notification_service
 

@@ -144,12 +144,31 @@ export interface EventForStudentResponse {
   media_count: number;
 }
 
-/** A student who appears in one photo + that match's decision facts (0028). */
+/** A staff/student correction verdict over an ML match (BP5, decisions/0042). */
+export type MatchVerdict = "confirmed" | "rejected" | "added";
+
+/** A student who appears in one photo + that match's decision facts + the correction
+ *  verdict (BP5). `verdict` null = an uncorrected ML match ("pending"); `confidence` null =
+ *  an `added` (staff-added) student with no ML score. */
 export interface MediaAppearanceResponse {
   student_id: string;
   name: string;
-  confidence: number;
+  confidence: number | null;
   needs_review: boolean;
+  verdict: MatchVerdict | null;
+}
+
+/** One photo's ambiguous, unresolved matches — the staff review lane (BP5). */
+export interface MediaReviewCandidate {
+  student_id: string;
+  name: string;
+  confidence: number;
+}
+export interface MediaReviewResponse {
+  media_id: string;
+  event_id: string;
+  media_type: MediaType;
+  candidates: MediaReviewCandidate[];
 }
 
 /** A short-lived signed URL to fetch one media's bytes (0028). */

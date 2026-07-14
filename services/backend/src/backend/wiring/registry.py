@@ -45,6 +45,13 @@ NOTIFICATION_READS_REPO_REGISTRY: dict[str, str] = {
     ),
 }
 
+MATCH_CORRECTION_REPO_REGISTRY: dict[str, str] = {
+    "postgres": (
+        "backend.adapters.repositories.postgres_match_corrections"
+        ":PostgresMatchCorrectionRepository"
+    ),
+}
+
 EVENT_JOB_PRODUCER_REGISTRY: dict[str, str] = {
     "redis": "backend.adapters.queue.redis_producer:RedisEventJobProducer",
     "inproc": "backend.adapters.queue.inproc_producer:InProcEventJobProducer",

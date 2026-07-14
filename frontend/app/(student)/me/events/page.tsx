@@ -9,7 +9,8 @@ import { PhotoGrid } from "@/components/gallery/photo-grid";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { useToast } from "@/components/ui/toast";
-import { markNotificationSeen } from "@/lib/api/endpoints";
+import { markNotificationSeen, reportNotMe } from "@/lib/api/endpoints";
+import { isApiError } from "@/lib/api/errors";
 import { useDownloadAll } from "@/lib/hooks/use-download-all";
 import { useMyEvents, useMyMedia } from "@/lib/hooks/use-my-gallery";
 import { useMyNotifications } from "@/lib/hooks/use-my-notifications";
@@ -37,6 +38,16 @@ function PhotoArea({ eventId }: { eventId: string | null }) {
       }
     } catch {
       toast("Couldn't prepare your download. Please try again.", "error");
+    }
+  }
+
+  async function handleNotMe(id: string) {
+    try {
+      await reportNotMe(id);
+      await mutate(); // drop the photo from the grid
+      toast("Removed from your photos.", "success");
+    } catch (err) {
+      toast(isApiError(err) ? err.message : "Couldn't update. Please try again.", "error");
     }
   }
 
@@ -74,8 +85,14 @@ function PhotoArea({ eventId }: { eventId: string | null }) {
         ) : null}
       </div>
       {/* Appearances hidden for students: that endpoint is staff-only and other students'
-          names must not leak (decisions/0036). */}
-      <PhotoGrid mediaIds={mediaIds} variant="masonry" showAppearances={false} />
+          names must not leak (decisions/0036). "This isn't me" (BP5) lets them remove a
+          wrongly-matched photo. */}
+      <PhotoGrid
+        mediaIds={mediaIds}
+        variant="masonry"
+        showAppearances={false}
+        onNotMe={handleNotMe}
+      />
     </div>
   );
 }

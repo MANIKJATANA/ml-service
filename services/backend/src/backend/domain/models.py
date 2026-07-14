@@ -288,3 +288,28 @@ class Appearance:
     event_id: str
     confidence: float
     needs_review: bool
+
+
+class MatchVerdict(StrEnum):
+    """A staff/student correction over the ML ``matches`` (BP5, decisions/0042). Keyed on
+    the stable ``(media_id, student_id)`` pair — the backend never writes ML tables."""
+
+    CONFIRMED = "confirmed"  # a real ML match staff vouched for (stands)
+    REJECTED = "rejected"  # "this isn't the right person" — hidden from the student
+    ADDED = "added"  # report-a-miss: staff added a student the ML missed
+
+
+@dataclass(frozen=True, slots=True)
+class MatchCorrection:
+    """One correction row over a ``(media, student)`` pair (BP5, decisions/0042).
+
+    The overlay: a ``rejected`` pair is removed from the effective appearances (+ download
+    blocked); an ``added`` pair is unioned in (no ML confidence); ``confirmed`` stands.
+    ``resolves_review`` is true when the corrected match was ``needs_review`` at review time
+    (drives the dashboard's unresolved-review count)."""
+
+    media_id: str
+    student_id: str
+    event_id: str
+    verdict: MatchVerdict
+    resolves_review: bool

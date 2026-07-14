@@ -23,6 +23,7 @@ from backend.api.routers import (
     health,
     me,
     media,
+    review,
     schools,
     staff,
     students,
@@ -164,6 +165,7 @@ def create_app() -> FastAPI:
     app.include_router(galleries.router)
     app.include_router(me.router)
     app.include_router(dashboard.router)
+    app.include_router(review.router)
     _install_metrics(app)
     _install_cors(app)
     _register_error_handlers(app)

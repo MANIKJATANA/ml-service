@@ -9,7 +9,12 @@ from __future__ import annotations
 
 from fastapi import APIRouter, status
 
-from backend.api.deps import ContainerDep, GalleryScope, StudentSelfScope
+from backend.api.deps import (
+    ContainerDep,
+    CurrentUser,
+    GalleryScope,
+    StudentSelfScope,
+)
 from backend.api.schemas.gallery import EventForStudentResponse, GalleryMediaResponse
 from backend.api.schemas.notifications import MyNotificationsResponse
 from backend.domain.errors import AuthorizationError
@@ -66,4 +71,21 @@ async def mark_notification_seen(
     """Mark one event's photos seen (clears it from the student's new-photos signal)."""
     await container.notification_service().mark_seen(
         school_id=scope.school_id, student_id=_student_id(scope), event_id=event_id
+    )
+
+
+@router.post("/media/{media_id}/not-me", status_code=status.HTTP_204_NO_CONTENT)
+async def not_me(
+    media_id: str,
+    container: ContainerDep,
+    scope: StudentSelfScope,
+    user: CurrentUser,
+) -> None:
+    """A student's "this isn't me" (BP5): rejects the match, removing the photo from their
+    gallery + download. 404 if they don't currently appear in it."""
+    await container.review_service().self_reject(
+        school_id=scope.school_id,
+        media_id=media_id,
+        student_id=_student_id(scope),
+        corrected_by=user.id,
     )

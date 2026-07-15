@@ -86,15 +86,17 @@ export default function EventUploadPage() {
       ) : (
         <>
           <PageHeader
-            title="Upload photos"
-            description={`Add photos to “${event.name}”. Run distribution from the event once they're in.`}
+            title="Upload media"
+            description={`Add photos and videos to “${event.name}”. Run distribution from the event once they're in.`}
           />
 
           <Card className="flex flex-col gap-4 p-6">
             <MultiFileDropzone
               onFiles={add}
               disabled={isUploading}
-              hint="Images up to 30 MB each — select as many as you like."
+              accept="image/*,video/*"
+              label="Photos & videos"
+              hint="Photos and videos — select as many as you like."
             />
 
             {items.length > 0 ? (

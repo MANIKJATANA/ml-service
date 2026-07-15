@@ -25,6 +25,10 @@ function PhotoArea({ eventId }: { eventId: string | null }) {
   const { media, isLoading, error, mutate } = useMyMedia(eventId);
   const { toast } = useToast();
   const mediaIds = useMemo(() => (media ?? []).map((m) => m.media_id), [media]);
+  const items = useMemo(
+    () => (media ?? []).map((m) => ({ id: m.media_id, mediaType: m.media_type })),
+    [media],
+  );
   const { busy, done, total, onDownloadAll } = useDownloadAll(mediaIds);
 
   async function handleDownloadAll() {
@@ -88,7 +92,7 @@ function PhotoArea({ eventId }: { eventId: string | null }) {
           names must not leak (decisions/0036). "This isn't me" (BP5) lets them remove a
           wrongly-matched photo. */}
       <PhotoGrid
-        mediaIds={mediaIds}
+        items={items}
         variant="masonry"
         showAppearances={false}
         onNotMe={handleNotMe}

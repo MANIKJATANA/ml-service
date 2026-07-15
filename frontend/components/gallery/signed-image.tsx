@@ -4,6 +4,7 @@ import { ImageOff } from "lucide-react";
 import { useRef, useState } from "react";
 
 import { Spinner } from "@/components/ui/spinner";
+import type { MediaType } from "@/lib/api/types";
 import { useMediaDownload } from "@/lib/hooks/use-media-download";
 import { cn } from "@/lib/utils";
 
@@ -17,13 +18,20 @@ interface SignedImageProps {
   onDark?: boolean;
   loading?: "spinner" | "square" | "block";
   fallbackText?: string;
+  /** "image" (default) renders an <img>; "video" renders a <video> off the same signed URL
+   *  (BP6). Callers thread the media's type so a video URL never lands in an <img>. */
+  kind?: MediaType;
+  /** For a video: `true` = a full <video controls> player (lightbox / detail page);
+   *  `false` (default) = a muted, non-interactive first-frame poster for grid tiles. */
+  asPlayer?: boolean;
 }
 
 /**
  * Loads a media's signed URL and renders it (decisions/0035): a lazy gate (`enabled`), a
  * one-shot re-mint on a 403 (expired URL mid-session), and a terminal fallback if either
- * the URL fetch OR the image itself fails — so nothing is left on a perpetual spinner.
- * Shared by the photo tile, the Lightbox, and the photo page.
+ * the URL fetch OR the media itself fails — so nothing is left on a perpetual spinner.
+ * Renders an image or a video off the SAME signed URL (BP6, decisions/0043). Shared by the
+ * photo tile, the Lightbox, and the photo page.
  */
 export function SignedImage({
   mediaId,
@@ -33,13 +41,15 @@ export function SignedImage({
   className,
   onDark = false,
   loading = "spinner",
-  fallbackText = "Couldn't load this photo.",
+  fallbackText = "Couldn't load this media.",
+  kind = "image",
+  asPlayer = false,
 }: SignedImageProps) {
   const { download, error, mutate } = useMediaDownload(mediaId, enabled);
   const [failed, setFailed] = useState(false);
   const retries = useRef(0);
 
-  function onImgError() {
+  function onMediaError() {
     if (retries.current < 1) {
       retries.current += 1;
       void mutate(); // the signed URL may have expired mid-session — re-mint once
@@ -77,8 +87,37 @@ export function SignedImage({
       </div>
     );
   }
+  if (kind === "video") {
+    if (asPlayer) {
+      return (
+        <video
+          src={download.download_url}
+          controls
+          playsInline
+          onError={onMediaError}
+          className={imgClassName}
+          aria-label={alt || undefined}
+        />
+      );
+    }
+    // Grid poster: a muted, non-interactive first frame. The `#t=0.1` fragment nudges the
+    // browser to paint a frame (a bare <video> can stay blank); `pointer-events-none` lets
+    // the click fall through to the wrapping tile button, which opens the player.
+    return (
+      <video
+        src={`${download.download_url}#t=0.1`}
+        muted
+        playsInline
+        preload="metadata"
+        tabIndex={-1}
+        aria-hidden="true"
+        onError={onMediaError}
+        className={cn(imgClassName, "pointer-events-none")}
+      />
+    );
+  }
   return (
     // eslint-disable-next-line @next/next/no-img-element -- signed URL, unknown aspect ratio
-    <img src={download.download_url} alt={alt} onError={onImgError} className={imgClassName} />
+    <img src={download.download_url} alt={alt} onError={onMediaError} className={imgClassName} />
   );
 }

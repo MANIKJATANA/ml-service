@@ -128,7 +128,7 @@ School (tenant)
 | `Event.status` | active · archived | archived = hidden from workflows, kept for records (no hard delete) |
 | `Event.processing_status` | not_started · queued · processing · completed | polled live |
 | `Media.processing_status` | pending · completed | per-photo; a permanently-bad photo *looks* pending (no error state) |
-| `media_type` | image · video | **video works in ML but has no UI** |
+| `media_type` | image · video | video renders + uploads in the UI (BP6); still no per-frame timeline UI |
 
 **Timing/counts that exist in the data** (mostly unrendered — see §7 "dark data"): `created_at`/`updated_at`
 everywhere; `Event.enqueued_at` + `Event.completed_at`; `Media.completed_at`; `EventStatus.{pending,completed,total}`;
@@ -177,7 +177,7 @@ cache-invalidation, fail-loud on model-version mismatch; model swap = offline re
 |---|---|---|---|
 | Enroll student by photo | ML + BE + FE | ✅ | replace-not-append; per-photo failure isolated |
 | Match faces in **images** | ML | ✅ | threshold + top-K=2 + gap; dedupe best per (student,media) |
-| Match faces in **video** | ML | ❌ **dark** | full FPS frame pipeline + timestamps built; **no UI renders video** |
+| Match faces in **video** | ML | ✅ (BP6) | full FPS frame pipeline + timestamps built; **video now renders + uploads + plays + downloads** in the UI (decisions/0043). Deferred: the per-frame "who appears when" timeline UI |
 | Per-school tenant isolation | ML + BE | ✅ | structural; no cross-school search |
 | Reproducibility / model versioning | ML | ✅ (internal) | versions + thresholds stamped per match |
 | `needs_review` (ambiguous match) + corrections | ML → BE → FE | ✅ (BP5) | **trust loop landed** (decisions/0042): a staff needs-review lane (`GET /events/{id}/review`) → confirm/reject/undo, report-a-miss (staff add / student "this isn't me"), a backend `match_corrections` overlay that **hides rejected + blocks download** and feeds galleries/dashboard/notifications. Threshold-tuning UI still deferred |
@@ -297,7 +297,8 @@ of "functional but not a great product."
 **Distribution/engagement:** notifications (email/push/SMS), announcements, "new since last visit", share links,
 bulk export, download-all. **Experience/data:** dashboards with real stats, search/filter/sort, bulk actions, the
 reference-photo thumbnail, video UI. *(needs-review triage + review/confirm/correct + report-a-miss **shipped** in
-BP5, decisions/0042.)* **Trust/accuracy (still deferred):** threshold-tuning UI, an **ML feedback loop** (corrections
+BP5, decisions/0042; **video render/upload/play/download shipped** in BP6, decisions/0043 — only the per-frame
+timeline UI stays deferred.)* **Trust/accuracy (still deferred):** threshold-tuning UI, an **ML feedback loop** (corrections
 are a backend overlay only), reference-photo quality gating. **Onboarding/business:**
 self-serve school signup, CSV student import, plans/tiers/billing, per-school analytics. **Ops/scale:** multi-replica
 enrollment (Redis lock), rate limiting, retention/erasure policy, access audit log, OTel tracing, security headers,

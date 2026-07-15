@@ -11,9 +11,12 @@ import { Button } from "@/components/ui/button";
 import { useDownloadToDisk } from "@/lib/hooks/use-download-to-disk";
 import { useMediaAppearances } from "@/lib/hooks/use-galleries";
 import { useMediaDownload } from "@/lib/hooks/use-media-download";
+import type { MediaType } from "@/lib/api/types";
 
 interface LightboxProps {
   mediaIds: string[];
+  /** Per-media type, aligned by index to `mediaIds` — a video renders a player (BP6). */
+  mediaTypes?: MediaType[];
   index: number;
   onIndexChange: (index: number) => void;
   onClose: () => void;
@@ -32,6 +35,7 @@ interface LightboxProps {
 /** Full-screen photo viewer: image + ←/→/Esc navigation, download, and who appears. */
 export function Lightbox({
   mediaIds,
+  mediaTypes,
   index,
   onIndexChange,
   onClose,
@@ -40,6 +44,7 @@ export function Lightbox({
   onNotMe,
 }: LightboxProps) {
   const mediaId = mediaIds[index];
+  const mediaType = mediaTypes?.[index] ?? "image";
   const { download } = useMediaDownload(mediaId, true);
   const { appearances, isLoading: appsLoading, mutate: mutateAppearances } =
     useMediaAppearances(showAppearances ? mediaId : null);
@@ -89,16 +94,18 @@ export function Lightbox({
           }}
           className="fixed inset-0 z-50 flex flex-col focus:outline-none sm:flex-row"
         >
-          <DialogPrimitive.Title className="sr-only">Photo viewer</DialogPrimitive.Title>
+          <DialogPrimitive.Title className="sr-only">Media viewer</DialogPrimitive.Title>
           <DialogPrimitive.Description className="sr-only">
-            Use the left and right arrow keys to move between photos.
+            Use the left and right arrow keys to move between items.
           </DialogPrimitive.Description>
 
           <div className="relative flex min-h-0 flex-1 items-center justify-center p-4 sm:p-8">
             <SignedImage
               key={mediaId}
               mediaId={mediaId}
-              alt={`Photo ${index + 1} of ${mediaIds.length}`}
+              kind={mediaType}
+              asPlayer
+              alt={`${mediaType === "video" ? "Video" : "Photo"} ${index + 1} of ${mediaIds.length}`}
               onDark
               imgClassName="max-h-full max-w-full rounded-card object-contain"
             />
@@ -161,7 +168,9 @@ export function Lightbox({
 
             {showAppearances ? (
               <div className="flex flex-col gap-2">
-                <h3 className="text-body-sm font-medium text-ink">In this photo</h3>
+                <h3 className="text-body-sm font-medium text-ink">
+                  In this {mediaType === "video" ? "video" : "photo"}
+                </h3>
                 {canManageAppearances ? (
                   <AppearanceEditor
                     mediaId={mediaId}

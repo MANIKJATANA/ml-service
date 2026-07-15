@@ -32,7 +32,12 @@ function StudentEventPhotos({ studentId, eventId }: { studentId: string; eventId
   if (!media || media.length === 0) {
     return <p className="text-body-sm text-ink-secondary">No photos in this event.</p>;
   }
-  return <PhotoGrid mediaIds={media.map((m) => m.media_id)} canManageAppearances />;
+  return (
+    <PhotoGrid
+      items={media.map((m) => ({ id: m.media_id, mediaType: m.media_type }))}
+      canManageAppearances
+    />
+  );
 }
 
 /** Events the student appears in → their photos in the selected one. Hidden until the

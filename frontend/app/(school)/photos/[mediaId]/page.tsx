@@ -51,14 +51,16 @@ export default function PhotoDetailPage() {
         items={[
           { label: "Events", href: "/events" },
           { label: "Gallery", href: `/events/${media.event_id}/gallery` },
-          { label: "Photo" },
+          { label: media.media_type === "video" ? "Video" : "Photo" },
         ]}
       />
       <div className="grid gap-6 lg:grid-cols-[1fr_22rem]">
         <Card className="flex items-center justify-center overflow-hidden bg-surface-2 p-2">
           <SignedImage
             mediaId={mediaId}
-            alt="Event photo"
+            kind={media.media_type}
+            asPlayer
+            alt={media.media_type === "video" ? "Event video" : "Event photo"}
             className="h-64 w-full"
             imgClassName="max-h-[70vh] w-auto rounded-button object-contain"
           />
@@ -69,7 +71,9 @@ export default function PhotoDetailPage() {
             Download
           </Button>
           <div className="flex flex-col gap-3">
-            <h2 className="text-body-sm font-medium text-ink">In this photo</h2>
+            <h2 className="text-body-sm font-medium text-ink">
+              In this {media.media_type === "video" ? "video" : "photo"}
+            </h2>
             <AppearanceEditor
               mediaId={mediaId}
               appearances={appearances}

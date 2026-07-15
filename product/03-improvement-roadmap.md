@@ -112,14 +112,19 @@ convention. Order = my recommended build order.
 - **Persona:** staff (+ student). **Source lens:** T3, X2, P7. **Acceptance (met):** an ambiguous match can be
   confirmed/rejected and the gallery reflects it; a miss can be reported; corrections persist.
 
-### BP6 — Video end-to-end · **Effort S–M · Impact M · mostly FE · no migration**
+### BP6 — Video end-to-end · **Effort S–M · Impact M · FE only · no migration · no ML** ✅ landed (decisions/0043)
 - **Problem:** video is **fully built in ML** (frame extraction, per-frame matching, timestamps) but **dark** — no
   UI renders it. Fails **X6/T6**.
-- **Change:** render `video` media in the gallery + lightbox (poster + player), show its appearances (ideally a
-  **timeline** of who appears when — the detection audit already supports it), and download. Upload/process already
-  work; the gap is purely surfacing (a small BE read for the timeline if the audit isn't already exposed).
-- **Persona:** both. **Source lens:** T6, X6. **Acceptance:** a video uploads → processes → plays → downloads; its
-  appearances render.
+- **Shipped (Core, FE-only):** `video` media now renders in the gallery grid (a `#t=0.1` first-frame **poster** + play
+  badge), the **lightbox** + photo-detail (`<video controls>`), and downloads — all off the **same signed URL** the
+  `<img>` used (inline-served, range-request-capable). The **event uploader accepts video** (MIME-classified →
+  registers the real `media_type`; the register + download paths already supported it). A video's appearances reuse the
+  BP5 overlay unchanged. **No backend/ML change, no migration, no new dep.**
+- **Deferred:** the "who appears when" **timeline** (needs a new isolated `student_media_appearances` read +
+  `GET /media/{id}/timeline`, corrections-overlaid); raising the video **size cap** (`BE_MAX_UPLOAD_MB` + bucket) and a
+  stored **poster thumbnail**.
+- **Persona:** both. **Source lens:** T6, X6. **Acceptance (met):** a video uploads → processes → plays → downloads;
+  its appearances render.
 
 ### BP7 — Onboarding & bulk · **Effort M–L · Impact M · BE + FE (maybe migration)**
 - **Problem:** setup is manual/one-at-a-time; no bulk import; no first-run guidance; `max_teachers` is the only

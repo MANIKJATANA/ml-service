@@ -49,7 +49,12 @@ function AllPhotos({ eventId }: { eventId: string }) {
       />
     );
   }
-  return <PhotoGrid mediaIds={media.map((m) => m.id)} canManageAppearances />;
+  return (
+    <PhotoGrid
+      items={media.map((m) => ({ id: m.id, mediaType: m.media_type }))}
+      canManageAppearances
+    />
+  );
 }
 
 function EventStudentPhotos({ eventId, studentId }: { eventId: string; studentId: string }) {
@@ -60,7 +65,12 @@ function EventStudentPhotos({ eventId, studentId }: { eventId: string; studentId
   if (!media || media.length === 0) {
     return <p className="text-body-sm text-ink-secondary">No photos for this student.</p>;
   }
-  return <PhotoGrid mediaIds={media.map((m) => m.media_id)} canManageAppearances />;
+  return (
+    <PhotoGrid
+      items={media.map((m) => ({ id: m.media_id, mediaType: m.media_type }))}
+      canManageAppearances
+    />
+  );
 }
 
 function ByStudent({ eventId }: { eventId: string }) {
@@ -141,6 +151,7 @@ function NeedsReview({ eventId }: { eventId: string }) {
           >
             <SignedImage
               mediaId={r.media_id}
+              kind={r.media_type}
               alt=""
               loading="square"
               className="aspect-square w-full"

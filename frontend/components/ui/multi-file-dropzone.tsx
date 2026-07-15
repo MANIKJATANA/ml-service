@@ -56,7 +56,7 @@ export function MultiFileDropzone({
       >
         <ImagePlus className="size-6 text-ink-muted" aria-hidden="true" />
         <span className="text-body-sm text-ink-secondary">
-          Drag photos here, or <span className="font-medium text-accent-hover">browse</span>
+          Drag files here, or <span className="font-medium text-accent-hover">browse</span>
         </span>
         {hint ? <span className="text-body-sm text-ink-muted">{hint}</span> : null}
       </label>

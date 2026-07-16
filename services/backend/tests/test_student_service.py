@@ -284,6 +284,79 @@ async def test_enroll_photoless_student_is_rejected() -> None:
     assert ml.enroll_calls == []
 
 
+# ---- set / replace reference photo (BP7d-2) ---------------------------
+
+
+async def test_set_reference_photo_enrolls_a_photoless_student() -> None:
+    svc, _, _, ml = _svc()
+    prov = await svc.create_student(school_id=_S1, name="NP", email="np@x.io")
+    assert prov.student.enrollment_status is EnrollmentStatus.PENDING
+    updated = await svc.set_reference_photo(
+        school_id=_S1, student_id=prov.student.id, reference_photo_path=_PATH,
+    )
+    assert updated.reference_photo_path == _PATH
+    assert updated.enrollment_status is EnrollmentStatus.ENROLLED
+    assert ml.enroll_calls[-1] == (_S1, prov.student.id, [_PATH])
+
+
+async def test_set_reference_photo_fixes_a_failed_enrollment() -> None:
+    # BP7d-2 closes BP7b's loop: swapping a bad photo re-enrolls + clears the reason.
+    ml = FakeMlClient(embeddings_stored=0, photo_status="no_face")
+    svc, _, _, _ = _svc(ml_client=ml)
+    created = await _create(
+        svc, school_id=_S1, name="F", email="f@x.io", reference_photo_path=_PATH,
+    )
+    assert created.enrollment_status is EnrollmentStatus.FAILED
+    assert created.enrollment_failure_reason is EnrollmentFailureReason.NO_FACE
+
+    ml._embeddings = 1
+    ml._photo_status = "enrolled"
+    fixed = await svc.set_reference_photo(
+        school_id=_S1, student_id=created.id, reference_photo_path=_PATH,
+    )
+    assert fixed.enrollment_status is EnrollmentStatus.ENROLLED
+    assert fixed.enrollment_failure_reason is None
+
+
+async def test_set_reference_photo_replaces_on_an_already_enrolled_student() -> None:
+    # Swapping a good photo for another on an enrolled student re-enrolls with the new one.
+    svc, _, _, ml = _svc()
+    created = await _create(
+        svc, school_id=_S1, name="E", email="e@x.io", reference_photo_path=_PATH,
+    )
+    assert created.enrollment_status is EnrollmentStatus.ENROLLED
+    new_path = "reference-photos/s1/photo2.jpg"
+    updated = await svc.set_reference_photo(
+        school_id=_S1, student_id=created.id, reference_photo_path=new_path,
+    )
+    assert updated.reference_photo_path == new_path
+    assert updated.enrollment_status is EnrollmentStatus.ENROLLED
+    assert ml.enroll_calls[-1] == (_S1, created.id, [new_path])
+
+
+async def test_set_reference_photo_rejects_foreign_prefix() -> None:
+    svc, _, _, ml = _svc()
+    prov = await svc.create_student(school_id=_S1, name="NP", email="np@x.io")
+    with pytest.raises(ValidationError):
+        await svc.set_reference_photo(
+            school_id=_S1,
+            student_id=prov.student.id,
+            reference_photo_path="reference-photos/other-school/p.jpg",
+        )
+    assert ml.enroll_calls == []  # rejected before any ML call
+
+
+async def test_set_reference_photo_is_tenant_scoped() -> None:
+    svc, _, _, _ = _svc(schools=[make_school(id=_S1), make_school(id="s2")])
+    prov = await svc.create_student(school_id=_S1, name="T", email="t@x.io")
+    with pytest.raises(NotFoundError):
+        await svc.set_reference_photo(
+            school_id="s2",
+            student_id=prov.student.id,
+            reference_photo_path="reference-photos/s2/p.jpg",
+        )
+
+
 # ---- enrollment failure reason (BP7b) ---------------------------------
 
 

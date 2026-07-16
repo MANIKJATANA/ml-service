@@ -32,6 +32,13 @@ class CreateStudentRequest(BaseModel):
     reference_photo_path: str | None = Field(default=None, min_length=1, max_length=1024)
 
 
+class SetReferencePhotoRequest(BaseModel):
+    """Set/replace a student's reference photo, then re-enroll (BP7d-2). Carries only the
+    object path from POST /v1/students/upload-url (the bytes never hit the backend)."""
+
+    reference_photo_path: str = Field(min_length=1, max_length=1024)
+
+
 class BulkStudentRow(BaseModel):
     """One CSV row (BP7d). Raw strings — validated per row in the service so one bad row
     doesn't reject the whole import; only the lengths are capped here (abuse guard)."""

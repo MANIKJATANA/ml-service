@@ -168,3 +168,14 @@ class PostgresStudentRepository:
             row.enrollment_failure_reason = (
                 failure_reason.value if failure_reason is not None else None
             )
+
+    async def set_reference_photo(
+        self, student_id: str, *, reference_photo_path: str
+    ) -> None:
+        key = req_uuid(student_id, field="student_id")
+        async with self._sessionmaker() as session, session.begin():
+            row = await session.get(StudentRow, key)
+            if row is None:
+                raise NotFoundError(f"student not found: {student_id}")
+            # ORM mutation -> flush on commit; also trips updated_at's onupdate (BP7d-2).
+            row.reference_photo_path = reference_photo_path

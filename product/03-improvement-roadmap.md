@@ -126,7 +126,7 @@ convention. Order = my recommended build order.
 - **Persona:** both. **Source lens:** T6, X6. **Acceptance (met):** a video uploads → processes → plays → downloads;
   its appearances render.
 
-### BP7 — Onboarding & bulk · **Effort M–L · Impact M · BE + FE (+ migrations)** · ✅ landed (BP7a–d; BP7d-2 photo-replace deferred)
+### BP7 — Onboarding & bulk · **Effort M–L · Impact M · BE + FE (+ migrations)** · ✅ landed (BP7a–d + BP7d-2)
 - **Problem:** setup is manual/one-at-a-time; no bulk import; no first-run guidance; `max_teachers` is the only
   business signal. Fails **X4/P4/T8**.
 - **Change:** a **setup checklist** (add staff → enroll students → create event → upload → distribute), **CSV bulk
@@ -157,11 +157,14 @@ convention. Order = my recommended build order.
   - **BP7d landed** ([decisions/0047](decisions/0047-product-build-BP7d-csv-bulk-import.md)): the flagship **CSV bulk
     import** — a class imports from name+email (**migration `0008`**: nullable reference photo → students created
     **photoless/pending**); students join the **invite model** (server-gen temp passwords, shown once; a "Download
-    credentials" CSV for bulk). `POST /v1/students/bulk`, best-effort per row (≤500). **Owner scope: bulk-first** — the
-    reference-photo **set/replace** (enrolls photoless students + closes BP7b's replace loop) is deferred to **BP7d-2**.
-- **Persona:** staff/admin. **Source lens:** T8, P4, X4. **Acceptance (met):** a fresh school is guided to first value
-  (**BP7a**); a class imports from CSV (**BP7d**); a failed reference photo explains itself (**BP7b**); staff can
-  disable/re-invite (**BP7c**). Remaining: reference-photo set/replace so bulk students enroll (**BP7d-2**).
+    credentials" CSV for bulk). `POST /v1/students/bulk`, best-effort per row (≤500).
+  - **BP7d-2 landed** ([decisions/0048](decisions/0048-product-build-BP7d2-reference-photo-replace.md)): in-place
+    reference-photo **set/replace** (`PUT /v1/students/{id}/reference-photo` → update + re-enroll) — enrolls a photoless
+    (bulk) student ("Add photo") and swaps a bad photo to fix a failed enrollment ("Replace photo", closing BP7b's loop).
+    **No migration.** **BP7 is now complete.**
+- **Persona:** staff/admin. **Source lens:** T8, P4, X4. **Acceptance (all met):** a fresh school is guided to first
+  value (**BP7a**); a class imports from CSV (**BP7d**) + a photo added per student to enroll (**BP7d-2**); a failed
+  reference photo explains itself + is fixable in place (**BP7b/d-2**); staff can disable/re-invite (**BP7c**).
 
 ### BP8 — Ops & reliability · **Effort L · Impact M (mostly risk reduction) · BE/ML (+ migration/infra)**
 - **Problem:** a permanently-bad photo looks `pending` forever; no retention/erasure; single-replica enrollment is a

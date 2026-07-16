@@ -205,6 +205,17 @@ export function enrollStudent(studentId: string): Promise<StudentResponse> {
   });
 }
 
+/** Set/replace a student's reference photo, then re-enroll (BP7d-2). */
+export function setStudentReferencePhoto(
+  studentId: string,
+  referencePhotoPath: string,
+): Promise<StudentResponse> {
+  return bffFetch<StudentResponse>(
+    `/api/v1/students/${encodeURIComponent(studentId)}/reference-photo`,
+    { method: "PUT", body: JSON.stringify({ reference_photo_path: referencePhotoPath }) },
+  );
+}
+
 export function deleteStudent(studentId: string): Promise<void> {
   return bffFetch<void>(`/api/v1/students/${encodeURIComponent(studentId)}`, {
     method: "DELETE",

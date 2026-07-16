@@ -150,9 +150,10 @@ temp password shown once). **BP7c** adds **disable/enable** (`PATCH /v1/staff/{i
 **J3 — Enroll a student** *(staff)*: mint upload URL → browser PUTs reference photo to Supabase → `POST /v1/students`
 creates profile + login + fires **synchronous ML enrollment** → `enrollment_status`. Retry via
 `POST /students/{id}/enroll`. **BP7b** shows a **specific `failed` reason + fix** (no_face/ml_unavailable/error).
-**BP7d** adds **CSV bulk import** (`POST /v1/students/bulk`; name+email → photoless/pending) + server-gen temp passwords.
-Remaining gap: reference-photo **preview** / **in-place replace** (**BP7d-2** — so a bulk/photoless student can't enroll
-yet, and a bad-photo fix is still delete-and-re-add).
+**BP7d** adds **CSV bulk import** (`POST /v1/students/bulk`; name+email → photoless/pending) + server-gen temp passwords;
+**BP7d-2** adds in-place reference-photo **set/replace** (`PUT …/{id}/reference-photo` → update + re-enroll), so a
+photoless/bulk student enrolls via **Add photo** and a bad photo is fixed via **Replace photo**. Remaining gap:
+reference-photo **preview**/thumbnail (deferred).
 
 **J4 — Run an event** *(staff)*: `POST /v1/events` → multi-file upload (browser→Supabase→`POST …/media`, status
 `pending`) → **`POST /v1/events/{id}/process`** enqueues one event job → poll `GET …/status`. Gaps: no per-photo
@@ -214,8 +215,8 @@ Route map (17): `(auth)` `/login` `/change-password` · root `/` + `error`/`not-
 | `/schools/[id]` | Run one school | Info + **rollup StatCards** + **admin roster** + Add-admin dialog (BP2) | — |
 | `/dashboard` | Staff home | **Command center (BP1)**: school name, stat cards (students/events/photos), needs-attention alerts, quick actions; **first-run setup checklist (BP7a)** that guides enroll→event→upload→distribute and retires once distributed | Now real; list-row counts + search/filter are BP2 |
 | `/staff` | Manage teachers | Table [email · status · **added** · actions] + search + sort + **disable/enable + resend-invite** + shown-once temp password + a teacher count (BP7c) | No rename/edit (no name column); "of M" capacity is platform-side |
-| `/students` | Enroll + keep healthy | Table [avatar+name · email · **appears-in counts** · enrollment + fail-reason] + filter/search/sort (BP2) + **CSV bulk import** + server-gen temp password shown once (BP7d) | No reference **thumbnail** (needs a signed-URL endpoint — deferred); photoless bulk students await BP7d-2 photo-replace |
-| `/students/[id]` | Fix one student + photos | Card + Re-enroll/Delete + "Appears in" gallery | No reference-photo view; no enrollment timestamp; no confidence in "appears in" |
+| `/students` | Enroll + keep healthy | Table [avatar+name · email · **appears-in counts** · enrollment + fail-reason] + filter/search/sort (BP2) + **CSV bulk import** + server-gen temp password shown once (BP7d) | No reference **thumbnail** (needs a signed-URL endpoint — deferred); photoless bulk students enroll via Add/Replace photo on the detail (BP7d-2) |
+| `/students/[id]` | Fix one student + photos | Card + **Add/Replace photo** (BP7d-2) + Re-enroll/Delete + fail-reason note + "Appears in" gallery | No reference-photo view/thumbnail; no enrollment timestamp; no confidence in "appears in" |
 | `/events` | All events at a glance | Table [name · date · **photos · matched · needs-review** · processing] + active/archived filter + search + sort (BP2) | Per-event management still light |
 | `/events/[id]` | Run one event | Info + Photos card (progress + Upload/Process) | No student roster/match summary; no timeline; confusing Completed→Not-started flip |
 | `/events/[id]/upload` | Bulk upload | Multi-file dropzone + per-file progress | No inline retry; no size guidance; no "distribute next" hand-off |

@@ -100,6 +100,9 @@ class StudentRepository(Protocol):
         status: EnrollmentStatus,
         failure_reason: EnrollmentFailureReason | None = None,
     ) -> None: ...
+    async def set_reference_photo(
+        self, student_id: str, *, reference_photo_path: str
+    ) -> None: ...
 
 
 class EventRepository(Protocol):

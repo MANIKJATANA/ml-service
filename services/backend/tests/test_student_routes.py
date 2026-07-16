@@ -286,6 +286,49 @@ def test_enroll_photoless_student_is_rejected() -> None:
     assert resp.status_code == 400
 
 
+# ---- set / replace reference photo (BP7d-2) ---------------------------
+
+
+def test_set_reference_photo_enrolls_a_photoless_student() -> None:
+    client, token, _ = _admin_client()
+    created = client.post(
+        "/v1/students", json={"name": "NP", "email": "np@s1.io"}, headers=_auth(token)
+    ).json()["student"]
+    assert created["enrollment_status"] == "pending"
+    resp = client.put(
+        f"/v1/students/{created['id']}/reference-photo",
+        json={"reference_photo_path": _PATH},
+        headers=_auth(token),
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["enrollment_status"] == "enrolled"
+    assert body["reference_photo_path"] == _PATH
+
+
+def test_set_reference_photo_rejects_foreign_prefix() -> None:
+    client, token, _ = _admin_client()
+    created = client.post(
+        "/v1/students", json={"name": "NP", "email": "np@s1.io"}, headers=_auth(token)
+    ).json()["student"]
+    resp = client.put(
+        f"/v1/students/{created['id']}/reference-photo",
+        json={"reference_photo_path": "reference-photos/other/p.jpg"},
+        headers=_auth(token),
+    )
+    assert resp.status_code == 400
+
+
+def test_set_reference_photo_missing_student_is_404() -> None:
+    client, token, _ = _admin_client()
+    resp = client.put(
+        "/v1/students/does-not-exist/reference-photo",
+        json={"reference_photo_path": _PATH},
+        headers=_auth(token),
+    )
+    assert resp.status_code == 404
+
+
 # ---- delete ------------------------------------------------------------
 
 

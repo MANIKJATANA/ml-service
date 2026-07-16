@@ -465,6 +465,15 @@ class FakeStudentRepo:
             enrollment_failure_reason=failure_reason,
         )
 
+    async def set_reference_photo(
+        self, student_id: str, *, reference_photo_path: str
+    ) -> None:
+        if student_id not in self._by_id:
+            raise NotFoundError(student_id)
+        self._by_id[student_id] = replace(
+            self._by_id[student_id], reference_photo_path=reference_photo_path
+        )
+
     def remove_by_user(self, user_id: str) -> None:
         """Cascade hook for FakeUserRepo.delete (students.user_id ON DELETE CASCADE)."""
         for sid, s in list(self._by_id.items()):

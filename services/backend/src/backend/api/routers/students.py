@@ -19,6 +19,7 @@ from backend.api.schemas.students import (
     BulkImportResponse,
     CreateStudentRequest,
     ProvisionedStudentResponse,
+    SetReferencePhotoRequest,
     StudentListItem,
     StudentResponse,
     UploadUrlResponse,
@@ -102,6 +103,23 @@ async def enroll_student(
 ) -> StudentResponse:
     student = await container.student_service().enroll_student(
         school_id=tenant_of(actor), student_id=student_id
+    )
+    return StudentResponse.from_student(student)
+
+
+@router.put("/{student_id}/reference-photo", response_model=StudentResponse)
+async def set_reference_photo(
+    student_id: str,
+    body: SetReferencePhotoRequest,
+    container: ContainerDep,
+    actor: StudentManager,
+) -> StudentResponse:
+    """Set/replace the student's reference photo, then (re-)enroll (BP7d-2). Tenant from
+    the token; the path must be under this school's upload prefix."""
+    student = await container.student_service().set_reference_photo(
+        school_id=tenant_of(actor),
+        student_id=student_id,
+        reference_photo_path=body.reference_photo_path,
     )
     return StudentResponse.from_student(student)
 

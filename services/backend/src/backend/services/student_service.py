@@ -178,6 +178,30 @@ class StudentService:
                 results.append(BulkStudentResult(name, email, "error"))
         return results
 
+    async def set_reference_photo(
+        self, *, school_id: str, student_id: str, reference_photo_path: str
+    ) -> Student:
+        """Set or replace a student's reference photo, then (re-)enroll (BP7d-2).
+
+        Gives a photoless (bulk-imported) student a face to enroll, and lets staff swap a
+        bad photo to fix a failed enrollment (closing BP7b's loop). Tenant-scoped (a
+        foreign student is 404) with the same upload-path prefix guard as create."""
+        student = await self.get_student(school_id=school_id, student_id=student_id)
+        self._require_tenant_photo_path(school_id, reference_photo_path)
+        await self._students.set_reference_photo(
+            student_id, reference_photo_path=reference_photo_path
+        )
+        status, reason = await self._run_enroll(
+            school_id=school_id,
+            student_id=student_id,
+            reference_photo_path=reference_photo_path,
+        )
+        # The read-miss fallback must reflect the just-set path + the fresh status.
+        fallback = replace(student, reference_photo_path=reference_photo_path)
+        return await self._reload(
+            school_id, student_id, fallback=fallback, status=status, reason=reason
+        )
+
     async def enroll_student(self, *, school_id: str, student_id: str) -> Student:
         """Re-enroll / retry using the student's stored reference photo (0026)."""
         student = await self.get_student(school_id=school_id, student_id=student_id)

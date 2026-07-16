@@ -18,8 +18,8 @@ export const ENROLL_LABEL: Record<EnrollmentStatus, string> = {
 
 /**
  * A failed enrollment's reason → a compact list label + a detail-page explanation and
- * fix (BP7b, decisions/0045). `no_face`/`error` need a better photo (replaced via delete
- * + re-add until BP7d adds in-place replace); `ml_unavailable` is transient — just retry.
+ * fix (BP7b, decisions/0045). `no_face`/`error` need a better photo (**Replace photo** on
+ * the student detail — BP7d-2); `ml_unavailable` is transient — just retry.
  */
 export const ENROLL_FAILURE_SHORT: Record<EnrollmentFailureReason, string> = {
   no_face: "No clear face",
@@ -33,7 +33,7 @@ export const ENROLL_FAILURE_HELP: Record<
 > = {
   no_face: {
     title: "No clear face was found in the reference photo",
-    fix: "Re-enrolling uses the same photo, so it will fail again. Delete and re-add the student with a sharp, well-lit photo showing their face straight-on.",
+    fix: "Use Replace photo to upload a sharp, well-lit photo showing the student's face straight-on.",
   },
   ml_unavailable: {
     title: "The matching service was unavailable",
@@ -41,6 +41,6 @@ export const ENROLL_FAILURE_HELP: Record<
   },
   error: {
     title: "This photo couldn't be processed",
-    fix: "Re-enrolling uses the same photo, so it will fail again. Delete and re-add the student with a different photo (a standard JPEG or PNG).",
+    fix: "Use Replace photo to upload a different photo (a standard JPEG or PNG).",
   },
 };

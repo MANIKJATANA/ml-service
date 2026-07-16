@@ -406,6 +406,12 @@ async def test_student_create_without_a_reference_photo(
     assert got.reference_photo_path is None
     assert got.enrollment_status is EnrollmentStatus.PENDING
 
+    # BP7d-2: set_reference_photo fills in the path (round-trips through the column).
+    await students.set_reference_photo(s.id, reference_photo_path="reference-photos/a/p.jpg")
+    withphoto = await students.get(a.id, s.id)
+    assert withphoto is not None
+    assert withphoto.reference_photo_path == "reference-photos/a/p.jpg"
+
 
 async def test_event_status_counts_and_undistributed_alert(
     sm: async_sessionmaker[AsyncSession],

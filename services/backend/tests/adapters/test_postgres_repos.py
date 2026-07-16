@@ -31,6 +31,7 @@ from backend.db.base import Base
 from backend.db.session import make_engine, make_sessionmaker
 from backend.domain.errors import ConflictError, NotFoundError
 from backend.domain.models import (
+    EnrollmentFailureReason,
     EnrollmentStatus,
     EventProcessingStatus,
     EventStatus,
@@ -322,6 +323,41 @@ async def test_student_enrollment_counts_is_tenant_scoped(
     assert await students.enrollment_counts("not-a-uuid") == {
         s: 0 for s in EnrollmentStatus
     }
+
+
+async def test_set_enrollment_persists_and_clears_failure_reason(
+    sm: async_sessionmaker[AsyncSession],
+) -> None:
+    # BP7b: the reason round-trips through the column (+ its CHECK), reads back via
+    # _to_student, and is cleared to NULL on a subsequent success.
+    schools = PostgresSchoolRepository(sm)
+    users = PostgresUserRepository(sm)
+    students = PostgresStudentRepository(sm)
+    a = await schools.create(name="A", max_teachers=5)
+    login = await users.create(
+        school_id=a.id, email="s@a.io", password_hash="h", role=Role.STUDENT
+    )
+    s = await students.create(
+        school_id=a.id, user_id=login.id, name="N", reference_photo_path="p",
+    )
+    fresh = await students.get(a.id, s.id)
+    assert fresh is not None and fresh.enrollment_failure_reason is None
+
+    await students.set_enrollment(
+        s.id, status=EnrollmentStatus.FAILED,
+        failure_reason=EnrollmentFailureReason.NO_FACE,
+    )
+    failed = await students.get(a.id, s.id)
+    assert failed is not None
+    assert failed.enrollment_status is EnrollmentStatus.FAILED
+    assert failed.enrollment_failure_reason is EnrollmentFailureReason.NO_FACE
+
+    # A subsequent success (no reason passed) clears it.
+    await students.set_enrollment(s.id, status=EnrollmentStatus.ENROLLED)
+    ok = await students.get(a.id, s.id)
+    assert ok is not None
+    assert ok.enrollment_status is EnrollmentStatus.ENROLLED
+    assert ok.enrollment_failure_reason is None
 
 
 async def test_event_status_counts_and_undistributed_alert(

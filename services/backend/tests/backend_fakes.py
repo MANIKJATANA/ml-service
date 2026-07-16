@@ -15,6 +15,7 @@ from backend.domain.emails import normalize_email
 from backend.domain.errors import ConflictError, NotFoundError
 from backend.domain.models import (
     Appearance,
+    EnrollmentFailureReason,
     EnrollmentOutcome,
     EnrollmentStatus,
     Event,
@@ -111,6 +112,7 @@ def make_student(
     email: str = "student@example.com",
     reference_photo_path: str = "reference-photos/school-1/photo.jpg",
     enrollment_status: EnrollmentStatus = EnrollmentStatus.PENDING,
+    enrollment_failure_reason: EnrollmentFailureReason | None = None,
 ) -> Student:
     return Student(
         id=id,
@@ -120,6 +122,7 @@ def make_student(
         email=email,
         reference_photo_path=reference_photo_path,
         enrollment_status=enrollment_status,
+        enrollment_failure_reason=enrollment_failure_reason,
         created_at=_NOW,
         updated_at=_NOW,
     )
@@ -438,12 +441,18 @@ class FakeStudentRepo:
         return counts
 
     async def set_enrollment(
-        self, student_id: str, *, status: EnrollmentStatus
+        self,
+        student_id: str,
+        *,
+        status: EnrollmentStatus,
+        failure_reason: EnrollmentFailureReason | None = None,
     ) -> None:
         if student_id not in self._by_id:
             raise NotFoundError(student_id)
         self._by_id[student_id] = replace(
-            self._by_id[student_id], enrollment_status=status
+            self._by_id[student_id],
+            enrollment_status=status,
+            enrollment_failure_reason=failure_reason,
         )
 
     def remove_by_user(self, user_id: str) -> None:
@@ -476,10 +485,13 @@ class FakeMlClient:
         self,
         *,
         embeddings_stored: int = 1,
+        photo_status: str = "enrolled",
         raise_on_enroll: Exception | None = None,
         raise_on_delete: Exception | None = None,
     ) -> None:
         self._embeddings = embeddings_stored
+        # Per-photo status the ML reports (e.g. "no_face"/"error" for BP7b failures).
+        self._photo_status = photo_status
         self._raise = raise_on_enroll
         self._raise_delete = raise_on_delete
         self.enroll_calls: list[tuple[str, str, list[str]]] = []
@@ -494,7 +506,7 @@ class FakeMlClient:
         return EnrollmentOutcome(
             embeddings_stored=self._embeddings,
             photo_results=tuple(
-                PhotoResult(index=i, status="enrolled")
+                PhotoResult(index=i, status=self._photo_status)
                 for i in range(len(photo_uris))
             ),
         )

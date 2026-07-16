@@ -139,6 +139,9 @@ class Student(Base):
     enrollment_status: Mapped[str] = mapped_column(
         String, nullable=False, server_default=text("'pending'")
     )
+    # Why enrollment failed (BP7b) — null unless enrollment_status='failed'. Lockstep
+    # with the EnrollmentFailureReason domain enum (widen enum + CHECK together).
+    enrollment_failure_reason: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -157,6 +160,11 @@ class Student(Base):
         CheckConstraint(
             "enrollment_status IN ('pending', 'enrolled', 'failed')",
             name="ck_students_enrollment_status",
+        ),
+        CheckConstraint(
+            "enrollment_failure_reason IS NULL OR enrollment_failure_reason IN "
+            "('no_face', 'ml_unavailable', 'error')",
+            name="ck_students_enrollment_failure_reason",
         ),
     )
 

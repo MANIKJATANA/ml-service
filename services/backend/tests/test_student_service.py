@@ -9,7 +9,14 @@ from backend.domain.errors import (
     UpstreamError,
     ValidationError,
 )
-from backend.domain.models import EnrollmentStatus, Role, School, SchoolStatus, User
+from backend.domain.models import (
+    EnrollmentFailureReason,
+    EnrollmentStatus,
+    Role,
+    School,
+    SchoolStatus,
+    User,
+)
 from backend.services.student_service import StudentService
 from backend_fakes import (
     FakeHasher,
@@ -216,6 +223,88 @@ async def test_reenroll_missing_student_raises() -> None:
     svc, _, _, _ = _svc()
     with pytest.raises(NotFoundError):
         await svc.enroll_student(school_id=_S1, student_id="ghost")
+
+
+# ---- enrollment failure reason (BP7b) ---------------------------------
+
+
+async def test_successful_enroll_has_no_failure_reason() -> None:
+    svc, _, _, _ = _svc()  # default FakeMlClient stores 1 embedding
+    student = await svc.create_student(
+        school_id=_S1, name="A", email="a@x.io", password=_PW,
+        reference_photo_path=_PATH,
+    )
+    assert student.enrollment_status is EnrollmentStatus.ENROLLED
+    assert student.enrollment_failure_reason is None
+
+
+async def test_no_face_failure_records_reason() -> None:
+    ml = FakeMlClient(embeddings_stored=0, photo_status="no_face")
+    svc, _, _, _ = _svc(ml_client=ml)
+    student = await svc.create_student(
+        school_id=_S1, name="A", email="a@x.io", password=_PW,
+        reference_photo_path=_PATH,
+    )
+    assert student.enrollment_status is EnrollmentStatus.FAILED
+    assert student.enrollment_failure_reason is EnrollmentFailureReason.NO_FACE
+
+
+async def test_processing_error_failure_records_generic_error_reason() -> None:
+    # Any 0-embedding per-photo status that isn't "no_face" is a generic processing error.
+    ml = FakeMlClient(embeddings_stored=0, photo_status="error")
+    svc, _, _, _ = _svc(ml_client=ml)
+    student = await svc.create_student(
+        school_id=_S1, name="A", email="a@x.io", password=_PW,
+        reference_photo_path=_PATH,
+    )
+    assert student.enrollment_status is EnrollmentStatus.FAILED
+    assert student.enrollment_failure_reason is EnrollmentFailureReason.ERROR
+
+
+async def test_multiple_faces_with_zero_embeddings_maps_to_generic_error() -> None:
+    # Defensive contract pin: the ML normally enrolls the largest face (so multiple_faces
+    # yields an embedding and never fails); if it ever reports 0, we fall through to the
+    # generic ERROR reason rather than a misleading no_face.
+    ml = FakeMlClient(embeddings_stored=0, photo_status="multiple_faces")
+    svc, _, _, _ = _svc(ml_client=ml)
+    student = await svc.create_student(
+        school_id=_S1, name="A", email="a@x.io", password=_PW,
+        reference_photo_path=_PATH,
+    )
+    assert student.enrollment_status is EnrollmentStatus.FAILED
+    assert student.enrollment_failure_reason is EnrollmentFailureReason.ERROR
+
+
+async def test_ml_outage_records_unavailable_reason() -> None:
+    # A transport failure (ML down / the ReadTimeout we hit in the wild) is transient.
+    ml = FakeMlClient(raise_on_enroll=UpstreamError("read timeout"))
+    svc, _, _, _ = _svc(ml_client=ml)
+    student = await svc.create_student(
+        school_id=_S1, name="A", email="a@x.io", password=_PW,
+        reference_photo_path=_PATH,
+    )
+    assert student.enrollment_status is EnrollmentStatus.FAILED
+    assert student.enrollment_failure_reason is EnrollmentFailureReason.ML_UNAVAILABLE
+
+
+async def test_successful_reenroll_clears_the_failure_reason() -> None:
+    # A prior failure reason must not linger once enrollment succeeds (BP7b).
+    ml = FakeMlClient(embeddings_stored=0, photo_status="no_face")
+    svc, strepo, _, _ = _svc(ml_client=ml)
+    created = await svc.create_student(
+        school_id=_S1, name="A", email="a@x.io", password=_PW,
+        reference_photo_path=_PATH,
+    )
+    assert created.enrollment_failure_reason is EnrollmentFailureReason.NO_FACE
+
+    ml._embeddings = 1  # a better photo / retry now succeeds
+    ml._photo_status = "enrolled"
+    refreshed = await svc.enroll_student(school_id=_S1, student_id=created.id)
+    assert refreshed.enrollment_status is EnrollmentStatus.ENROLLED
+    assert refreshed.enrollment_failure_reason is None
+    # And it's cleared in the store, not just the returned copy.
+    stored = await strepo.get(_S1, created.id)
+    assert stored is not None and stored.enrollment_failure_reason is None
 
 
 async def test_reload_read_miss_falls_back_to_computed_status() -> None:

@@ -12,7 +12,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, EmailStr, Field
 
-from backend.domain.models import EnrollmentStatus, Student
+from backend.domain.models import EnrollmentFailureReason, EnrollmentStatus, Student
 from backend.services.listing_service import StudentListing
 
 # argon2 has no input cap (0024) — bound provisioning passwords at the edge.
@@ -42,6 +42,9 @@ class StudentResponse(BaseModel):
     email: str  # the student's login email (decisions/0033)
     reference_photo_path: str
     enrollment_status: EnrollmentStatus
+    # Why enrollment failed, when it did (BP7b); null otherwise. The FE maps it to a
+    # specific explanation + fix.
+    enrollment_failure_reason: EnrollmentFailureReason | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -54,6 +57,7 @@ class StudentResponse(BaseModel):
             email=student.email,
             reference_photo_path=student.reference_photo_path,
             enrollment_status=student.enrollment_status,
+            enrollment_failure_reason=student.enrollment_failure_reason,
             created_at=student.created_at,
             updated_at=student.updated_at,
         )

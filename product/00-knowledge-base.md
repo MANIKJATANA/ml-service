@@ -124,7 +124,7 @@ School (tenant)
 | `role` | platform_admin · school_admin · teacher · student | drives nav, routing, RBAC |
 | `School.status` | active · suspended | school pill |
 | `User.status` | active · disabled | staff status (+ `must_change_password` → "Awaiting sign-in") |
-| `Student.enrollment_status` | pending · enrolled · failed | `failed` = no/blur face or ML down |
+| `Student.enrollment_status` | pending · enrolled · failed | `failed` = no/blur face or ML down; the specific reason (`no_face`/`ml_unavailable`/`error`) is now recorded + shown (BP7b) |
 | `Event.status` | active · archived | archived = hidden from workflows, kept for records (no hard delete) |
 | `Event.processing_status` | not_started · queued · processing · completed | polled live |
 | `Media.processing_status` | pending · completed | per-photo; a permanently-bad photo *looks* pending (no error state) |
@@ -147,8 +147,9 @@ no edit/disable/resend-invite; no bulk.
 
 **J3 — Enroll a student** *(staff)*: mint upload URL → browser PUTs reference photo to Supabase → `POST /v1/students`
 creates profile + login + fires **synchronous ML enrollment** → `enrollment_status`. Retry via
-`POST /students/{id}/enroll`. Gaps: one-at-a-time (no CSV bulk); no reference-photo **preview**/quality feedback;
-`failed` explanation is generic.
+`POST /students/{id}/enroll`. **BP7b** now shows a **specific `failed` reason + fix** (no_face/ml_unavailable/error),
+was generic. Remaining gaps: one-at-a-time (no CSV bulk, BP7d); no reference-photo **preview** / **in-place replace**
+(BP7d — so a bad-photo fix is still delete-and-re-add).
 
 **J4 — Run an event** *(staff)*: `POST /v1/events` → multi-file upload (browser→Supabase→`POST …/media`, status
 `pending`) → **`POST /v1/events/{id}/process`** enqueues one event job → poll `GET …/status`. Gaps: no per-photo

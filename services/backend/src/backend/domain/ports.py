@@ -15,6 +15,7 @@ from typing import Protocol
 
 from backend.domain.models import (
     Appearance,
+    EnrollmentFailureReason,
     EnrollmentOutcome,
     EnrollmentStatus,
     Event,
@@ -91,7 +92,11 @@ class StudentRepository(Protocol):
     ) -> dict[EnrollmentStatus, int]: ...
     async def counts_by_school(self) -> dict[str, int]: ...
     async def set_enrollment(
-        self, student_id: str, *, status: EnrollmentStatus
+        self,
+        student_id: str,
+        *,
+        status: EnrollmentStatus,
+        failure_reason: EnrollmentFailureReason | None = None,
     ) -> None: ...
 
 

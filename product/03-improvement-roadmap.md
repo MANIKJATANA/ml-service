@@ -144,6 +144,11 @@ convention. Order = my recommended build order.
     **`setup_checklist`** (5 booleans) on `GET /v1/dashboard` + a guided **`SetupChecklistCard`** that retires once the
     school has distributed. Query-only (no migration/ML); 2 net-new signals (`has_staff`, `has_distributed`), the other
     3 derived from existing counts; four core steps drive progress, "add a teacher" is optional/last.
+  - **BP7b landed** ([decisions/0045](decisions/0045-product-build-BP7b-enrollment-quality-feedback.md)): a failed
+    enrollment now explains **why** — a closed `EnrollmentFailureReason` `{no_face, ml_unavailable, error}` captured
+    from the (already-returned-but-discarded) ML per-photo result, persisted (**migration `0007`**) and cleared on
+    success, surfaced as a tailored title+fix on the student detail + a compact reason on the list. **No ML change.**
+    The fix action (in-place photo **replace**) is deferred to BP7d.
 - **Persona:** staff/admin. **Source lens:** T8, P4, X4. **Acceptance:** a fresh school is guided to first value (**met
   by BP7a**); a class imports from CSV (BP7d); a failed reference photo explains itself (BP7b).
 

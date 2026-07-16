@@ -201,7 +201,7 @@ def test_list_and_get_and_cross_tenant_404() -> None:
 
 
 def test_reenroll_endpoint_updates_status() -> None:
-    ml = FakeMlClient(embeddings_stored=0)
+    ml = FakeMlClient(embeddings_stored=0, photo_status="no_face")
     client, container = _build(
         users=[_user(id="sa", role=Role.SCHOOL_ADMIN, school_id="s1")], ml_client=ml
     )
@@ -213,10 +213,16 @@ def test_reenroll_endpoint_updates_status() -> None:
         headers=_auth(token),
     ).json()
     assert created["enrollment_status"] == "failed"
+    # BP7b: the failure reason serializes through StudentResponse end-to-end.
+    assert created["enrollment_failure_reason"] == "no_face"
 
     ml._embeddings = 1
+    ml._photo_status = "enrolled"
     resp = client.post(f"/v1/students/{created['id']}/enroll", headers=_auth(token))
-    assert resp.status_code == 200 and resp.json()["enrollment_status"] == "enrolled"
+    body = resp.json()
+    assert resp.status_code == 200 and body["enrollment_status"] == "enrolled"
+    # A successful re-enroll clears the reason.
+    assert body["enrollment_failure_reason"] is None
 
 
 # ---- delete ------------------------------------------------------------

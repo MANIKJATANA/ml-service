@@ -8,6 +8,8 @@ export type Role = "platform_admin" | "school_admin" | "teacher" | "student";
 export type UserStatus = "active" | "disabled";
 export type SchoolStatus = "active" | "suspended";
 export type EnrollmentStatus = "pending" | "enrolled" | "failed";
+/** Why an enrollment failed (BP7b) — the FE maps it to a specific explanation + fix. */
+export type EnrollmentFailureReason = "no_face" | "ml_unavailable" | "error";
 
 /** The one user shape the API exposes (GET /v1/auth/me + onboarding responses). */
 export interface UserResponse {
@@ -38,6 +40,7 @@ export interface StudentResponse {
   email: string;
   reference_photo_path: string;
   enrollment_status: EnrollmentStatus;
+  enrollment_failure_reason: EnrollmentFailureReason | null; // BP7b: set when failed
   created_at: string;
   updated_at: string;
 }

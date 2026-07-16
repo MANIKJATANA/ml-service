@@ -27,7 +27,11 @@ import { uploadReferencePhoto } from "@/lib/api/upload";
 import type { EnrollmentStatus, StudentListItem } from "@/lib/api/types";
 import { useStudents } from "@/lib/hooks/use-students";
 import { useSort } from "@/lib/hooks/use-sort";
-import { ENROLL_LABEL, ENROLL_TONE } from "@/lib/students/enrollment";
+import {
+  ENROLL_FAILURE_SHORT,
+  ENROLL_LABEL,
+  ENROLL_TONE,
+} from "@/lib/students/enrollment";
 
 const SORT: Record<string, (s: StudentListItem) => string | number> = {
   name: (s) => s.name.toLowerCase(),
@@ -287,9 +291,17 @@ export default function StudentsPage() {
                         )}
                       </TableCell>
                       <TableCell>
-                        <StatusPill tone={ENROLL_TONE[student.enrollment_status]}>
-                          {ENROLL_LABEL[student.enrollment_status]}
-                        </StatusPill>
+                        <div className="flex flex-col items-start gap-0.5">
+                          <StatusPill tone={ENROLL_TONE[student.enrollment_status]}>
+                            {ENROLL_LABEL[student.enrollment_status]}
+                          </StatusPill>
+                          {student.enrollment_status === "failed" &&
+                          student.enrollment_failure_reason ? (
+                            <span className="text-body-sm text-ink-secondary">
+                              {ENROLL_FAILURE_SHORT[student.enrollment_failure_reason]}
+                            </span>
+                          ) : null}
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}

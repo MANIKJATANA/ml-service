@@ -1,6 +1,6 @@
 "use client";
 
-import { RefreshCw, Trash2 } from "lucide-react";
+import { AlertTriangle, RefreshCw, Trash2 } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
 import { useState } from "react";
 import { mutate as globalMutate } from "swr";
@@ -20,10 +20,32 @@ import { StatusPill } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
 import { deleteStudent, enrollStudent } from "@/lib/api/endpoints";
 import { isApiError } from "@/lib/api/errors";
+import type { EnrollmentFailureReason } from "@/lib/api/types";
 import { useStudentEvents, useStudentMedia } from "@/lib/hooks/use-galleries";
 import { useStudent } from "@/lib/hooks/use-students";
-import { ENROLL_LABEL, ENROLL_TONE } from "@/lib/students/enrollment";
+import { ENROLL_FAILURE_HELP, ENROLL_LABEL, ENROLL_TONE } from "@/lib/students/enrollment";
 import { formatDate } from "@/lib/utils";
+
+/** Why an enrollment failed + how to fix it (BP7b). Shown under the profile when the
+ *  status is `failed`; the specific copy comes from the reason the backend recorded. */
+function EnrollmentFailureNote({ reason }: { reason: EnrollmentFailureReason | null }) {
+  const help = reason ? ENROLL_FAILURE_HELP[reason] : null;
+  return (
+    <Card role="alert" className="flex items-start gap-3 border-error/30 bg-error/5 p-4">
+      <AlertTriangle className="mt-0.5 size-5 shrink-0 text-error" aria-hidden="true" />
+      <div className="flex flex-col gap-1">
+        <p className="text-body-sm font-medium text-ink">
+          {help ? help.title : "Enrollment failed"}
+        </p>
+        <p className="text-body-sm text-ink-secondary">
+          {help
+            ? help.fix
+            : "Try Re-enroll, or delete and re-add the student with a clearer photo."}
+        </p>
+      </div>
+    </Card>
+  );
+}
 
 function StudentEventPhotos({ studentId, eventId }: { studentId: string; eventId: string }) {
   const { media, isLoading, error } = useStudentMedia(studentId, eventId);
@@ -200,10 +222,7 @@ export default function StudentDetailPage() {
             </div>
           </Card>
           {student.enrollment_status === "failed" ? (
-            <p className="text-body-sm text-ink-secondary">
-              Enrollment failed — the reference photo may have no clear face, or the ML service was
-              unavailable. Try Re-enroll, or delete and re-add with a clearer photo.
-            </p>
+            <EnrollmentFailureNote reason={student.enrollment_failure_reason} />
           ) : null}
           <AppearsInSection studentId={studentId} />
         </>

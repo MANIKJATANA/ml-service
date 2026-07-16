@@ -17,6 +17,8 @@ import structlog
 
 from backend.domain.errors import NotFoundError, ValidationError
 from backend.domain.models import (
+    EnrollmentFailureReason,
+    EnrollmentOutcome,
     EnrollmentStatus,
     Role,
     SchoolStatus,
@@ -34,6 +36,12 @@ from backend.domain.ports import (
 
 _MAX_NAME_LEN = 200
 _log = structlog.get_logger(__name__)
+
+# The per-photo status the ML reports when it found no face (ml_service
+# PhotoStatus.NO_FACE.value). A cross-service string contract: the backend must not import
+# from ml_service (layering), so the literal is pinned here and its mapping is test-covered
+# (test_student_service.py). Any other 0-embedding status maps to the generic ERROR.
+_ML_STATUS_NO_FACE = "no_face"
 
 
 class StudentService:
@@ -125,55 +133,66 @@ class StudentService:
                 _log.error("compensating_delete_failed", user_id=user.id, exc_info=True)
             raise
 
-        status = await self._run_enroll(
+        status, reason = await self._run_enroll(
             school_id=school_id,
             student_id=student.id,
             reference_photo_path=reference_photo_path,
         )
-        return await self._reload(school_id, student.id, fallback=student, status=status)
+        return await self._reload(
+            school_id, student.id, fallback=student, status=status, reason=reason
+        )
 
     async def enroll_student(self, *, school_id: str, student_id: str) -> Student:
         """Re-enroll / retry using the student's stored reference photo (0026)."""
         student = await self.get_student(school_id=school_id, student_id=student_id)
-        status = await self._run_enroll(
+        status, reason = await self._run_enroll(
             school_id=school_id,
             student_id=student.id,
             reference_photo_path=student.reference_photo_path,
         )
-        return await self._reload(school_id, student.id, fallback=student, status=status)
+        return await self._reload(
+            school_id, student.id, fallback=student, status=status, reason=reason
+        )
 
     async def _run_enroll(
         self, *, school_id: str, student_id: str, reference_photo_path: str
-    ) -> EnrollmentStatus:
-        """Enroll the student's photo and persist the resulting status.
+    ) -> tuple[EnrollmentStatus, EnrollmentFailureReason | None]:
+        """Enroll the student's photo and persist the resulting status (+ reason on fail).
 
         Best-effort: an ML outage is caught and recorded as `failed`, so account
-        creation is never blocked by ML availability (0026).
+        creation is never blocked by ML availability (0026). On failure the reason is
+        captured (BP7b) so staff get a specific explanation; on success it's None (which
+        clears any prior reason).
         """
+        reason: EnrollmentFailureReason | None = None
         try:
             outcome = await self._ml.enroll(
                 school_id=school_id,
                 student_id=student_id,
                 photo_uris=[reference_photo_path],
             )
-            status = (
-                EnrollmentStatus.ENROLLED
-                if outcome.embeddings_stored >= 1
-                else EnrollmentStatus.FAILED
-            )
+            if outcome.embeddings_stored >= 1:
+                status = EnrollmentStatus.ENROLLED
+            else:
+                status = EnrollmentStatus.FAILED
+                reason = _reason_from_outcome(outcome)
         except Exception:
-            # UpstreamError (ML down) or any enroll failure — record + move on.
+            # UpstreamError (ML down / timed out) or any enroll failure — record + move
+            # on. A transport failure is transient, so surface it as "try again" (BP7b).
             _log.warning("ml_enroll_failed", student_id=student_id, exc_info=True)
             status = EnrollmentStatus.FAILED
+            reason = EnrollmentFailureReason.ML_UNAVAILABLE
         # Persist best-effort: a status-write failure must not fail an already-created
         # account (0026's "enrollment never blocks account creation"). On failure the
         # row keeps its prior status; a re-enroll can fix it, and the caller's response
         # reflects the actually-persisted state (via _reload's re-read).
         try:
-            await self._students.set_enrollment(student_id, status=status)
+            await self._students.set_enrollment(
+                student_id, status=status, failure_reason=reason
+            )
         except Exception:
             _log.error("set_enrollment_failed", student_id=student_id, exc_info=True)
-        return status
+        return status, reason
 
     # ---- reads ----------------------------------------------------------
 
@@ -203,9 +222,27 @@ class StudentService:
         *,
         fallback: Student,
         status: EnrollmentStatus,
+        reason: EnrollmentFailureReason | None,
     ) -> Student:
         fresh = await self._students.get(school_id, student_id)
         if fresh is not None:
             return fresh
-        # The row was just written/updated; if a read misses, reflect the status.
-        return replace(fallback, enrollment_status=status)
+        # The row was just written/updated; if a read misses, reflect the persisted
+        # status + failure reason (BP7b) so the response matches what was stored.
+        return replace(
+            fallback, enrollment_status=status, enrollment_failure_reason=reason
+        )
+
+
+def _reason_from_outcome(outcome: EnrollmentOutcome) -> EnrollmentFailureReason:
+    """Map a 0-embedding ML enroll result to a failure reason (BP7b).
+
+    A single reference photo is sent, so the first per-photo result is decisive: the ML
+    reports ``no_face`` when it detected none; anything else that stored no embedding
+    (a per-photo ``error``, or an unexpected status) is a generic processing ``error``.
+    (``multiple_faces`` never lands here — the ML enrolls the largest face.)
+    """
+    first = outcome.photo_results[0] if outcome.photo_results else None
+    if first is not None and first.status == _ML_STATUS_NO_FACE:
+        return EnrollmentFailureReason.NO_FACE
+    return EnrollmentFailureReason.ERROR

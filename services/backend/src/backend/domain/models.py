@@ -35,6 +35,16 @@ class EnrollmentStatus(StrEnum):
     FAILED = "failed"  # enroll attempted but stored 0 embeddings / ML unreachable
 
 
+class EnrollmentFailureReason(StrEnum):
+    """Why an enrollment ``failed`` — a small, closed set the FE maps to a specific
+    explanation + fix (BP7b, decisions/0045). Set only when ``enrollment_status`` is
+    ``failed``; ``None`` otherwise (a success clears it)."""
+
+    NO_FACE = "no_face"  # no face detected in the reference photo -> use a clearer one
+    ML_UNAVAILABLE = "ml_unavailable"  # ML service unreachable/timed out -> retry
+    ERROR = "error"  # the photo couldn't be processed (corrupt/unsupported) -> replace
+
+
 class EventStatus(StrEnum):
     """Event lifecycle (independent of processing). v1 archives, never deletes."""
 
@@ -113,6 +123,9 @@ class Student:
     enrollment_status: EnrollmentStatus
     created_at: datetime
     updated_at: datetime
+    # Why enrollment failed, when it did (BP7b) — else None. Populated from the ML
+    # per-photo result / the transport failure; cleared on a successful (re-)enroll.
+    enrollment_failure_reason: EnrollmentFailureReason | None = None
 
 
 @dataclass(frozen=True, slots=True)

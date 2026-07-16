@@ -15,7 +15,7 @@ from backend.adapters.repositories._common import opt_uuid, req_uuid
 from backend.db.models import Student as StudentRow
 from backend.db.models import User as UserRow
 from backend.domain.errors import NotFoundError
-from backend.domain.models import EnrollmentStatus, Student
+from backend.domain.models import EnrollmentFailureReason, EnrollmentStatus, Student
 
 
 def _to_student(row: StudentRow, email: str) -> Student:
@@ -29,6 +29,11 @@ def _to_student(row: StudentRow, email: str) -> Student:
         enrollment_status=EnrollmentStatus(row.enrollment_status),
         created_at=row.created_at,
         updated_at=row.updated_at,
+        enrollment_failure_reason=(
+            EnrollmentFailureReason(row.enrollment_failure_reason)
+            if row.enrollment_failure_reason is not None
+            else None
+        ),
     )
 
 
@@ -145,12 +150,21 @@ class PostgresStudentRepository:
             return {str(school_id): n for school_id, n in result.all()}
 
     async def set_enrollment(
-        self, student_id: str, *, status: EnrollmentStatus
+        self,
+        student_id: str,
+        *,
+        status: EnrollmentStatus,
+        failure_reason: EnrollmentFailureReason | None = None,
     ) -> None:
         key = req_uuid(student_id, field="student_id")
         async with self._sessionmaker() as session, session.begin():
             row = await session.get(StudentRow, key)
             if row is None:
                 raise NotFoundError(f"student not found: {student_id}")
-            # ORM mutation -> flush on commit; also trips updated_at's onupdate.
+            # ORM mutation -> flush on commit; also trips updated_at's onupdate. The
+            # reason is always overwritten (set on failure, cleared to None on success),
+            # so it never lingers stale after a fixed re-enroll (BP7b).
             row.enrollment_status = status.value
+            row.enrollment_failure_reason = (
+                failure_reason.value if failure_reason is not None else None
+            )

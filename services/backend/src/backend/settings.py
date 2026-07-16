@@ -30,7 +30,10 @@ class Settings(BaseSettings):
 
     # --- ML service (HTTP enrollment API) --------------------------------
     ml_service_url: str = "http://ml-service:8000"
-    ml_http_timeout_s: float = 30.0  # enroll fetches+detects+embeds — allow slack
+    # enroll fetches+detects+embeds; the ML service loads buffalo_l lazily on its FIRST
+    # request (SCRFD+ArcFace + ONNX CPU init), which can take tens of seconds cold — so
+    # allow a full minute to avoid a ReadTimeout on a fresh ML container.
+    ml_http_timeout_s: float = 60.0
 
     # --- event-job producer (ML inference enqueue, decisions/0027) --------
     # redis XADDs one event job to the shared stream the ML worker consumes; inproc

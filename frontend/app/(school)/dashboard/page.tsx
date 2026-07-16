@@ -4,6 +4,8 @@ import {
   AlertTriangle,
   ArrowRight,
   CalendarDays,
+  CheckCircle2,
+  Circle,
   GraduationCap,
   Loader2,
   ScanSearch,
@@ -136,11 +138,23 @@ export default function DashboardPage() {
             </Button>
           }
         />
-      ) : dashboard.students.total === 0 && dashboard.events.total === 0 ? (
-        <FirstRun />
       ) : (
-        <DashboardContent d={dashboard} />
+        <DashboardBody d={dashboard} />
       )}
+    </div>
+  );
+}
+
+/** Orders the two dashboard layers: the first-run setup checklist (until the school has
+ *  distributed) and the command center (stats + alerts, once there's any data). A brand-new
+ *  school sees only the checklist — all-zero stat cards would be noise (BP7a). */
+function DashboardBody({ d }: { d: DashboardResponse }) {
+  const setupComplete = d.setup_checklist.has_distributed;
+  const isEmpty = d.students.total === 0 && d.events.total === 0;
+  return (
+    <div className="flex flex-col gap-6">
+      {!setupComplete ? <SetupChecklistCard checklist={d.setup_checklist} /> : null}
+      {!isEmpty ? <DashboardContent d={d} /> : null}
     </div>
   );
 }
@@ -197,24 +211,94 @@ function DashboardContent({ d }: { d: DashboardResponse }) {
   );
 }
 
-/** Fresh school (no students, no events): an invitation to the first step, not a placeholder. */
-function FirstRun() {
+/** The first-run setup steps to first value (BP7a). Each ticks off a real dashboard signal;
+ *  the whole card retires once the school has distributed. The four core steps are the
+ *  critical path (enroll → event → upload → distribute); adding a teacher is **optional**
+ *  (a solo school-admin never needs one), so it sits last, doesn't count toward progress,
+ *  and never takes the primary CTA. CTAs match the destination page's own button wording
+ *  (D6). The first incomplete *core* step gets the primary CTA. */
+const CHECKLIST_STEPS: {
+  key: keyof DashboardResponse["setup_checklist"];
+  label: string;
+  href: string;
+  cta: string;
+  optional?: boolean;
+}[] = [
+  { key: "has_enrolled_student", label: "Enroll your first student", href: "/students", cta: "Add student" },
+  { key: "has_event", label: "Create an event", href: "/events", cta: "New event" },
+  { key: "has_media", label: "Upload photos to an event", href: "/events", cta: "Go to events" },
+  { key: "has_distributed", label: "Distribute to students", href: "/events", cta: "Go to events" },
+  { key: "has_staff", label: "Add a teacher", href: "/staff", cta: "Add teacher", optional: true },
+];
+
+function SetupChecklistCard({
+  checklist,
+}: {
+  checklist: DashboardResponse["setup_checklist"];
+}) {
+  const steps = CHECKLIST_STEPS.map((s) => ({ ...s, done: checklist[s.key] }));
+  const core = steps.filter((s) => !s.optional);
+  const doneCore = core.filter((s) => s.done).length;
+  // Primary CTA highlights the first incomplete core step (never the optional one).
+  const nextKey = core.find((s) => !s.done)?.key;
+
   return (
-    <EmptyState
-      icon={<Sparkles className="size-8" aria-hidden="true" />}
-      title="Let's set up your school"
-      description="Add students and enroll their faces, then create an event and upload photos — matched photos are distributed to each student automatically."
-      action={
-        <div className="flex flex-wrap justify-center gap-2">
-          <Link href="/students" className={buttonVariants({ variant: "primary" })}>
-            Add students
-          </Link>
-          <Link href="/events" className={buttonVariants({ variant: "secondary" })}>
-            Create an event
-          </Link>
+    <Card className="flex flex-col gap-4 p-6">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <Sparkles className="size-5 text-accent-hover" aria-hidden="true" />
+          <h2 className="text-headline text-ink">Finish setting up your school</h2>
         </div>
-      }
-    />
+        <span className="text-body-sm tabular-nums text-ink-secondary">
+          {doneCore} of {core.length}
+        </span>
+      </div>
+      <p className="text-body-sm text-ink-secondary">
+        A few steps to get photos flowing to your students automatically.
+      </p>
+      <ol className="flex flex-col">
+        {steps.map((s) => (
+          <li
+            key={s.key}
+            className="flex items-center gap-3 border-b border-hairline py-3 last:border-b-0"
+          >
+            {s.done ? (
+              <CheckCircle2 className="size-5 shrink-0 text-success-strong" aria-hidden="true" />
+            ) : (
+              <Circle className="size-5 shrink-0 text-ink-muted" aria-hidden="true" />
+            )}
+            <span className="sr-only">
+              {s.done ? "Completed:" : s.optional ? "Optional:" : "To do:"}
+            </span>
+            <span
+              className={cn(
+                "min-w-0 flex-1 text-body",
+                s.done ? "text-ink-secondary line-through" : "text-ink",
+              )}
+            >
+              {s.label}
+            </span>
+            {s.optional && !s.done ? (
+              <span className="shrink-0 rounded-full bg-surface-2 px-2 py-0.5 text-body-sm text-ink-secondary">
+                Optional
+              </span>
+            ) : null}
+            {!s.done ? (
+              <Link
+                href={s.href}
+                className={cn(
+                  buttonVariants({ variant: s.key === nextKey ? "primary" : "ghost", size: "sm" }),
+                  "shrink-0",
+                )}
+              >
+                {s.cta}
+                <ArrowRight className="size-4" aria-hidden="true" />
+              </Link>
+            ) : null}
+          </li>
+        ))}
+      </ol>
+    </Card>
   );
 }
 

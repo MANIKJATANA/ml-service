@@ -187,6 +187,15 @@ export interface DashboardResponse {
   students: { total: number; enrolled: number; pending: number; failed: number };
   events: { total: number; active: number; archived: number; processing: number };
   media: { total: number; pending: number };
+  /** First-run onboarding progress (BP7a, decisions/0044) — five booleans the dashboard
+   *  renders as a guided checklist that retires once the school has distributed. */
+  setup_checklist: {
+    has_staff: boolean;
+    has_enrolled_student: boolean;
+    has_event: boolean;
+    has_media: boolean;
+    has_distributed: boolean;
+  };
   needs_attention: {
     events_undistributed: number;
     enrollment_failures: number;

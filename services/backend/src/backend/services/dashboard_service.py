@@ -19,6 +19,7 @@ from backend.domain.models import (
     EnrollmentStatus,
     EventRollup,
     MediaProcessingStatus,
+    Role,
 )
 from backend.domain.ports import (
     EventRepository,
@@ -27,6 +28,7 @@ from backend.domain.ports import (
     MlResultsReader,
     SchoolRepository,
     StudentRepository,
+    UserRepository,
 )
 
 
@@ -56,6 +58,10 @@ class SchoolDashboard:
     # needs-attention signals
     events_undistributed: int
     needs_review: int
+    # first-run setup-checklist signals (BP7a) — the two not derivable from the counts
+    # above: ``has_staff`` (>=1 teacher) and ``has_distributed`` (>=1 announced event).
+    has_staff: bool
+    has_distributed: bool
 
 
 class DashboardService:
@@ -67,6 +73,7 @@ class DashboardService:
         media: MediaRepository,
         reader: MlResultsReader,
         corrections: MatchCorrectionRepository,
+        users: UserRepository,
     ) -> None:
         self._corrections = corrections
         self._schools = schools
@@ -74,6 +81,7 @@ class DashboardService:
         self._events = events
         self._media = media
         self._reader = reader
+        self._users = users
 
     async def school_summary(self, *, school_id: str) -> SchoolDashboard:
         school = await self._schools.get(school_id)
@@ -91,6 +99,11 @@ class DashboardService:
         resolved = await self._corrections.count_resolved(school_id)
         needs_review = max(0, raw_review - resolved)
 
+        # First-run checklist (BP7a): the two step-signals not already in the counts —
+        # ">=1 teacher added" and ">=1 event announced to students".
+        teacher_count = await self._users.count_by_school_and_role(school_id, Role.TEACHER)
+        distributed = await self._events.count_distributed(school_id)
+
         return _to_dashboard(
             school_name=school.name,
             enrollment=enrollment,
@@ -98,6 +111,8 @@ class DashboardService:
             photos=photos,
             undistributed=undistributed,
             needs_review=needs_review,
+            has_staff=teacher_count >= 1,
+            has_distributed=distributed >= 1,
         )
 
 
@@ -109,6 +124,8 @@ def _to_dashboard(
     photos: dict[MediaProcessingStatus, int],
     undistributed: int,
     needs_review: int,
+    has_staff: bool,
+    has_distributed: bool,
 ) -> SchoolDashboard:
     return SchoolDashboard(
         school_name=school_name,
@@ -124,4 +141,6 @@ def _to_dashboard(
         photos_pending=photos[MediaProcessingStatus.PENDING],
         events_undistributed=undistributed,
         needs_review=needs_review,
+        has_staff=has_staff,
+        has_distributed=has_distributed,
     )

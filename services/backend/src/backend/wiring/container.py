@@ -404,6 +404,7 @@ class Container:
                         self.media_repo(),
                         self.ml_results_reader(),
                         self.match_correction_repo(),
+                        self.user_repo(),
                     )
         return self._dashboard_service
 

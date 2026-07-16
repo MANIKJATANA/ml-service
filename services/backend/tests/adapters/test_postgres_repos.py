@@ -369,6 +369,15 @@ async def test_event_status_counts_and_undistributed_alert(
     assert await events.count_not_started_with_media(a.id) == 1
     assert await events.count_not_started_with_media("not-a-uuid") == 0
 
+    # count_distributed (BP7a): "announced" = a manual notified_at OR (auto_notify —
+    # server-defaults true — AND completed_at). e4 is ARCHIVED + completed -> still
+    # announced via the auto path (distribution is status-agnostic); mark e1 notified too.
+    # e2/e3/e5 are neither completed nor notified -> excluded.
+    await events.mark_notified(e1)
+    assert await events.count_distributed(a.id) == 2
+    assert await events.count_distributed(b.id) == 0
+    assert await events.count_distributed("not-a-uuid") == 0
+
 
 async def test_media_school_status_counts_is_tenant_scoped(
     sm: async_sessionmaker[AsyncSession],

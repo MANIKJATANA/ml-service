@@ -7,6 +7,8 @@ signals (events with photos but never distributed; matches needing review).
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 import pytest
 from backend.domain.errors import NotFoundError
 from backend.domain.models import (
@@ -19,8 +21,10 @@ from backend.domain.models import (
     MatchVerdict,
     Media,
     MediaProcessingStatus,
+    Role,
     School,
     Student,
+    User,
 )
 from backend.services.dashboard_service import DashboardService
 from backend_fakes import (
@@ -30,15 +34,18 @@ from backend_fakes import (
     FakeMlResultsReader,
     FakeSchoolRepo,
     FakeStudentRepo,
+    FakeUserRepo,
     make_appearance,
     make_event,
     make_match_correction,
     make_media,
     make_school,
     make_student,
+    make_user,
 )
 
 _S1 = "s1"
+_DT = datetime(2026, 1, 1, tzinfo=UTC)  # an "announced"/completed timestamp
 
 
 def _svc(
@@ -49,6 +56,7 @@ def _svc(
     media: list[Media] | None = None,
     appearances: list[Appearance] | None = None,
     corrections: list[MatchCorrection] | None = None,
+    users: list[User] | None = None,
 ) -> DashboardService:
     event_repo = FakeEventRepo(events or [])
     media_repo = FakeMediaRepo(media or [])
@@ -61,6 +69,7 @@ def _svc(
         media_repo,
         FakeMlResultsReader(appearances or []),
         FakeMatchCorrectionRepo(corrections or []),
+        FakeUserRepo(users or []),
     )
 
 
@@ -198,3 +207,76 @@ async def test_missing_school_raises_not_found() -> None:
     svc = _svc(schools=[make_school(id="other", name="Other")])
     with pytest.raises(NotFoundError):
         await svc.school_summary(school_id=_S1)
+
+
+# --- setup checklist (BP7a) ---
+
+
+async def test_setup_checklist_signals_reflect_first_run_progress() -> None:
+    # A fresh school: no teacher, nothing announced.
+    d0 = await _svc().school_summary(school_id=_S1)
+    assert d0.has_staff is False
+    assert d0.has_distributed is False
+
+    # A teacher added -> has_staff; a manually-notified event -> has_distributed.
+    svc = _svc(
+        users=[make_user(id="t1", school_id=_S1, role=Role.TEACHER)],
+        events=[make_event(id="e1", school_id=_S1, notified_at=_DT)],
+    )
+    d = await svc.school_summary(school_id=_S1)
+    assert d.has_staff is True
+    assert d.has_distributed is True
+
+
+async def test_has_staff_needs_a_teacher_not_just_an_admin() -> None:
+    # The "add a teacher" step isn't ticked by the school's own admin login.
+    svc = _svc(users=[make_user(id="a1", school_id=_S1, role=Role.SCHOOL_ADMIN)])
+    assert (await svc.school_summary(school_id=_S1)).has_staff is False
+
+
+async def test_has_distributed_counts_auto_announced_completed_event() -> None:
+    # No manual notify, but auto_notify + a completion time => announced (BP4 predicate).
+    svc = _svc(events=[make_event(id="e1", school_id=_S1, auto_notify=True,
+                                  completed_at=_DT,
+                                  processing_status=EventProcessingStatus.COMPLETED)])
+    assert (await svc.school_summary(school_id=_S1)).has_distributed is True
+
+    # auto_notify but not yet completed => not announced.
+    svc2 = _svc(events=[make_event(id="e1", school_id=_S1, auto_notify=True,
+                                   completed_at=None)])
+    assert (await svc2.school_summary(school_id=_S1)).has_distributed is False
+
+    # completed but auto_notify off and never manually notified => not announced.
+    svc3 = _svc(events=[make_event(id="e1", school_id=_S1, auto_notify=False,
+                                   completed_at=_DT, notified_at=None)])
+    assert (await svc3.school_summary(school_id=_S1)).has_distributed is False
+
+
+async def test_setup_checklist_signals_are_tenant_scoped() -> None:
+    # A teacher / announced event in another school must not tick s1's checklist.
+    svc = _svc(
+        users=[make_user(id="t2", school_id="s2", role=Role.TEACHER)],
+        events=[make_event(id="e2", school_id="s2", notified_at=_DT)],
+    )
+    d = await svc.school_summary(school_id=_S1)
+    assert d.has_staff is False
+    assert d.has_distributed is False
+
+
+async def test_setup_checklist_all_steps_complete_is_the_retire_state() -> None:
+    # Every checklist step satisfied — the composite state that retires the FE card.
+    svc = _svc(
+        users=[make_user(id="t1", school_id=_S1, role=Role.TEACHER)],
+        students=[make_student(id="a", school_id=_S1, user_id="ua",
+                               enrollment_status=EnrollmentStatus.ENROLLED)],
+        events=[make_event(id="e1", school_id=_S1, notified_at=_DT,
+                           processing_status=EventProcessingStatus.COMPLETED)],
+        media=[make_media(id="m1", school_id=_S1, event_id="e1")],
+    )
+    d = await svc.school_summary(school_id=_S1)
+    assert d.has_staff is True
+    assert d.has_distributed is True
+    # The three derived (schema-composed) signals:
+    assert d.students_enrolled > 0  # -> has_enrolled_student
+    assert d.events_total > 0  # -> has_event
+    assert d.photos_total > 0  # -> has_media

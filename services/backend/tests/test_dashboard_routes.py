@@ -110,6 +110,15 @@ def test_admin_gets_own_school_rollup() -> None:
         "enrollment_failures": 0,
         "needs_review": 1,
     }
+    # Setup checklist (BP7a): s1 has a teacher, an enrolled student, an event, and a
+    # photo — but its only event was never announced (not_started, no completion).
+    assert body["setup_checklist"] == {
+        "has_staff": True,
+        "has_enrolled_student": True,
+        "has_event": True,
+        "has_media": True,
+        "has_distributed": False,
+    }
 
 
 def test_teacher_may_view_dashboard() -> None:
@@ -143,3 +152,11 @@ def test_tenant_is_from_the_token_other_school_sees_its_own() -> None:
     assert body["events"]["total"] == 0
     assert body["media"]["total"] == 0
     assert body["needs_attention"]["events_undistributed"] == 0
+    # A fresh school's checklist is all-unchecked (nothing leaks from s1).
+    assert body["setup_checklist"] == {
+        "has_staff": False,
+        "has_enrolled_student": False,
+        "has_event": False,
+        "has_media": False,
+        "has_distributed": False,
+    }

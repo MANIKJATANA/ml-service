@@ -189,7 +189,7 @@ cache-invalidation, fail-loud on model-version mismatch; model swap = offline re
 | **Notify / deliver / share** | BE + FE (BP4) | ⚠️ partial | **in-app delivery landed** (decisions/0041): authoritative student "new photos" signal + staff notify/auto/roster + a multi-channel notifier seam (`log` now). Still **no outbound push** (email/WhatsApp are future channels; auto is in-app only) and no share-link |
 | Dashboards / analytics / counts | BE + FE (BP1) | ⚠️ partial | **school command center landed** (decisions/0038): `GET /v1/dashboard` rollups + needs-attention + nav scent; list-row counts + platform/analytics rollups still pending (BP2+) |
 | Search / filter / sort on lists | FE (BP2) | ✅ | all four admin lists (schools/staff/students/events): client search + sort + status/enrollment filter chips + per-row counts (decisions/0039). **Bulk** actions still absent (BP7). |
-| Self-serve onboarding / bulk import / billing | — | ❌ **absent** | manual; `max_teachers` is the only quota |
+| Self-serve onboarding / bulk import / billing | BE + FE (BP7a) | ⚠️ partial | **first-run setup checklist landed** (decisions/0044) guiding a fresh school to first value; **bulk CSV import (BP7d), self-serve signup, and billing still absent**; `max_teachers` is the only quota |
 | Retention / hard-delete / audit log | — | ❌ **absent** | archive-not-delete; no retention; no access audit |
 | Consent / compliance | — | ⛔ out of scope | handled by legal via school contracts |
 
@@ -208,7 +208,7 @@ Route map (17): `(auth)` `/login` `/change-password` · root `/` + `error`/`not-
 | `/login`,`/change-password` | Get the right person in | Centered card; email+password; forced change | No recovery, no show-password, no brand moment |
 | `/schools` | Platform estate + create | Table [name · **admins · teachers/max · students · events** · status] + search + sort (BP2) | Bulk still absent |
 | `/schools/[id]` | Run one school | Info + **rollup StatCards** + **admin roster** + Add-admin dialog (BP2) | — |
-| `/dashboard` | Staff home | **Command center (BP1)**: school name, stat cards (students/events/photos), needs-attention alerts, quick actions, first-run invitation | Now real; list-row counts + search/filter are BP2 |
+| `/dashboard` | Staff home | **Command center (BP1)**: school name, stat cards (students/events/photos), needs-attention alerts, quick actions; **first-run setup checklist (BP7a)** that guides enroll→event→upload→distribute and retires once distributed | Now real; list-row counts + search/filter are BP2 |
 | `/staff` | Manage teachers | Table [email · status · **added**] + search + sort (BP2) | No edit/disable/resend (BP7); no capacity pill |
 | `/students` | Enroll + keep healthy | Table [avatar+name · email · **appears-in counts** · enrollment] + enrollment filter + search + sort (BP2) | No reference **thumbnail** (needs a signed-URL endpoint — deferred); no bulk (BP7) |
 | `/students/[id]` | Fix one student + photos | Card + Re-enroll/Delete + "Appears in" gallery | No reference-photo view; no enrollment timestamp; no confidence in "appears in" |

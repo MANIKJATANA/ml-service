@@ -126,15 +126,26 @@ convention. Order = my recommended build order.
 - **Persona:** both. **Source lens:** T6, X6. **Acceptance (met):** a video uploads → processes → plays → downloads;
   its appearances render.
 
-### BP7 — Onboarding & bulk · **Effort M–L · Impact M · BE + FE (maybe migration)**
+### BP7 — Onboarding & bulk · **Effort M–L · Impact M · BE + FE (maybe migration)** · 🚧 in progress (sliced into BP7a–d)
 - **Problem:** setup is manual/one-at-a-time; no bulk import; no first-run guidance; `max_teachers` is the only
   business signal. Fails **X4/P4/T8**.
 - **Change:** a **setup checklist** (add staff → enroll students → create event → upload → distribute), **CSV bulk
   student import** (so a class isn't typed one-by-one), reference-photo **preview + quality feedback** so enrollment
   failures self-correct, and staff **edit/disable/resend-invite**. (Self-serve signup / plans / billing / per-school
   analytics remain deferred — flag as a later business-model track.)
-- **Persona:** staff/admin. **Source lens:** T8, P4, X4. **Acceptance:** a fresh school is guided to first value; a
-  class imports from CSV; a failed reference photo explains itself.
+- **Sliced into four approve-before-commit sub-phases** (grounded in a current-state exploration): **BP7a** setup
+  checklist · **BP7b** reference-photo quality feedback (surface the already-returned-but-discarded ML enroll `detail`;
+  1-col migration, no ML change) · **BP7c** staff lifecycle + invite model (server-generated temp passwords shown-once,
+  disable/enable — `users.status` already exists, no migration — resend-invite) · **BP7d** CSV bulk student import (the
+  flagship: nullable `reference_photo_path` migration → name+email now, photo later; server-generated temp passwords; a
+  bulk endpoint looping the reusable `create_student`; add-photo-later). Recommended order = as listed (checklist
+  cheapest/highest-P4; BP7c's invite model is reused by BP7d).
+  - **BP7a landed** ([decisions/0044](decisions/0044-product-build-BP7a-setup-checklist.md)): a server-composed
+    **`setup_checklist`** (5 booleans) on `GET /v1/dashboard` + a guided **`SetupChecklistCard`** that retires once the
+    school has distributed. Query-only (no migration/ML); 2 net-new signals (`has_staff`, `has_distributed`), the other
+    3 derived from existing counts; four core steps drive progress, "add a teacher" is optional/last.
+- **Persona:** staff/admin. **Source lens:** T8, P4, X4. **Acceptance:** a fresh school is guided to first value (**met
+  by BP7a**); a class imports from CSV (BP7d); a failed reference photo explains itself (BP7b).
 
 ### BP8 — Ops & reliability · **Effort L · Impact M (mostly risk reduction) · BE/ML (+ migration/infra)**
 - **Problem:** a permanently-bad photo looks `pending` forever; no retention/erasure; single-replica enrollment is a

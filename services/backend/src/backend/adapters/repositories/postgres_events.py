@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from sqlalchemy import func, select, update
+from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from backend.adapters.repositories._common import opt_uuid, req_uuid
@@ -161,6 +161,34 @@ class PostgresEventRepository:
                     EventRow.processing_status
                     == EventProcessingStatus.NOT_STARTED.value,
                     has_media,
+                )
+            )
+            return int(result.scalar_one())
+
+    async def count_distributed(self, school_id: str) -> int:
+        """Events that have been announced to students — the first-run "distributed" step.
+
+        Mirrors BP4's event-level "announced" predicate (decisions/0041): a manual
+        ``notified_at`` push **OR** an ``auto_notify`` event that has ``completed_at``
+        (auto-announced on completion). One indexed scan, tenant-scoped. Powers the
+        setup-checklist's last step (BP7a) — status-agnostic (an archived event that was
+        distributed still counts as "you've distributed once")."""
+        sid = opt_uuid(school_id)
+        if sid is None:
+            return 0
+        async with self._sessionmaker() as session:
+            result = await session.execute(
+                select(func.count())
+                .select_from(EventRow)
+                .where(
+                    EventRow.school_id == sid,
+                    or_(
+                        EventRow.notified_at.is_not(None),
+                        and_(
+                            EventRow.auto_notify.is_(True),
+                            EventRow.completed_at.is_not(None),
+                        ),
+                    ),
                 )
             )
             return int(result.scalar_one())

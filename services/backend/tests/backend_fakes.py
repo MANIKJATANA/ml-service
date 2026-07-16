@@ -586,6 +586,19 @@ class FakeEventRepo:
                 n += 1
         return n
 
+    async def count_distributed(self, school_id: str) -> int:
+        # Mirrors the real "announced" predicate (BP4/BP7a): a manual notified_at push
+        # OR an auto_notify event that has completed.
+        n = 0
+        for event in self._by_id.values():
+            if event.school_id != school_id:
+                continue
+            if event.notified_at is not None or (
+                event.auto_notify and event.completed_at is not None
+            ):
+                n += 1
+        return n
+
     async def update(
         self,
         school_id: str,

@@ -320,6 +320,11 @@ class FakeUserRepo:
             user_id, password_hash=password_hash, must_change_password=must_change_password
         )
 
+    async def set_status(self, user_id: str, *, status: UserStatus) -> None:
+        if user_id not in self._by_id:
+            raise NotFoundError(user_id)
+        self.mutate(user_id, status=status)
+
     async def delete(self, user_id: str) -> None:
         user = self._by_id.pop(user_id, None)
         if user is not None:

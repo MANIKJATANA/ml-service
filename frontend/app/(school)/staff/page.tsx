@@ -4,6 +4,7 @@ import { UserPlus, Users } from "lucide-react";
 import { type FormEvent, useMemo, useState } from "react";
 
 import { RoleGate } from "@/components/role-gate";
+import { type Invite, InviteResultDialog } from "@/components/staff/invite-result-dialog";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Dialog, DialogClose, DialogContent, DialogTrigger } from "@/components/ui/dialog";
@@ -17,7 +18,7 @@ import { SortableHead } from "@/components/ui/sortable-head";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/components/ui/toast";
-import { createStaff } from "@/lib/api/endpoints";
+import { createStaff, resendStaffInvite, setStaffStatus } from "@/lib/api/endpoints";
 import { isApiError } from "@/lib/api/errors";
 import type { UserResponse } from "@/lib/api/types";
 import { useSort } from "@/lib/hooks/use-sort";
@@ -38,29 +39,25 @@ function staffStatus(user: UserResponse): {
   return { tone: "success", label: "Active" };
 }
 
-function CreateTeacherDialog({ onCreated }: { onCreated: () => void }) {
+function CreateTeacherDialog({ onInvited }: { onInvited: (invite: Invite) => void }) {
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
   const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
   function handleOpenChange(next: boolean) {
     setOpen(next);
-    if (!next) {
-      setEmail("");
-      setPassword("");
-    }
+    if (!next) setEmail("");
   }
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSubmitting(true);
     try {
-      const teacher = await createStaff(email.trim(), password);
-      toast(`Teacher ${teacher.email} added.`, "success");
-      onCreated();
+      const { user, temp_password } = await createStaff(email.trim());
+      toast(`Teacher ${user.email} added.`, "success");
       handleOpenChange(false);
+      onInvited({ email: user.email, tempPassword: temp_password });
     } catch (err) {
       // 409 = duplicate email OR the school's teacher cap — the detail says which.
       toast(isApiError(err) ? err.message : "Something went wrong", "error");
@@ -79,7 +76,7 @@ function CreateTeacherDialog({ onCreated }: { onCreated: () => void }) {
       </DialogTrigger>
       <DialogContent
         title="Add teacher"
-        description="They sign in with this temporary password and change it on first login."
+        description="We generate a temporary password for them to sign in with — you'll see it once, right after adding them."
       >
         <form onSubmit={onSubmit} className="flex flex-col gap-4">
           <Field label="Email" htmlFor="teacher-email">
@@ -91,17 +88,6 @@ function CreateTeacherDialog({ onCreated }: { onCreated: () => void }) {
               autoFocus
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-            />
-          </Field>
-          <Field label="Temporary password" htmlFor="teacher-password" hint="At least 8 characters.">
-            <Input
-              id="teacher-password"
-              type="text"
-              autoComplete="off"
-              required
-              minLength={8}
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
             />
           </Field>
           <div className="mt-2 flex justify-end gap-2">
@@ -120,9 +106,77 @@ function CreateTeacherDialog({ onCreated }: { onCreated: () => void }) {
   );
 }
 
+/** Per-row lifecycle actions (BP7c): re-issue a one-time temp password, or enable/disable
+ *  the account (a disabled teacher can't sign in). */
+function StaffActions({
+  teacher,
+  onInvited,
+  onChanged,
+}: {
+  teacher: UserResponse;
+  onInvited: (invite: Invite) => void;
+  onChanged: () => Promise<unknown>;
+}) {
+  const { toast } = useToast();
+  const [busy, setBusy] = useState<"status" | "resend" | null>(null);
+  const isDisabled = teacher.status === "disabled";
+
+  async function toggleStatus() {
+    setBusy("status");
+    try {
+      await setStaffStatus(teacher.id, isDisabled ? "active" : "disabled");
+      toast(isDisabled ? "Teacher enabled." : "Teacher disabled.", "success");
+      await onChanged();
+    } catch (err) {
+      toast(isApiError(err) ? err.message : "Couldn't update. Please try again.", "error");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function resend() {
+    setBusy("resend");
+    try {
+      const { user, temp_password } = await resendStaffInvite(teacher.id);
+      onInvited({ email: user.email, tempPassword: temp_password });
+      await onChanged(); // must_change_password flips back -> refresh the status pill
+    } catch (err) {
+      toast(isApiError(err) ? err.message : "Couldn't resend. Please try again.", "error");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <div className="flex justify-end gap-1">
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={resend}
+        loading={busy === "resend"}
+        disabled={busy !== null}
+        aria-label={`Resend invite for ${teacher.email}`}
+      >
+        Resend invite
+      </Button>
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={toggleStatus}
+        loading={busy === "status"}
+        disabled={busy !== null}
+        aria-label={`${isDisabled ? "Enable" : "Disable"} ${teacher.email}`}
+      >
+        {isDisabled ? "Enable" : "Disable"}
+      </Button>
+    </div>
+  );
+}
+
 function StaffContent() {
   const { staff, isLoading, error, mutate } = useStaff();
   const [query, setQuery] = useState("");
+  const [invite, setInvite] = useState<Invite | null>(null);
 
   const filtered = useMemo(() => {
     const rows = staff ?? [];
@@ -131,13 +185,18 @@ function StaffContent() {
   }, [staff, query]);
 
   const { sorted, sortKey, sortDir, toggle } = useSort(filtered, SORT, "email");
+  const count = staff?.length ?? 0;
 
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
         title="Staff"
-        description="Teachers who manage students, events, and galleries."
-        actions={<CreateTeacherDialog onCreated={() => mutate()} />}
+        description={
+          count > 0
+            ? `${count} ${count === 1 ? "teacher" : "teachers"} managing students, events, and galleries.`
+            : "Teachers who manage students, events, and galleries."
+        }
+        actions={<CreateTeacherDialog onInvited={setInvite} />}
       />
 
       {isLoading ? (
@@ -162,7 +221,7 @@ function StaffContent() {
           icon={<Users className="size-8" aria-hidden="true" />}
           title="No teachers yet"
           description="Add a teacher to help manage this school."
-          action={<CreateTeacherDialog onCreated={() => mutate()} />}
+          action={<CreateTeacherDialog onInvited={setInvite} />}
         />
       ) : (
         <div className="flex flex-col gap-4">
@@ -179,6 +238,7 @@ function StaffContent() {
                     <SortableHead label="Email" sortKey="email" activeKey={sortKey} dir={sortDir} onSort={toggle} />
                     <TableHead>Status</TableHead>
                     <SortableHead label="Added" sortKey="added" activeKey={sortKey} dir={sortDir} onSort={toggle} />
+                    <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -193,6 +253,13 @@ function StaffContent() {
                         <TableCell className="text-ink-secondary">
                           {formatDate(teacher.created_at)}
                         </TableCell>
+                        <TableCell>
+                          <StaffActions
+                            teacher={teacher}
+                            onInvited={setInvite}
+                            onChanged={() => mutate()}
+                          />
+                        </TableCell>
                       </TableRow>
                     );
                   })}
@@ -202,6 +269,8 @@ function StaffContent() {
           )}
         </div>
       )}
+
+      <InviteResultDialog invite={invite} onClose={() => setInvite(null)} />
     </div>
   );
 }

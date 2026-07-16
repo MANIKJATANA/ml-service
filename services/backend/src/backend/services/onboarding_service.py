@@ -1,23 +1,37 @@
-"""Onboarding use-cases — schools + staff provisioning (decisions/0025).
+"""Onboarding use-cases — schools + staff provisioning + lifecycle (decisions/0025, BP7c).
 
 Depends only on the `SchoolRepository`, `UserRepository`, and `PasswordHasher` ports
 (no RBAC, no HTTP) — authorization is enforced at the route via `require_permissions`,
 and tenant scoping by the caller passing the authenticated user's `school_id` in.
-Provisioned accounts are created with `must_change_password=True` and a caller-set
-temp password (no SMTP in v1); the password is never returned.
+Provisioned accounts get `must_change_password=True` and a **server-generated** temp
+password returned exactly once (BP7c) — never stored plaintext, never returned again.
 """
 
 from __future__ import annotations
+
+import secrets
+from dataclasses import dataclass
 
 from backend.domain.errors import (
     LimitExceededError,
     NotFoundError,
     ValidationError,
 )
-from backend.domain.models import Role, School, SchoolStatus, User
+from backend.domain.models import Role, School, SchoolStatus, User, UserStatus
 from backend.domain.ports import PasswordHasher, SchoolRepository, UserRepository
 
 _MAX_NAME_LEN = 200
+# token_urlsafe(12) -> a 16-char temp password: > the 8-char policy floor, easy to copy.
+_TEMP_PASSWORD_BYTES = 12
+
+
+@dataclass(frozen=True, slots=True)
+class ProvisionedUser:
+    """A newly provisioned / re-invited account + its one-time plaintext temp password
+    (BP7c). The password is surfaced once to the admin, then only the hash is kept."""
+
+    user: User
+    temp_password: str
 
 
 class OnboardingService:
@@ -53,16 +67,16 @@ class OnboardingService:
     # ---- staff provisioning --------------------------------------------
 
     async def create_school_admin(
-        self, *, school_id: str, email: str, password: str
-    ) -> User:
+        self, *, school_id: str, email: str
+    ) -> ProvisionedUser:
         await self.get_school(school_id)  # 404 if the school does not exist
         return await self._provision(
-            school_id=school_id, email=email, password=password, role=Role.SCHOOL_ADMIN
+            school_id=school_id, email=email, role=Role.SCHOOL_ADMIN
         )
 
     async def create_teacher(
-        self, *, school_id: str, email: str, password: str
-    ) -> User:
+        self, *, school_id: str, email: str
+    ) -> ProvisionedUser:
         school = await self.get_school(school_id)
         if school.status is not SchoolStatus.ACTIVE:
             raise ValidationError("school is suspended")
@@ -74,19 +88,73 @@ class OnboardingService:
                 f"teacher limit reached ({school.max_teachers}) for this school"
             )
         return await self._provision(
-            school_id=school_id, email=email, password=password, role=Role.TEACHER
+            school_id=school_id, email=email, role=Role.TEACHER
         )
 
     async def list_staff(self, *, school_id: str) -> list[User]:
         return await self._users.list_by_school_and_role(school_id, Role.TEACHER)
 
-    async def _provision(
-        self, *, school_id: str, email: str, password: str, role: Role
+    # ---- staff lifecycle (BP7c) ----------------------------------------
+
+    async def set_staff_status(
+        self, *, school_id: str, user_id: str, role: Role, status: UserStatus
     ) -> User:
-        return await self._users.create(
+        """Enable/disable a teacher or admin. Tenant + role scoped (BP7c)."""
+        user = await self._require_managed_user(
+            school_id=school_id, user_id=user_id, role=role
+        )
+        if user.status is status:  # idempotent no-op — return current state
+            return user
+        await self._users.set_status(user_id, status=status)
+        refreshed = await self._users.get(user_id)
+        # The row was just updated; a read-miss is anomalous — reflect the new status.
+        return refreshed if refreshed is not None else user
+
+    async def resend_invite(
+        self, *, school_id: str, user_id: str, role: Role
+    ) -> ProvisionedUser:
+        """Re-issue a temp password for a teacher/admin who hasn't signed in yet — or
+        lost it (BP7c). Regenerates the password, forces a change on next login, and
+        returns it once. Tenant + role scoped."""
+        user = await self._require_managed_user(
+            school_id=school_id, user_id=user_id, role=role
+        )
+        temp_password = _generate_temp_password()
+        await self._users.set_password(
+            user_id,
+            password_hash=self._hasher.hash(temp_password),
+            must_change_password=True,
+        )
+        refreshed = await self._users.get(user_id)
+        return ProvisionedUser(refreshed if refreshed is not None else user, temp_password)
+
+    async def _require_managed_user(
+        self, *, school_id: str, user_id: str, role: Role
+    ) -> User:
+        """Fetch a user that the caller is allowed to manage: it must exist, belong to
+        ``school_id``, and have the expected ``role`` — else 404 (never leak that a
+        user of another school/role exists). Blocks cross-tenant + wrong-route action
+        and, since the manager is always a different role than the managed, self-action."""
+        user = await self._users.get(user_id)
+        if user is None or user.school_id != school_id or user.role is not role:
+            raise NotFoundError(f"user not found: {user_id}")
+        return user
+
+    async def _provision(
+        self, *, school_id: str, email: str, role: Role
+    ) -> ProvisionedUser:
+        temp_password = _generate_temp_password()
+        user = await self._users.create(
             school_id=school_id,
             email=email,
-            password_hash=self._hasher.hash(password),
+            password_hash=self._hasher.hash(temp_password),
             role=role,
             must_change_password=True,
         )
+        return ProvisionedUser(user, temp_password)
+
+
+def _generate_temp_password() -> str:
+    """A URL-safe random temp password (BP7c) — server-generated, shown to the admin
+    once, then only its hash is stored. Comfortably over the 8-char policy floor."""
+    return secrets.token_urlsafe(_TEMP_PASSWORD_BYTES)

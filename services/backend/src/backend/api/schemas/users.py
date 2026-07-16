@@ -9,19 +9,24 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr
 
 from backend.domain.models import Role, User, UserStatus
-
-# argon2 has no input cap (0024) — bound provisioning passwords at the edge.
-_MAX_PASSWORD_LEN = 1024
+from backend.services.onboarding_service import ProvisionedUser
 
 
 class CreateUserRequest(BaseModel):
-    """Provision a staff/admin account with a caller-set temp password (0025)."""
+    """Provision a staff/admin account (BP7c). The temp password is generated
+    server-side and returned once — the caller supplies only the email."""
 
     email: EmailStr
-    password: str = Field(min_length=8, max_length=_MAX_PASSWORD_LEN)
+
+
+class UpdateUserStatusRequest(BaseModel):
+    """Enable or disable a staff/admin account (BP7c). A disabled account can't log in
+    or refresh (the auth service rejects it); re-enabling restores access."""
+
+    status: UserStatus
 
 
 class UserResponse(BaseModel):
@@ -44,3 +49,18 @@ class UserResponse(BaseModel):
             must_change_password=user.must_change_password,
             created_at=user.created_at,
         )
+
+
+class ProvisionedUserResponse(BaseModel):
+    """A freshly provisioned (or re-invited) account + its ONE-TIME temp password (BP7c).
+
+    The plaintext temp password is returned exactly once — on create and on
+    resend-invite — so the admin can hand it to the person; it is never stored in the
+    clear and never returned again. The `user` carries `must_change_password=true`."""
+
+    user: UserResponse
+    temp_password: str
+
+    @classmethod
+    def from_provisioned(cls, p: ProvisionedUser) -> ProvisionedUserResponse:
+        return cls(user=UserResponse.from_user(p.user), temp_password=p.temp_password)

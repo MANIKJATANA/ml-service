@@ -102,14 +102,17 @@ def test_platform_admin_provisions_school_admin() -> None:
     token = _token(client, "adm")
     resp = client.post(
         "/v1/schools/s1/admins",
-        json={"email": "principal@s1.io", "password": "temp-pw-123"},
+        json={"email": "principal@s1.io"},
         headers=_auth(token),
     )
     assert resp.status_code == 201, resp.text
     body = resp.json()
-    assert body["role"] == "school_admin" and body["school_id"] == "s1"
-    assert body["must_change_password"] is True
-    assert "password_hash" not in body
+    # BP7c: the response is {user, temp_password} — the temp password is generated
+    # server-side and returned once; the hash never leaks.
+    assert body["user"]["role"] == "school_admin" and body["user"]["school_id"] == "s1"
+    assert body["user"]["must_change_password"] is True
+    assert "password_hash" not in body["user"]
+    assert isinstance(body["temp_password"], str) and len(body["temp_password"]) >= 8
 
 
 def test_school_admin_forbidden_from_platform_routes() -> None:
@@ -135,19 +138,21 @@ def test_school_admin_creates_and_lists_teachers_in_own_school() -> None:
     token = _token(client, "sa")
 
     created = client.post(
-        "/v1/staff",
-        json={"email": "teacher@s1.io", "password": "temp-pw-123"},
-        headers=_auth(token),
+        "/v1/staff", json={"email": "teacher@s1.io"}, headers=_auth(token)
     )
     assert created.status_code == 201, created.text
     body = created.json()
     # Tenant isolation: the teacher lands in the admin's own school, from the token.
-    assert body["role"] == "teacher" and body["school_id"] == "s1"
-    assert body["must_change_password"] is True
+    assert body["user"]["role"] == "teacher" and body["user"]["school_id"] == "s1"
+    assert body["user"]["must_change_password"] is True
+    assert isinstance(body["temp_password"], str) and len(body["temp_password"]) >= 8
 
     listed = client.get("/v1/staff", headers=_auth(token))
     assert listed.status_code == 200
-    assert [u["email"] for u in listed.json()] == ["teacher@s1.io"]
+    rows = listed.json()
+    assert [u["email"] for u in rows] == ["teacher@s1.io"]
+    # The list is UserResponse[] — the one-time temp password never appears here.
+    assert all("temp_password" not in u for u in rows)
 
 
 def test_teacher_cap_enforced_over_http() -> None:
@@ -156,17 +161,9 @@ def test_teacher_cap_enforced_over_http() -> None:
         schools=[make_school(id="s1", max_teachers=1)],
     )
     token = _token(client, "sa")
-    first = client.post(
-        "/v1/staff",
-        json={"email": "t1@s1.io", "password": "temp-pw-123"},
-        headers=_auth(token),
-    )
+    first = client.post("/v1/staff", json={"email": "t1@s1.io"}, headers=_auth(token))
     assert first.status_code == 201
-    second = client.post(
-        "/v1/staff",
-        json={"email": "t2@s1.io", "password": "temp-pw-123"},
-        headers=_auth(token),
-    )
+    second = client.post("/v1/staff", json={"email": "t2@s1.io"}, headers=_auth(token))
     assert second.status_code == 409  # LimitExceededError
 
 
@@ -176,11 +173,7 @@ def test_student_forbidden_from_staff_routes() -> None:
         schools=[make_school(id="s1", max_teachers=5)],
     )
     token = _token(client, "stu")
-    resp = client.post(
-        "/v1/staff",
-        json={"email": "x@s1.io", "password": "temp-pw-123"},
-        headers=_auth(token),
-    )
+    resp = client.post("/v1/staff", json={"email": "x@s1.io"}, headers=_auth(token))
     assert resp.status_code == 403
 
 
@@ -194,3 +187,82 @@ def test_tenant_helper_fails_closed_on_null_school() -> None:
     assert _tenant(make_user(school_id="s1")) == "s1"
     with pytest.raises(AuthorizationError):
         _tenant(make_user(school_id=None))
+
+
+# ---- staff lifecycle over HTTP (BP7c) ---------------------------------
+
+
+def _staff_client() -> tuple[TestClient, str]:
+    client = _build(
+        users=[
+            _user(id="sa", role=Role.SCHOOL_ADMIN, school_id="s1"),
+            _user(id="t1", role=Role.TEACHER, school_id="s1"),
+        ],
+        schools=[make_school(id="s1", max_teachers=5)],
+    )
+    return client, _token(client, "sa")
+
+
+def test_admin_disables_and_reenables_a_teacher_locking_login() -> None:
+    client, token = _staff_client()
+    # Disable -> the teacher can no longer log in (auth rejects a disabled account).
+    resp = client.patch("/v1/staff/t1", json={"status": "disabled"}, headers=_auth(token))
+    assert resp.status_code == 200 and resp.json()["status"] == "disabled"
+    denied = client.post("/v1/auth/login", json={"email": "t1@x.io", "password": "pw"})
+    assert denied.status_code == 401
+    # Re-enable -> login works again.
+    resp = client.patch("/v1/staff/t1", json={"status": "active"}, headers=_auth(token))
+    assert resp.status_code == 200 and resp.json()["status"] == "active"
+    ok = client.post("/v1/auth/login", json={"email": "t1@x.io", "password": "pw"})
+    assert ok.status_code == 200
+
+
+def test_resend_invite_returns_a_new_temp_password() -> None:
+    client, token = _staff_client()
+    resp = client.post("/v1/staff/t1/resend-invite", headers=_auth(token))
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["user"]["id"] == "t1" and body["user"]["must_change_password"] is True
+    assert isinstance(body["temp_password"], str) and len(body["temp_password"]) >= 8
+
+
+def test_staff_lifecycle_is_tenant_and_role_scoped() -> None:
+    client = _build(
+        users=[
+            _user(id="sa", role=Role.SCHOOL_ADMIN, school_id="s1"),
+            _user(id="t2", role=Role.TEACHER, school_id="s2"),  # another school
+        ],
+        schools=[make_school(id="s1", max_teachers=5), make_school(id="s2")],
+    )
+    token = _token(client, "sa")
+    # Foreign-school teacher -> 404 (no existence leak).
+    assert client.patch(
+        "/v1/staff/t2", json={"status": "disabled"}, headers=_auth(token)
+    ).status_code == 404
+    # The admin isn't a teacher -> the /staff route (role=teacher) can't touch them.
+    assert client.patch(
+        "/v1/staff/sa", json={"status": "disabled"}, headers=_auth(token)
+    ).status_code == 404
+
+
+def test_platform_admin_disables_and_reinvites_a_school_admin() -> None:
+    client = _build(
+        users=[
+            _user(id="adm", role=Role.PLATFORM_ADMIN, school_id=None),
+            _user(id="sa", role=Role.SCHOOL_ADMIN, school_id="s1"),
+        ],
+        schools=[make_school(id="s1", max_teachers=5)],
+    )
+    token = _token(client, "adm")
+    resp = client.patch(
+        "/v1/schools/s1/admins/sa", json={"status": "disabled"}, headers=_auth(token)
+    )
+    assert resp.status_code == 200 and resp.json()["status"] == "disabled"
+    reinvite = client.post(
+        "/v1/schools/s1/admins/sa/resend-invite", headers=_auth(token)
+    )
+    assert reinvite.status_code == 200 and len(reinvite.json()["temp_password"]) >= 8
+    # Wrong school in the path -> 404 (sa belongs to s1, not s2).
+    assert client.patch(
+        "/v1/schools/s2/admins/sa", json={"status": "disabled"}, headers=_auth(token)
+    ).status_code == 404

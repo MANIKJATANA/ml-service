@@ -19,3 +19,16 @@ export function formatDate(iso: string): string {
     day: "numeric",
   });
 }
+
+/** Copy text to the clipboard (BP7c — the shown-once temp password). Resolves `true` on
+ *  success, `false` if the Clipboard API is unavailable (insecure context) or denied, so
+ *  the caller can fall back to "select it manually". */
+export async function copyToClipboard(text: string): Promise<boolean> {
+  try {
+    if (!navigator.clipboard) return false;
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    return false;
+  }
+}

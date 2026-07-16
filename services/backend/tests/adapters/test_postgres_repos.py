@@ -39,6 +39,7 @@ from backend.domain.models import (
     MediaProcessingStatus,
     MediaType,
     Role,
+    UserStatus,
 )
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -148,6 +149,32 @@ async def test_user_must_change_password_and_set_password(
             "00000000-0000-0000-0000-000000000000",
             password_hash="x",
             must_change_password=False,
+        )
+
+
+async def test_user_set_status_disables_and_reenables(
+    sm: async_sessionmaker[AsyncSession],
+) -> None:
+    # BP7c: set_status flips users.status (which auth checks) and round-trips.
+    schools = PostgresSchoolRepository(sm)
+    users = PostgresUserRepository(sm)
+    school = await schools.create(name="S", max_teachers=5)
+    u = await users.create(
+        school_id=school.id, email="t@x.io", password_hash="h", role=Role.TEACHER
+    )
+    assert u.status is UserStatus.ACTIVE  # default
+
+    await users.set_status(u.id, status=UserStatus.DISABLED)
+    disabled = await users.get(u.id)
+    assert disabled is not None and disabled.status is UserStatus.DISABLED
+
+    await users.set_status(u.id, status=UserStatus.ACTIVE)
+    enabled = await users.get(u.id)
+    assert enabled is not None and enabled.status is UserStatus.ACTIVE
+
+    with pytest.raises(NotFoundError):
+        await users.set_status(
+            "00000000-0000-0000-0000-000000000000", status=UserStatus.DISABLED
         )
 
 

@@ -12,8 +12,13 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, status
 
 from backend.api.deps import ContainerDep, require_permissions, tenant_of
-from backend.api.schemas.users import CreateUserRequest, UserResponse
-from backend.domain.models import User
+from backend.api.schemas.users import (
+    CreateUserRequest,
+    ProvisionedUserResponse,
+    UpdateUserStatusRequest,
+    UserResponse,
+)
+from backend.domain.models import Role, User
 from backend.domain.permissions import Permission
 
 router = APIRouter(prefix="/v1/staff", tags=["staff"])
@@ -26,17 +31,44 @@ StaffManager = Annotated[User, Depends(require_permissions(Permission.STAFF_MANA
 _tenant = tenant_of
 
 
-@router.post("", status_code=status.HTTP_201_CREATED, response_model=UserResponse)
+@router.post(
+    "", status_code=status.HTTP_201_CREATED, response_model=ProvisionedUserResponse
+)
 async def create_teacher(
     body: CreateUserRequest, container: ContainerDep, actor: StaffManager
-) -> UserResponse:
-    user = await container.onboarding_service().create_teacher(
-        school_id=_tenant(actor), email=body.email, password=body.password
+) -> ProvisionedUserResponse:
+    provisioned = await container.onboarding_service().create_teacher(
+        school_id=_tenant(actor), email=body.email
     )
-    return UserResponse.from_user(user)
+    return ProvisionedUserResponse.from_provisioned(provisioned)
 
 
 @router.get("", response_model=list[UserResponse])
 async def list_staff(container: ContainerDep, actor: StaffManager) -> list[UserResponse]:
     staff = await container.onboarding_service().list_staff(school_id=_tenant(actor))
     return [UserResponse.from_user(u) for u in staff]
+
+
+@router.patch("/{user_id}", response_model=UserResponse)
+async def set_teacher_status(
+    user_id: str,
+    body: UpdateUserStatusRequest,
+    container: ContainerDep,
+    actor: StaffManager,
+) -> UserResponse:
+    """Enable/disable a teacher. Tenant from the token; a foreign/non-teacher id -> 404."""
+    user = await container.onboarding_service().set_staff_status(
+        school_id=_tenant(actor), user_id=user_id, role=Role.TEACHER, status=body.status
+    )
+    return UserResponse.from_user(user)
+
+
+@router.post("/{user_id}/resend-invite", response_model=ProvisionedUserResponse)
+async def resend_teacher_invite(
+    user_id: str, container: ContainerDep, actor: StaffManager
+) -> ProvisionedUserResponse:
+    """Re-issue a one-time temp password for a teacher (BP7c)."""
+    provisioned = await container.onboarding_service().resend_invite(
+        school_id=_tenant(actor), user_id=user_id, role=Role.TEACHER
+    )
+    return ProvisionedUserResponse.from_provisioned(provisioned)

@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { type FormEvent, useState } from "react";
 import { useSWRConfig } from "swr";
 
+import { type Invite, InviteResultDialog } from "@/components/staff/invite-result-dialog";
 import { Breadcrumb } from "@/components/ui/breadcrumb";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -18,7 +19,11 @@ import { StatCard } from "@/components/ui/stat-card";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/components/ui/toast";
-import { createSchoolAdmin } from "@/lib/api/endpoints";
+import {
+  createSchoolAdmin,
+  resendSchoolAdminInvite,
+  setSchoolAdminStatus,
+} from "@/lib/api/endpoints";
 import { isApiError } from "@/lib/api/errors";
 import type { UserResponse } from "@/lib/api/types";
 import { useSchool, useSchoolAdmins } from "@/lib/hooks/use-schools";
@@ -33,29 +38,34 @@ function adminStatus(user: UserResponse): {
   return { tone: "success", label: "Active" };
 }
 
-function AddAdminDialog({ schoolId, onAdded }: { schoolId: string; onAdded: () => void }) {
+function AddAdminDialog({
+  schoolId,
+  onAdded,
+  onInvited,
+}: {
+  schoolId: string;
+  onAdded: () => void;
+  onInvited: (invite: Invite) => void;
+}) {
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
   const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
   function handleOpenChange(next: boolean) {
     setOpen(next);
-    if (!next) {
-      setEmail("");
-      setPassword("");
-    }
+    if (!next) setEmail("");
   }
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSubmitting(true);
     try {
-      const admin = await createSchoolAdmin(schoolId, email.trim(), password);
-      toast(`Administrator ${admin.email} added.`, "success");
+      const { user, temp_password } = await createSchoolAdmin(schoolId, email.trim());
+      toast(`Administrator ${user.email} added.`, "success");
       onAdded(); // revalidate the roster (BP2 added the list endpoint)
       handleOpenChange(false);
+      onInvited({ email: user.email, tempPassword: temp_password });
     } catch (err) {
       toast(isApiError(err) ? err.message : "Something went wrong", "error");
     } finally {
@@ -73,7 +83,7 @@ function AddAdminDialog({ schoolId, onAdded }: { schoolId: string; onAdded: () =
       </DialogTrigger>
       <DialogContent
         title="Add administrator"
-        description="They sign in with this temporary password and are prompted to change it on first login."
+        description="We generate a temporary password for them to sign in with — you'll see it once, right after adding them."
       >
         <form onSubmit={onSubmit} className="flex flex-col gap-4">
           <Field label="Email" htmlFor="admin-email">
@@ -85,17 +95,6 @@ function AddAdminDialog({ schoolId, onAdded }: { schoolId: string; onAdded: () =
               autoFocus
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-            />
-          </Field>
-          <Field label="Temporary password" htmlFor="admin-password" hint="At least 8 characters.">
-            <Input
-              id="admin-password"
-              type="text"
-              autoComplete="off"
-              required
-              minLength={8}
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
             />
           </Field>
           <div className="mt-2 flex justify-end gap-2">
@@ -114,7 +113,82 @@ function AddAdminDialog({ schoolId, onAdded }: { schoolId: string; onAdded: () =
   );
 }
 
-function AdminRoster({ schoolId }: { schoolId: string }) {
+/** Per-row admin lifecycle actions (BP7c): re-issue a one-time temp password, or
+ *  enable/disable the account. */
+function AdminActions({
+  schoolId,
+  admin,
+  onInvited,
+  onChanged,
+}: {
+  schoolId: string;
+  admin: UserResponse;
+  onInvited: (invite: Invite) => void;
+  onChanged: () => Promise<unknown>;
+}) {
+  const { toast } = useToast();
+  const [busy, setBusy] = useState<"status" | "resend" | null>(null);
+  const isDisabled = admin.status === "disabled";
+
+  async function toggleStatus() {
+    setBusy("status");
+    try {
+      await setSchoolAdminStatus(schoolId, admin.id, isDisabled ? "active" : "disabled");
+      toast(isDisabled ? "Administrator enabled." : "Administrator disabled.", "success");
+      await onChanged();
+    } catch (err) {
+      toast(isApiError(err) ? err.message : "Couldn't update. Please try again.", "error");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function resend() {
+    setBusy("resend");
+    try {
+      const { user, temp_password } = await resendSchoolAdminInvite(schoolId, admin.id);
+      onInvited({ email: user.email, tempPassword: temp_password });
+      await onChanged(); // must_change_password flips back -> refresh the status pill
+    } catch (err) {
+      toast(isApiError(err) ? err.message : "Couldn't resend. Please try again.", "error");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <div className="flex justify-end gap-1">
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={resend}
+        loading={busy === "resend"}
+        disabled={busy !== null}
+        aria-label={`Resend invite for ${admin.email}`}
+      >
+        Resend invite
+      </Button>
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={toggleStatus}
+        loading={busy === "status"}
+        disabled={busy !== null}
+        aria-label={`${isDisabled ? "Enable" : "Disable"} ${admin.email}`}
+      >
+        {isDisabled ? "Enable" : "Disable"}
+      </Button>
+    </div>
+  );
+}
+
+function AdminRoster({
+  schoolId,
+  onInvited,
+}: {
+  schoolId: string;
+  onInvited: (invite: Invite) => void;
+}) {
   const { admins, isLoading, error, mutate } = useSchoolAdmins(schoolId);
 
   return (
@@ -147,6 +221,7 @@ function AdminRoster({ schoolId }: { schoolId: string }) {
                 <TableHead>Email</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Added</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -160,6 +235,14 @@ function AdminRoster({ schoolId }: { schoolId: string }) {
                     </TableCell>
                     <TableCell className="text-ink-secondary">
                       {formatDate(admin.created_at)}
+                    </TableCell>
+                    <TableCell>
+                      <AdminActions
+                        schoolId={schoolId}
+                        admin={admin}
+                        onInvited={onInvited}
+                        onChanged={() => mutate()}
+                      />
                     </TableCell>
                   </TableRow>
                 );
@@ -177,6 +260,7 @@ export default function SchoolDetailPage() {
   const { school, isLoading, error, mutate } = useSchool(schoolId);
   // Revalidate the roster (owned by <AdminRoster/>) by its shared SWR key after an add.
   const { mutate: mutateKey } = useSWRConfig();
+  const [invite, setInvite] = useState<Invite | null>(null);
 
   const notFound = isApiError(error) && error.status === 404;
 
@@ -217,6 +301,7 @@ export default function SchoolDetailPage() {
               <AddAdminDialog
                 schoolId={school.id}
                 onAdded={() => mutateKey(`schools/${school.id}/admins`)}
+                onInvited={setInvite}
               />
             }
           />
@@ -252,9 +337,11 @@ export default function SchoolDetailPage() {
               </div>
             </dl>
           </Card>
-          <AdminRoster schoolId={school.id} />
+          <AdminRoster schoolId={school.id} onInvited={setInvite} />
         </>
       )}
+
+      <InviteResultDialog invite={invite} onClose={() => setInvite(null)} />
     </div>
   );
 }

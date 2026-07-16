@@ -22,6 +22,13 @@ export interface UserResponse {
   created_at: string; // BP2: staff "added" date + admin roster
 }
 
+/** A provisioned/re-invited staff or admin account + its ONE-TIME temp password (BP7c).
+ *  Returned by create-teacher / add-admin / resend-invite; shown once, never again. */
+export interface ProvisionedUserResponse {
+  user: UserResponse;
+  temp_password: string;
+}
+
 /** A school (platform onboarding — decisions/0025). Timestamps are ISO strings. */
 export interface SchoolResponse {
   id: string;

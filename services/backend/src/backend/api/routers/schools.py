@@ -15,7 +15,13 @@ from backend.api.schemas.schools import (
     SchoolResponse,
     SchoolWithRollupResponse,
 )
-from backend.api.schemas.users import CreateUserRequest, UserResponse
+from backend.api.schemas.users import (
+    CreateUserRequest,
+    ProvisionedUserResponse,
+    UpdateUserStatusRequest,
+    UserResponse,
+)
+from backend.domain.models import Role
 from backend.domain.permissions import Permission
 
 router = APIRouter(
@@ -61,12 +67,40 @@ async def list_school_admins(
 @router.post(
     "/{school_id}/admins",
     status_code=status.HTTP_201_CREATED,
-    response_model=UserResponse,
+    response_model=ProvisionedUserResponse,
 )
 async def create_school_admin(
     school_id: str, body: CreateUserRequest, container: ContainerDep
+) -> ProvisionedUserResponse:
+    provisioned = await container.onboarding_service().create_school_admin(
+        school_id=school_id, email=body.email
+    )
+    return ProvisionedUserResponse.from_provisioned(provisioned)
+
+
+@router.patch("/{school_id}/admins/{user_id}", response_model=UserResponse)
+async def set_admin_status(
+    school_id: str,
+    user_id: str,
+    body: UpdateUserStatusRequest,
+    container: ContainerDep,
 ) -> UserResponse:
-    user = await container.onboarding_service().create_school_admin(
-        school_id=school_id, email=body.email, password=body.password
+    """Enable/disable a school admin (platform). A non-admin/other-school id -> 404."""
+    user = await container.onboarding_service().set_staff_status(
+        school_id=school_id, user_id=user_id, role=Role.SCHOOL_ADMIN, status=body.status
     )
     return UserResponse.from_user(user)
+
+
+@router.post(
+    "/{school_id}/admins/{user_id}/resend-invite",
+    response_model=ProvisionedUserResponse,
+)
+async def resend_admin_invite(
+    school_id: str, user_id: str, container: ContainerDep
+) -> ProvisionedUserResponse:
+    """Re-issue a one-time temp password for a school admin (BP7c)."""
+    provisioned = await container.onboarding_service().resend_invite(
+        school_id=school_id, user_id=user_id, role=Role.SCHOOL_ADMIN
+    )
+    return ProvisionedUserResponse.from_provisioned(provisioned)

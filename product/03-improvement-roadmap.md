@@ -149,6 +149,11 @@ convention. Order = my recommended build order.
     from the (already-returned-but-discarded) ML per-photo result, persisted (**migration `0007`**) and cleared on
     success, surfaced as a tailored title+fix on the student detail + a compact reason on the list. **No ML change.**
     The fix action (in-place photo **replace**) is deferred to BP7d.
+  - **BP7c landed** ([decisions/0046](decisions/0046-product-build-BP7c-staff-lifecycle-invite.md)): staff/admin
+    provisioning becomes a real **invite model** + lifecycle (**no migration** — `users.status` already existed). Temp
+    passwords are now **server-generated + shown once** (a shared `InviteResultDialog` with Copy), staff/admin can be
+    **disabled/enabled** (real lockout) and **re-invited**, all behind one tenant+role **404 guard**. Students stay
+    caller-supplied (→ BP7d).
 - **Persona:** staff/admin. **Source lens:** T8, P4, X4. **Acceptance:** a fresh school is guided to first value (**met
   by BP7a**); a class imports from CSV (BP7d); a failed reference photo explains itself (BP7b).
 

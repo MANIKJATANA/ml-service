@@ -89,6 +89,15 @@ class PostgresUserRepository:
             row.password_hash = password_hash
             row.must_change_password = must_change_password
 
+    async def set_status(self, user_id: str, *, status: UserStatus) -> None:
+        key = req_uuid(user_id, field="user_id")
+        async with self._sessionmaker() as session, session.begin():
+            row = await session.get(UserRow, key)
+            if row is None:
+                raise NotFoundError(f"user not found: {user_id}")
+            # ORM mutation → flush on commit; also trips updated_at's onupdate.
+            row.status = status.value
+
     async def delete(self, user_id: str) -> None:
         key = opt_uuid(user_id)
         if key is None:

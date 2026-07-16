@@ -109,7 +109,7 @@ School (tenant)
 ```
 
 - **School** — the tenant. `max_teachers` caps teacher logins (the *only* quota in the system).
-- **User** — any login. `must_change_password` forces a first-login reset (temp passwords are staff-set).
+- **User** — any login. `must_change_password` forces a first-login reset (staff/admin temp passwords are **server-generated + shown once**, BP7c; students' are still staff-set until BP7d).
 - **Student** — face-enrolled profile linked 1:1 to a `role=student` login. `reference_photo_path` (Supabase);
   `enrollment_status` = ML result.
 - **Event** — media container. `processing_status` = distribution job state; `status` archives it.
@@ -139,11 +139,13 @@ everywhere; `Event.enqueued_at` + `Event.completed_at`; `Media.completed_at`; `E
 
 ## 5. End-to-end journeys
 
-**J1 — Onboard a school** *(platform_admin)*: `POST /v1/schools` → `POST /v1/schools/{id}/admins` (temp password).
+**J1 — Onboard a school** *(platform_admin)*: `POST /v1/schools` → `POST /v1/schools/{id}/admins` (server-gen temp
+password shown once; **BP7c** adds admin disable/enable + resend-invite on `/schools/{id}/admins/{uid}`).
 Gaps: manual only (no self-serve); **no admin roster** afterwards (add-only).
 
-**J2 — Set up staff** *(school_admin)*: `POST /v1/staff` (capped at `max_teachers`; 409 on cap/duplicate). Gaps:
-no edit/disable/resend-invite; no bulk.
+**J2 — Set up staff** *(school_admin)*: `POST /v1/staff` (capped at `max_teachers`; 409 on cap/duplicate; server-gen
+temp password shown once). **BP7c** adds **disable/enable** (`PATCH /v1/staff/{id}`) + **resend-invite**
+(`POST …/{id}/resend-invite`). Remaining gaps: no rename/edit (users have no name column); no bulk (BP7d).
 
 **J3 — Enroll a student** *(staff)*: mint upload URL → browser PUTs reference photo to Supabase → `POST /v1/students`
 creates profile + login + fires **synchronous ML enrollment** → `enrollment_status`. Retry via
@@ -210,7 +212,7 @@ Route map (17): `(auth)` `/login` `/change-password` · root `/` + `error`/`not-
 | `/schools` | Platform estate + create | Table [name · **admins · teachers/max · students · events** · status] + search + sort (BP2) | Bulk still absent |
 | `/schools/[id]` | Run one school | Info + **rollup StatCards** + **admin roster** + Add-admin dialog (BP2) | — |
 | `/dashboard` | Staff home | **Command center (BP1)**: school name, stat cards (students/events/photos), needs-attention alerts, quick actions; **first-run setup checklist (BP7a)** that guides enroll→event→upload→distribute and retires once distributed | Now real; list-row counts + search/filter are BP2 |
-| `/staff` | Manage teachers | Table [email · status · **added**] + search + sort (BP2) | No edit/disable/resend (BP7); no capacity pill |
+| `/staff` | Manage teachers | Table [email · status · **added** · actions] + search + sort + **disable/enable + resend-invite** + shown-once temp password + a teacher count (BP7c) | No rename/edit (no name column); "of M" capacity is platform-side |
 | `/students` | Enroll + keep healthy | Table [avatar+name · email · **appears-in counts** · enrollment] + enrollment filter + search + sort (BP2) | No reference **thumbnail** (needs a signed-URL endpoint — deferred); no bulk (BP7) |
 | `/students/[id]` | Fix one student + photos | Card + Re-enroll/Delete + "Appears in" gallery | No reference-photo view; no enrollment timestamp; no confidence in "appears in" |
 | `/events` | All events at a glance | Table [name · date · **photos · matched · needs-review** · processing] + active/archived filter + search + sort (BP2) | Per-event management still light |

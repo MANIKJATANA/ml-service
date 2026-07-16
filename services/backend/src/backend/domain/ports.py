@@ -36,6 +36,7 @@ from backend.domain.models import (
     Student,
     StudentAppearanceCounts,
     User,
+    UserStatus,
 )
 from backend.domain.permissions import Permission
 from backend.domain.tokens import TokenClaims, TokenPair, TokenType
@@ -62,6 +63,7 @@ class UserRepository(Protocol):
     async def set_password(
         self, user_id: str, *, password_hash: str, must_change_password: bool
     ) -> None: ...
+    async def set_status(self, user_id: str, *, status: UserStatus) -> None: ...
     async def count_by_school_and_role(self, school_id: str, role: Role) -> int: ...
     async def list_by_school_and_role(
         self, school_id: str, role: Role

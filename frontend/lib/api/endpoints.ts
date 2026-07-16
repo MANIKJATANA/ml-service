@@ -16,6 +16,7 @@ import type {
   MyNotificationsResponse,
   NotificationRosterResponse,
   NotifyResultResponse,
+  ProvisionedUserResponse,
   SchoolResponse,
   SchoolWithRollup,
   StudentInEventResponse,
@@ -23,6 +24,7 @@ import type {
   StudentResponse,
   UploadUrlResponse,
   UserResponse,
+  UserStatus,
 } from "./types";
 
 /**
@@ -85,15 +87,38 @@ export function listSchoolAdmins(schoolId: string): Promise<UserResponse[]> {
   return bffFetch<UserResponse[]>(`/api/v1/schools/${encodeURIComponent(schoolId)}/admins`);
 }
 
+/** Add a school admin (BP7c): the temp password is generated server-side + returned once. */
 export function createSchoolAdmin(
   schoolId: string,
   email: string,
-  password: string,
+): Promise<ProvisionedUserResponse> {
+  return bffFetch<ProvisionedUserResponse>(
+    `/api/v1/schools/${encodeURIComponent(schoolId)}/admins`,
+    { method: "POST", body: JSON.stringify({ email }) },
+  );
+}
+
+/** Enable/disable a school admin (BP7c). */
+export function setSchoolAdminStatus(
+  schoolId: string,
+  userId: string,
+  status: UserStatus,
 ): Promise<UserResponse> {
-  return bffFetch<UserResponse>(`/api/v1/schools/${encodeURIComponent(schoolId)}/admins`, {
-    method: "POST",
-    body: JSON.stringify({ email, password }),
-  });
+  return bffFetch<UserResponse>(
+    `/api/v1/schools/${encodeURIComponent(schoolId)}/admins/${encodeURIComponent(userId)}`,
+    { method: "PATCH", body: JSON.stringify({ status }) },
+  );
+}
+
+/** Re-issue a one-time temp password for a school admin (BP7c). */
+export function resendSchoolAdminInvite(
+  schoolId: string,
+  userId: string,
+): Promise<ProvisionedUserResponse> {
+  return bffFetch<ProvisionedUserResponse>(
+    `/api/v1/schools/${encodeURIComponent(schoolId)}/admins/${encodeURIComponent(userId)}/resend-invite`,
+    { method: "POST" },
+  );
 }
 
 // --- School staff / teachers (F3, staff:manage) ---
@@ -102,11 +127,31 @@ export function listStaff(): Promise<UserResponse[]> {
   return bffFetch<UserResponse[]>("/api/v1/staff");
 }
 
-export function createStaff(email: string, password: string): Promise<UserResponse> {
-  return bffFetch<UserResponse>("/api/v1/staff", {
+/** Add a teacher (BP7c): the temp password is generated server-side + returned once. */
+export function createStaff(email: string): Promise<ProvisionedUserResponse> {
+  return bffFetch<ProvisionedUserResponse>("/api/v1/staff", {
     method: "POST",
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify({ email }),
   });
+}
+
+/** Enable/disable a teacher (BP7c). */
+export function setStaffStatus(
+  userId: string,
+  status: UserStatus,
+): Promise<UserResponse> {
+  return bffFetch<UserResponse>(`/api/v1/staff/${encodeURIComponent(userId)}`, {
+    method: "PATCH",
+    body: JSON.stringify({ status }),
+  });
+}
+
+/** Re-issue a one-time temp password for a teacher (BP7c). */
+export function resendStaffInvite(userId: string): Promise<ProvisionedUserResponse> {
+  return bffFetch<ProvisionedUserResponse>(
+    `/api/v1/staff/${encodeURIComponent(userId)}/resend-invite`,
+    { method: "POST" },
+  );
 }
 
 // --- Students + ML enrollment (F3, student:manage) ---

@@ -1,4 +1,4 @@
-"""OnboardingService use-cases with fakes (decisions/0025)."""
+"""OnboardingService use-cases with fakes (decisions/0025, BP7c)."""
 
 from __future__ import annotations
 
@@ -9,11 +9,9 @@ from backend.domain.errors import (
     NotFoundError,
     ValidationError,
 )
-from backend.domain.models import Role, School, SchoolStatus, User
+from backend.domain.models import Role, School, SchoolStatus, User, UserStatus
 from backend.services.onboarding_service import OnboardingService
-from backend_fakes import FakeHasher, FakeSchoolRepo, FakeUserRepo, make_school
-
-_PW = "temp-pw-123"
+from backend_fakes import FakeHasher, FakeSchoolRepo, FakeUserRepo, make_school, make_user
 
 
 def _svc(
@@ -54,35 +52,45 @@ async def test_list_schools() -> None:
 
 async def test_create_school_admin_provisions_temp_password_account() -> None:
     svc, _, _ = _svc(schools=[make_school(id="s1", max_teachers=1)])
-    admin = await svc.create_school_admin(school_id="s1", email="Admin@X.io", password=_PW)
-    assert admin.role is Role.SCHOOL_ADMIN and admin.school_id == "s1"
-    assert admin.must_change_password is True
-    assert admin.email == "admin@x.io"  # normalized
-    assert admin.password_hash == f"hash:{_PW}"  # hashed, never the raw password
+    prov = await svc.create_school_admin(school_id="s1", email="Admin@X.io")
+    assert prov.user.role is Role.SCHOOL_ADMIN and prov.user.school_id == "s1"
+    assert prov.user.must_change_password is True
+    assert prov.user.email == "admin@x.io"  # normalized
+    # A server-generated temp password (BP7c), returned once + hashed (never the raw pw).
+    assert len(prov.temp_password) >= 8
+    assert prov.user.password_hash == f"hash:{prov.temp_password}"
+
+
+async def test_create_teacher_generates_a_distinct_temp_password_each_time() -> None:
+    svc, _, _ = _svc(schools=[make_school(id="s1", max_teachers=5)])
+    a = await svc.create_teacher(school_id="s1", email="a@x.io")
+    b = await svc.create_teacher(school_id="s1", email="b@x.io")
+    assert a.temp_password and b.temp_password
+    assert a.temp_password != b.temp_password  # random per account
 
 
 async def test_create_school_admin_for_missing_school() -> None:
     svc, _, _ = _svc()
     with pytest.raises(NotFoundError):
-        await svc.create_school_admin(school_id="nope", email="a@x.io", password=_PW)
+        await svc.create_school_admin(school_id="nope", email="a@x.io")
 
 
 async def test_create_teacher_enforces_cap() -> None:
     svc, _, _ = _svc(schools=[make_school(id="s1", max_teachers=1)])
-    t1 = await svc.create_teacher(school_id="s1", email="t1@x.io", password=_PW)
-    assert t1.role is Role.TEACHER and t1.must_change_password is True
+    t1 = await svc.create_teacher(school_id="s1", email="t1@x.io")
+    assert t1.user.role is Role.TEACHER and t1.user.must_change_password is True
     with pytest.raises(LimitExceededError):
-        await svc.create_teacher(school_id="s1", email="t2@x.io", password=_PW)
+        await svc.create_teacher(school_id="s1", email="t2@x.io")
 
 
 async def test_cap_counts_teachers_only_not_admins() -> None:
     # An admin account must not consume a teacher slot (0025).
     svc, _, _ = _svc(schools=[make_school(id="s1", max_teachers=1)])
-    await svc.create_school_admin(school_id="s1", email="a@x.io", password=_PW)
-    t1 = await svc.create_teacher(school_id="s1", email="t1@x.io", password=_PW)
-    assert t1.role is Role.TEACHER
+    await svc.create_school_admin(school_id="s1", email="a@x.io")
+    t1 = await svc.create_teacher(school_id="s1", email="t1@x.io")
+    assert t1.user.role is Role.TEACHER
     with pytest.raises(LimitExceededError):
-        await svc.create_teacher(school_id="s1", email="t2@x.io", password=_PW)
+        await svc.create_teacher(school_id="s1", email="t2@x.io")
 
 
 async def test_create_teacher_rejected_when_cap_is_zero() -> None:
@@ -90,7 +98,7 @@ async def test_create_teacher_rejected_when_cap_is_zero() -> None:
     # guards creation); every teacher creation must then be rejected (0025).
     svc, _, _ = _svc(schools=[make_school(id="s1", max_teachers=0)])
     with pytest.raises(LimitExceededError):
-        await svc.create_teacher(school_id="s1", email="t@x.io", password=_PW)
+        await svc.create_teacher(school_id="s1", email="t@x.io")
 
 
 async def test_email_is_globally_unique_across_schools() -> None:
@@ -98,9 +106,9 @@ async def test_email_is_globally_unique_across_schools() -> None:
     svc, _, _ = _svc(
         schools=[make_school(id="s1", max_teachers=5), make_school(id="s2", max_teachers=5)]
     )
-    await svc.create_teacher(school_id="s1", email="t@x.io", password=_PW)
+    await svc.create_teacher(school_id="s1", email="t@x.io")
     with pytest.raises(ConflictError):
-        await svc.create_teacher(school_id="s2", email="t@x.io", password=_PW)
+        await svc.create_teacher(school_id="s2", email="t@x.io")
 
 
 async def test_school_admin_provisioning_ignores_cap_and_suspension() -> None:
@@ -110,9 +118,9 @@ async def test_school_admin_provisioning_ignores_cap_and_suspension() -> None:
             make_school(id="s1", max_teachers=1, status=SchoolStatus.SUSPENDED),
         ]
     )
-    a1 = await svc.create_school_admin(school_id="s1", email="a1@x.io", password=_PW)
-    a2 = await svc.create_school_admin(school_id="s1", email="a2@x.io", password=_PW)
-    assert a1.role is Role.SCHOOL_ADMIN and a2.role is Role.SCHOOL_ADMIN
+    a1 = await svc.create_school_admin(school_id="s1", email="a1@x.io")
+    a2 = await svc.create_school_admin(school_id="s1", email="a2@x.io")
+    assert a1.user.role is Role.SCHOOL_ADMIN and a2.user.role is Role.SCHOOL_ADMIN
 
 
 async def test_create_teacher_rejected_for_suspended_school() -> None:
@@ -120,20 +128,20 @@ async def test_create_teacher_rejected_for_suspended_school() -> None:
         schools=[make_school(id="s1", max_teachers=5, status=SchoolStatus.SUSPENDED)]
     )
     with pytest.raises(ValidationError):
-        await svc.create_teacher(school_id="s1", email="t@x.io", password=_PW)
+        await svc.create_teacher(school_id="s1", email="t@x.io")
 
 
 async def test_create_teacher_for_missing_school() -> None:
     svc, _, _ = _svc()
     with pytest.raises(NotFoundError):
-        await svc.create_teacher(school_id="nope", email="t@x.io", password=_PW)
+        await svc.create_teacher(school_id="nope", email="t@x.io")
 
 
 async def test_list_staff_returns_only_teachers() -> None:
     svc, _, _ = _svc(schools=[make_school(id="s1", max_teachers=5)])
-    await svc.create_school_admin(school_id="s1", email="a@x.io", password=_PW)
-    await svc.create_teacher(school_id="s1", email="t1@x.io", password=_PW)
-    await svc.create_teacher(school_id="s1", email="t2@x.io", password=_PW)
+    await svc.create_school_admin(school_id="s1", email="a@x.io")
+    await svc.create_teacher(school_id="s1", email="t1@x.io")
+    await svc.create_teacher(school_id="s1", email="t2@x.io")
     staff = await svc.list_staff(school_id="s1")
     assert {u.email for u in staff} == {"t1@x.io", "t2@x.io"}
     assert all(u.role is Role.TEACHER for u in staff)
@@ -141,6 +149,96 @@ async def test_list_staff_returns_only_teachers() -> None:
 
 async def test_duplicate_email_conflicts_case_insensitively() -> None:
     svc, _, _ = _svc(schools=[make_school(id="s1", max_teachers=5)])
-    await svc.create_teacher(school_id="s1", email="t@x.io", password=_PW)
+    await svc.create_teacher(school_id="s1", email="t@x.io")
     with pytest.raises(ConflictError):
-        await svc.create_teacher(school_id="s1", email="T@X.io", password=_PW)
+        await svc.create_teacher(school_id="s1", email="T@X.io")
+
+
+# ---- staff lifecycle: disable / enable (BP7c) --------------------------
+
+
+async def test_set_staff_status_disables_then_enables_a_teacher() -> None:
+    teacher = make_user(id="t1", school_id="s1", email="t@x.io", role=Role.TEACHER)
+    svc, _, urepo = _svc(
+        schools=[make_school(id="s1", max_teachers=5)], users=[teacher]
+    )
+    disabled = await svc.set_staff_status(
+        school_id="s1", user_id="t1", role=Role.TEACHER, status=UserStatus.DISABLED
+    )
+    assert disabled.status is UserStatus.DISABLED
+    stored = await urepo.get("t1")
+    assert stored is not None and stored.status is UserStatus.DISABLED
+
+    enabled = await svc.set_staff_status(
+        school_id="s1", user_id="t1", role=Role.TEACHER, status=UserStatus.ACTIVE
+    )
+    assert enabled.status is UserStatus.ACTIVE
+
+
+async def test_set_status_is_idempotent() -> None:
+    teacher = make_user(id="t1", school_id="s1", email="t@x.io", role=Role.TEACHER,
+                        status=UserStatus.DISABLED)
+    svc, _, _ = _svc(schools=[make_school(id="s1")], users=[teacher])
+    again = await svc.set_staff_status(
+        school_id="s1", user_id="t1", role=Role.TEACHER, status=UserStatus.DISABLED
+    )
+    assert again.status is UserStatus.DISABLED
+
+
+async def test_set_status_rejects_a_teacher_in_another_school() -> None:
+    # Tenant guard: s1's admin can't disable s2's teacher (404, no existence leak).
+    other = make_user(id="t2", school_id="s2", email="t2@x.io", role=Role.TEACHER)
+    svc, _, _ = _svc(schools=[make_school(id="s1")], users=[other])
+    with pytest.raises(NotFoundError):
+        await svc.set_staff_status(
+            school_id="s1", user_id="t2", role=Role.TEACHER, status=UserStatus.DISABLED
+        )
+
+
+async def test_set_status_rejects_the_wrong_role() -> None:
+    # Role guard: the /staff route (role=TEACHER) can't touch an admin, and vice versa.
+    admin = make_user(id="a1", school_id="s1", email="a@x.io", role=Role.SCHOOL_ADMIN)
+    svc, _, _ = _svc(schools=[make_school(id="s1")], users=[admin])
+    with pytest.raises(NotFoundError):
+        await svc.set_staff_status(
+            school_id="s1", user_id="a1", role=Role.TEACHER, status=UserStatus.DISABLED
+        )
+
+
+# ---- resend-invite (BP7c) ----------------------------------------------
+
+
+async def test_resend_invite_regenerates_temp_password_and_forces_change() -> None:
+    teacher = make_user(id="t1", school_id="s1", email="t@x.io", role=Role.TEACHER,
+                        password_hash="hash:old", must_change_password=False)
+    svc, _, urepo = _svc(schools=[make_school(id="s1")], users=[teacher])
+    prov = await svc.resend_invite(school_id="s1", user_id="t1", role=Role.TEACHER)
+    assert len(prov.temp_password) >= 8
+    assert prov.user.must_change_password is True
+    # The stored hash is the NEW temp password's hash (not the old one).
+    stored = await urepo.get("t1")
+    assert stored is not None
+    assert stored.password_hash == f"hash:{prov.temp_password}"
+    assert stored.password_hash != "hash:old"
+
+
+async def test_resend_invite_works_on_a_disabled_account_without_re_enabling() -> None:
+    # A disabled teacher can be re-invited (regenerates a temp password) but stays
+    # disabled — enabling is a separate, explicit action (BP7c).
+    teacher = make_user(id="t1", school_id="s1", email="t@x.io", role=Role.TEACHER,
+                        status=UserStatus.DISABLED)
+    svc, _, urepo = _svc(schools=[make_school(id="s1")], users=[teacher])
+    prov = await svc.resend_invite(school_id="s1", user_id="t1", role=Role.TEACHER)
+    assert len(prov.temp_password) >= 8
+    stored = await urepo.get("t1")
+    assert stored is not None and stored.status is UserStatus.DISABLED
+
+
+async def test_resend_invite_rejects_foreign_school_or_wrong_role() -> None:
+    other = make_user(id="t2", school_id="s2", email="t2@x.io", role=Role.TEACHER)
+    admin = make_user(id="a1", school_id="s1", email="a@x.io", role=Role.SCHOOL_ADMIN)
+    svc, _, _ = _svc(schools=[make_school(id="s1")], users=[other, admin])
+    with pytest.raises(NotFoundError):  # foreign school
+        await svc.resend_invite(school_id="s1", user_id="t2", role=Role.TEACHER)
+    with pytest.raises(NotFoundError):  # wrong role via the teacher route
+        await svc.resend_invite(school_id="s1", user_id="a1", role=Role.TEACHER)

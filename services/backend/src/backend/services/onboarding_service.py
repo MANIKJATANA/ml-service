@@ -9,7 +9,6 @@ password returned exactly once (BP7c) — never stored plaintext, never returned
 
 from __future__ import annotations
 
-import secrets
 from dataclasses import dataclass
 
 from backend.domain.errors import (
@@ -19,10 +18,9 @@ from backend.domain.errors import (
 )
 from backend.domain.models import Role, School, SchoolStatus, User, UserStatus
 from backend.domain.ports import PasswordHasher, SchoolRepository, UserRepository
+from backend.services.credentials import generate_temp_password
 
 _MAX_NAME_LEN = 200
-# token_urlsafe(12) -> a 16-char temp password: > the 8-char policy floor, easy to copy.
-_TEMP_PASSWORD_BYTES = 12
 
 
 @dataclass(frozen=True, slots=True)
@@ -119,7 +117,7 @@ class OnboardingService:
         user = await self._require_managed_user(
             school_id=school_id, user_id=user_id, role=role
         )
-        temp_password = _generate_temp_password()
+        temp_password = generate_temp_password()
         await self._users.set_password(
             user_id,
             password_hash=self._hasher.hash(temp_password),
@@ -143,7 +141,7 @@ class OnboardingService:
     async def _provision(
         self, *, school_id: str, email: str, role: Role
     ) -> ProvisionedUser:
-        temp_password = _generate_temp_password()
+        temp_password = generate_temp_password()
         user = await self._users.create(
             school_id=school_id,
             email=email,
@@ -152,9 +150,3 @@ class OnboardingService:
             must_change_password=True,
         )
         return ProvisionedUser(user, temp_password)
-
-
-def _generate_temp_password() -> str:
-    """A URL-safe random temp password (BP7c) — server-generated, shown to the admin
-    once, then only its hash is stored. Comfortably over the 8-char policy floor."""
-    return secrets.token_urlsafe(_TEMP_PASSWORD_BYTES)

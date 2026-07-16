@@ -110,7 +110,7 @@ def make_student(
     user_id: str = "user-1",
     name: str = "Bart Simpson",
     email: str = "student@example.com",
-    reference_photo_path: str = "reference-photos/school-1/photo.jpg",
+    reference_photo_path: str | None = "reference-photos/school-1/photo.jpg",
     enrollment_status: EnrollmentStatus = EnrollmentStatus.PENDING,
     enrollment_failure_reason: EnrollmentFailureReason | None = None,
 ) -> Student:
@@ -397,7 +397,12 @@ class FakeStudentRepo:
         self._email_of = resolver
 
     async def create(
-        self, *, school_id: str, user_id: str, name: str, reference_photo_path: str
+        self,
+        *,
+        school_id: str,
+        user_id: str,
+        name: str,
+        reference_photo_path: str | None = None,
     ) -> Student:
         if self.fail_create:
             raise RuntimeError("simulated students-insert failure")

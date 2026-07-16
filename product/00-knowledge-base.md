@@ -109,7 +109,7 @@ School (tenant)
 ```
 
 - **School** — the tenant. `max_teachers` caps teacher logins (the *only* quota in the system).
-- **User** — any login. `must_change_password` forces a first-login reset (staff/admin temp passwords are **server-generated + shown once**, BP7c; students' are still staff-set until BP7d).
+- **User** — any login. `must_change_password` forces a first-login reset; **all temp passwords are now server-generated + shown once** (staff/admin BP7c, students BP7d — single create + bulk import).
 - **Student** — face-enrolled profile linked 1:1 to a `role=student` login. `reference_photo_path` (Supabase);
   `enrollment_status` = ML result.
 - **Event** — media container. `processing_status` = distribution job state; `status` archives it.
@@ -149,9 +149,10 @@ temp password shown once). **BP7c** adds **disable/enable** (`PATCH /v1/staff/{i
 
 **J3 — Enroll a student** *(staff)*: mint upload URL → browser PUTs reference photo to Supabase → `POST /v1/students`
 creates profile + login + fires **synchronous ML enrollment** → `enrollment_status`. Retry via
-`POST /students/{id}/enroll`. **BP7b** now shows a **specific `failed` reason + fix** (no_face/ml_unavailable/error),
-was generic. Remaining gaps: one-at-a-time (no CSV bulk, BP7d); no reference-photo **preview** / **in-place replace**
-(BP7d — so a bad-photo fix is still delete-and-re-add).
+`POST /students/{id}/enroll`. **BP7b** shows a **specific `failed` reason + fix** (no_face/ml_unavailable/error).
+**BP7d** adds **CSV bulk import** (`POST /v1/students/bulk`; name+email → photoless/pending) + server-gen temp passwords.
+Remaining gap: reference-photo **preview** / **in-place replace** (**BP7d-2** — so a bulk/photoless student can't enroll
+yet, and a bad-photo fix is still delete-and-re-add).
 
 **J4 — Run an event** *(staff)*: `POST /v1/events` → multi-file upload (browser→Supabase→`POST …/media`, status
 `pending`) → **`POST /v1/events/{id}/process`** enqueues one event job → poll `GET …/status`. Gaps: no per-photo
@@ -192,7 +193,7 @@ cache-invalidation, fail-loud on model-version mismatch; model swap = offline re
 | **Notify / deliver / share** | BE + FE (BP4) | ⚠️ partial | **in-app delivery landed** (decisions/0041): authoritative student "new photos" signal + staff notify/auto/roster + a multi-channel notifier seam (`log` now). Still **no outbound push** (email/WhatsApp are future channels; auto is in-app only) and no share-link |
 | Dashboards / analytics / counts | BE + FE (BP1) | ⚠️ partial | **school command center landed** (decisions/0038): `GET /v1/dashboard` rollups + needs-attention + nav scent; list-row counts + platform/analytics rollups still pending (BP2+) |
 | Search / filter / sort on lists | FE (BP2) | ✅ | all four admin lists (schools/staff/students/events): client search + sort + status/enrollment filter chips + per-row counts (decisions/0039). **Bulk** actions still absent (BP7). |
-| Self-serve onboarding / bulk import / billing | BE + FE (BP7a) | ⚠️ partial | **first-run setup checklist landed** (decisions/0044) guiding a fresh school to first value; **bulk CSV import (BP7d), self-serve signup, and billing still absent**; `max_teachers` is the only quota |
+| Self-serve onboarding / bulk import / billing | BE + FE (BP7a/d) | ⚠️ partial | **setup checklist (BP7a) + CSV bulk student import (BP7d) landed**; self-serve signup + billing still absent; `max_teachers` is the only quota |
 | Retention / hard-delete / audit log | — | ❌ **absent** | archive-not-delete; no retention; no access audit |
 | Consent / compliance | — | ⛔ out of scope | handled by legal via school contracts |
 
@@ -213,7 +214,7 @@ Route map (17): `(auth)` `/login` `/change-password` · root `/` + `error`/`not-
 | `/schools/[id]` | Run one school | Info + **rollup StatCards** + **admin roster** + Add-admin dialog (BP2) | — |
 | `/dashboard` | Staff home | **Command center (BP1)**: school name, stat cards (students/events/photos), needs-attention alerts, quick actions; **first-run setup checklist (BP7a)** that guides enroll→event→upload→distribute and retires once distributed | Now real; list-row counts + search/filter are BP2 |
 | `/staff` | Manage teachers | Table [email · status · **added** · actions] + search + sort + **disable/enable + resend-invite** + shown-once temp password + a teacher count (BP7c) | No rename/edit (no name column); "of M" capacity is platform-side |
-| `/students` | Enroll + keep healthy | Table [avatar+name · email · **appears-in counts** · enrollment] + enrollment filter + search + sort (BP2) | No reference **thumbnail** (needs a signed-URL endpoint — deferred); no bulk (BP7) |
+| `/students` | Enroll + keep healthy | Table [avatar+name · email · **appears-in counts** · enrollment + fail-reason] + filter/search/sort (BP2) + **CSV bulk import** + server-gen temp password shown once (BP7d) | No reference **thumbnail** (needs a signed-URL endpoint — deferred); photoless bulk students await BP7d-2 photo-replace |
 | `/students/[id]` | Fix one student + photos | Card + Re-enroll/Delete + "Appears in" gallery | No reference-photo view; no enrollment timestamp; no confidence in "appears in" |
 | `/events` | All events at a glance | Table [name · date · **photos · matched · needs-review** · processing] + active/archived filter + search + sort (BP2) | Per-event management still light |
 | `/events/[id]` | Run one event | Info + Photos card (progress + Upload/Process) | No student roster/match summary; no timeline; confusing Completed→Not-started flip |
@@ -302,8 +303,9 @@ bulk export, download-all. **Experience/data:** dashboards with real stats, sear
 reference-photo thumbnail, video UI. *(needs-review triage + review/confirm/correct + report-a-miss **shipped** in
 BP5, decisions/0042; **video render/upload/play/download shipped** in BP6, decisions/0043 — only the per-frame
 timeline UI stays deferred.)* **Trust/accuracy (still deferred):** threshold-tuning UI, an **ML feedback loop** (corrections
-are a backend overlay only), reference-photo quality gating. **Onboarding/business:**
-self-serve school signup, CSV student import, plans/tiers/billing, per-school analytics. **Ops/scale:** multi-replica
+are a backend overlay only), reference-photo quality gating. *(CSV bulk student import **shipped** in BP7d,
+decisions/0047.)* **Onboarding/business:** self-serve school signup, plans/tiers/billing, per-school analytics.
+**Ops/scale:** multi-replica
 enrollment (Redis lock), rate limiting, retention/erasure policy, access audit log, OTel tracing, security headers,
 image thumbnails/derivatives, batch signed-URL minting. **Model:** re-enrollment cadence for growing children,
 unknown-face handling. **Out of scope (owned by legal/contracts):** consent capture, parental consent, compliance

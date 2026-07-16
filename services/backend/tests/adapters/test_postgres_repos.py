@@ -387,6 +387,26 @@ async def test_set_enrollment_persists_and_clears_failure_reason(
     assert ok.enrollment_failure_reason is None
 
 
+async def test_student_create_without_a_reference_photo(
+    sm: async_sessionmaker[AsyncSession],
+) -> None:
+    # BP7d: a bulk-imported student is created photoless (reference_photo_path NULL) and
+    # round-trips through the now-nullable column as pending.
+    schools = PostgresSchoolRepository(sm)
+    users = PostgresUserRepository(sm)
+    students = PostgresStudentRepository(sm)
+    a = await schools.create(name="A", max_teachers=5)
+    login = await users.create(
+        school_id=a.id, email="np@a.io", password_hash="h", role=Role.STUDENT
+    )
+    s = await students.create(school_id=a.id, user_id=login.id, name="No Photo")
+    assert s.reference_photo_path is None
+    got = await students.get(a.id, s.id)
+    assert got is not None
+    assert got.reference_photo_path is None
+    assert got.enrollment_status is EnrollmentStatus.PENDING
+
+
 async def test_event_status_counts_and_undistributed_alert(
     sm: async_sessionmaker[AsyncSession],
 ) -> None:

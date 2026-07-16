@@ -1,5 +1,6 @@
 import { bffFetch } from "./client";
 import type {
+  BulkImportResponse,
   DashboardResponse,
   DownloadResponse,
   EventForStudentResponse,
@@ -16,6 +17,7 @@ import type {
   MyNotificationsResponse,
   NotificationRosterResponse,
   NotifyResultResponse,
+  ProvisionedStudentResponse,
   ProvisionedUserResponse,
   SchoolResponse,
   SchoolWithRollup,
@@ -169,20 +171,30 @@ export function studentUploadUrl(): Promise<UploadUrlResponse> {
   return bffFetch<UploadUrlResponse>("/api/v1/students/upload-url", { method: "POST" });
 }
 
+/** Create a student (BP7d): the temp password is server-generated + returned once; the
+ *  reference photo is optional (omit -> a photoless, pending student). */
 export function createStudent(
   name: string,
   email: string,
-  password: string,
-  referencePhotoPath: string,
-): Promise<StudentResponse> {
-  return bffFetch<StudentResponse>("/api/v1/students", {
+  referencePhotoPath: string | null,
+): Promise<ProvisionedStudentResponse> {
+  return bffFetch<ProvisionedStudentResponse>("/api/v1/students", {
     method: "POST",
     body: JSON.stringify({
       name,
       email,
-      password,
       reference_photo_path: referencePhotoPath,
     }),
+  });
+}
+
+/** Bulk-create students from CSV rows (BP7d) — best-effort, photoless (pending). */
+export function bulkImportStudents(
+  rows: { name: string; email: string }[],
+): Promise<BulkImportResponse> {
+  return bffFetch<BulkImportResponse>("/api/v1/students/bulk", {
+    method: "POST",
+    body: JSON.stringify({ students: rows }),
   });
 }
 

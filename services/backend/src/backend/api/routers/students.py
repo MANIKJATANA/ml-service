@@ -15,7 +15,10 @@ from fastapi import APIRouter, Depends, status
 
 from backend.api.deps import ContainerDep, require_permissions, tenant_of
 from backend.api.schemas.students import (
+    BulkImportRequest,
+    BulkImportResponse,
     CreateStudentRequest,
+    ProvisionedStudentResponse,
     StudentListItem,
     StudentResponse,
     UploadUrlResponse,
@@ -43,18 +46,34 @@ async def create_upload_url(
     )
 
 
-@router.post("", status_code=status.HTTP_201_CREATED, response_model=StudentResponse)
+@router.post(
+    "", status_code=status.HTTP_201_CREATED, response_model=ProvisionedStudentResponse
+)
 async def create_student(
     body: CreateStudentRequest, container: ContainerDep, actor: StudentManager
-) -> StudentResponse:
-    student = await container.student_service().create_student(
+) -> ProvisionedStudentResponse:
+    prov = await container.student_service().create_student(
         school_id=tenant_of(actor),
         name=body.name,
         email=body.email,
-        password=body.password,
         reference_photo_path=body.reference_photo_path,
     )
-    return StudentResponse.from_student(student)
+    return ProvisionedStudentResponse.from_provisioned(prov)
+
+
+@router.post(
+    "/bulk", status_code=status.HTTP_201_CREATED, response_model=BulkImportResponse
+)
+async def bulk_import_students(
+    body: BulkImportRequest, container: ContainerDep, actor: StudentManager
+) -> BulkImportResponse:
+    """Create many students from CSV rows (BP7d) — best-effort, photoless (pending). Each
+    created row carries its one-time temp password; the school is the token's."""
+    results = await container.student_service().bulk_create_students(
+        school_id=tenant_of(actor),
+        rows=[(r.name, r.email) for r in body.students],
+    )
+    return BulkImportResponse.from_results(results)
 
 
 @router.get("", response_model=list[StudentListItem])

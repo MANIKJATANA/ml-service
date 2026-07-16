@@ -119,7 +119,8 @@ class Student:
     user_id: str
     name: str
     email: str  # the linked login's email — denormalized onto the read model (0033)
-    reference_photo_path: str
+    # Nullable (BP7d): a bulk-imported student has no reference photo yet (pending).
+    reference_photo_path: str | None
     enrollment_status: EnrollmentStatus
     created_at: datetime
     updated_at: datetime

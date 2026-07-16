@@ -135,7 +135,8 @@ class Student(Base):
         nullable=False,
     )
     name: Mapped[str] = mapped_column(String, nullable=False)
-    reference_photo_path: Mapped[str] = mapped_column(String, nullable=False)
+    # Nullable (BP7d): a bulk-imported student starts photoless (pending) until one is set.
+    reference_photo_path: Mapped[str | None] = mapped_column(String, nullable=True)
     enrollment_status: Mapped[str] = mapped_column(
         String, nullable=False, server_default=text("'pending'")
     )

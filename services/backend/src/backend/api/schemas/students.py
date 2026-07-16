@@ -14,19 +14,34 @@ from pydantic import BaseModel, EmailStr, Field
 
 from backend.domain.models import EnrollmentFailureReason, EnrollmentStatus, Student
 from backend.services.listing_service import StudentListing
+from backend.services.student_service import BulkStudentResult, ProvisionedStudent
 
-# argon2 has no input cap (0024) — bound provisioning passwords at the edge.
-_MAX_PASSWORD_LEN = 1024
+# The largest batch one CSV import can create in a single request (BP7d).
+_MAX_BULK_ROWS = 500
 
 
 class CreateStudentRequest(BaseModel):
-    """Create a student + login with a caller-set temp password (0026)."""
+    """Create a student (BP7d): the temp password is generated server-side + returned
+    once; the reference photo is **optional** — omit it and the student is created
+    ``pending`` (a photo can be added later to enroll)."""
 
     name: str = Field(min_length=1, max_length=200)
     email: EmailStr
-    password: str = Field(min_length=8, max_length=_MAX_PASSWORD_LEN)
-    # The bucket-relative object path returned by POST /v1/students/upload-url.
-    reference_photo_path: str = Field(min_length=1, max_length=1024)
+    # The bucket-relative object path returned by POST /v1/students/upload-url; null to
+    # create a photoless (pending) student.
+    reference_photo_path: str | None = Field(default=None, min_length=1, max_length=1024)
+
+
+class BulkStudentRow(BaseModel):
+    """One CSV row (BP7d). Raw strings — validated per row in the service so one bad row
+    doesn't reject the whole import; only the lengths are capped here (abuse guard)."""
+
+    name: str = Field(max_length=1000)
+    email: str = Field(max_length=1000)
+
+
+class BulkImportRequest(BaseModel):
+    students: list[BulkStudentRow] = Field(min_length=1, max_length=_MAX_BULK_ROWS)
 
 
 class UploadUrlResponse(BaseModel):
@@ -40,7 +55,7 @@ class StudentResponse(BaseModel):
     school_id: str
     name: str
     email: str  # the student's login email (decisions/0033)
-    reference_photo_path: str
+    reference_photo_path: str | None  # null for a photoless (bulk-imported) student (BP7d)
     enrollment_status: EnrollmentStatus
     # Why enrollment failed, when it did (BP7b); null otherwise. The FE maps it to a
     # specific explanation + fix.
@@ -61,6 +76,55 @@ class StudentResponse(BaseModel):
             created_at=student.created_at,
             updated_at=student.updated_at,
         )
+
+
+class ProvisionedStudentResponse(BaseModel):
+    """A newly created student + its ONE-TIME server-generated temp password (BP7d).
+
+    Returned by ``POST /v1/students`` — the plaintext is shown once so staff can hand it
+    to the student; only its hash is stored. `enroll` / `GET` keep the leaner
+    ``StudentResponse`` (no password)."""
+
+    student: StudentResponse
+    temp_password: str
+
+    @classmethod
+    def from_provisioned(cls, p: ProvisionedStudent) -> ProvisionedStudentResponse:
+        return cls(
+            student=StudentResponse.from_student(p.student),
+            temp_password=p.temp_password,
+        )
+
+
+class BulkStudentResultResponse(BaseModel):
+    """One row's outcome from a bulk import (BP7d). ``status`` ∈ {created, duplicate,
+    invalid, error}; ``temp_password`` set only when ``created``."""
+
+    name: str
+    email: str
+    status: str
+    temp_password: str | None = None
+    student_id: str | None = None
+    error: str | None = None
+
+    @classmethod
+    def from_result(cls, r: BulkStudentResult) -> BulkStudentResultResponse:
+        return cls(
+            name=r.name,
+            email=r.email,
+            status=r.status,
+            temp_password=r.temp_password,
+            student_id=r.student_id,
+            error=r.error,
+        )
+
+
+class BulkImportResponse(BaseModel):
+    results: list[BulkStudentResultResponse]
+
+    @classmethod
+    def from_results(cls, results: list[BulkStudentResult]) -> BulkImportResponse:
+        return cls(results=[BulkStudentResultResponse.from_result(r) for r in results])
 
 
 class StudentListItem(StudentResponse):

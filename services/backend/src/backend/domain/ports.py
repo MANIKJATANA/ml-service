@@ -82,7 +82,7 @@ class StudentRepository(Protocol):
         school_id: str,
         user_id: str,
         name: str,
-        reference_photo_path: str,
+        reference_photo_path: str | None = None,
     ) -> Student: ...
     async def get(self, school_id: str, student_id: str) -> Student | None: ...
     async def get_by_user_id(

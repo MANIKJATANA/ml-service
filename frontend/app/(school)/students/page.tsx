@@ -12,6 +12,8 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { Field } from "@/components/ui/field";
 import { FileDropzone } from "@/components/ui/file-dropzone";
 import { type ChipItem, FilterChips } from "@/components/gallery/filter-chips";
+import { type Invite, InviteResultDialog } from "@/components/staff/invite-result-dialog";
+import { BulkImportDialog } from "@/components/students/bulk-import-dialog";
 import { Input } from "@/components/ui/input";
 import { PageHeader } from "@/components/ui/page-header";
 import { ProgressBar } from "@/components/ui/progress-bar";
@@ -38,12 +40,17 @@ const SORT: Record<string, (s: StudentListItem) => string | number> = {
   appearances: (s) => s.appearance_count,
 };
 
-function CreateStudentDialog({ onCreated }: { onCreated: () => void }) {
+function CreateStudentDialog({
+  onCreated,
+  onInvited,
+}: {
+  onCreated: () => void;
+  onInvited: (invite: Invite) => void;
+}) {
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [uploadedPath, setUploadedPath] = useState<string | null>(null); // survives a failed create
   const [progress, setProgress] = useState<number | null>(null); // non-null while uploading
@@ -54,7 +61,6 @@ function CreateStudentDialog({ onCreated }: { onCreated: () => void }) {
     if (!next) {
       setName("");
       setEmail("");
-      setPassword("");
       setFile(null);
       setUploadedPath(null);
       setProgress(null);
@@ -79,10 +85,16 @@ function CreateStudentDialog({ onCreated }: { onCreated: () => void }) {
         setProgress(null);
         setUploadedPath(objectPath);
       }
-      await createStudent(name.trim(), email.trim(), password, objectPath);
+      // BP7d: the temp password is server-generated + returned once.
+      const { student, temp_password } = await createStudent(
+        name.trim(),
+        email.trim(),
+        objectPath,
+      );
       toast("Student created.", "success");
       onCreated();
       handleOpenChange(false);
+      onInvited({ email: student.email, tempPassword: temp_password });
     } catch (err) {
       setProgress(null);
       toast(isApiError(err) ? err.message : "Something went wrong", "error");
@@ -101,7 +113,7 @@ function CreateStudentDialog({ onCreated }: { onCreated: () => void }) {
       </DialogTrigger>
       <DialogContent
         title="Add student"
-        description="Creates a student login and enrolls their face from the reference photo."
+        description="Creates a student login (with a temporary password shown once) and enrolls their face from the reference photo."
       >
         <form onSubmit={onSubmit} className="flex flex-col gap-4">
           <Field label="Full name" htmlFor="student-name">
@@ -122,17 +134,6 @@ function CreateStudentDialog({ onCreated }: { onCreated: () => void }) {
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-            />
-          </Field>
-          <Field label="Temporary password" htmlFor="student-password" hint="At least 8 characters.">
-            <Input
-              id="student-password"
-              type="text"
-              autoComplete="off"
-              required
-              minLength={8}
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
             />
           </Field>
           <FileDropzone
@@ -172,6 +173,7 @@ export default function StudentsPage() {
   const { students, isLoading, error, mutate } = useStudents();
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<"all" | EnrollmentStatus>("all");
+  const [invite, setInvite] = useState<Invite | null>(null);
 
   const chips: ChipItem[] = useMemo(() => {
     const all = students ?? [];
@@ -203,7 +205,12 @@ export default function StudentsPage() {
       <PageHeader
         title="Students"
         description="Enroll students so they receive the photos they appear in."
-        actions={<CreateStudentDialog onCreated={() => mutate()} />}
+        actions={
+          <div className="flex flex-wrap gap-2">
+            <BulkImportDialog onImported={() => mutate()} />
+            <CreateStudentDialog onCreated={() => mutate()} onInvited={setInvite} />
+          </div>
+        }
       />
 
       {isLoading ? (
@@ -227,8 +234,13 @@ export default function StudentsPage() {
         <EmptyState
           icon={<GraduationCap className="size-8" aria-hidden="true" />}
           title="No students yet"
-          description="Add a student and upload their reference photo to enroll them."
-          action={<CreateStudentDialog onCreated={() => mutate()} />}
+          description="Add a student and upload their reference photo, or import a whole class from CSV."
+          action={
+            <div className="flex flex-wrap justify-center gap-2">
+              <CreateStudentDialog onCreated={() => mutate()} onInvited={setInvite} />
+              <BulkImportDialog onImported={() => mutate()} />
+            </div>
+          }
         />
       ) : (
         <div className="flex flex-col gap-4">
@@ -311,6 +323,8 @@ export default function StudentsPage() {
           )}
         </div>
       )}
+
+      <InviteResultDialog invite={invite} onClose={() => setInvite(null)} />
     </div>
   );
 }

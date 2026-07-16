@@ -45,11 +45,31 @@ export interface StudentResponse {
   school_id: string;
   name: string;
   email: string;
-  reference_photo_path: string;
+  reference_photo_path: string | null; // BP7d: null for a photoless (bulk-imported) student
   enrollment_status: EnrollmentStatus;
   enrollment_failure_reason: EnrollmentFailureReason | null; // BP7b: set when failed
   created_at: string;
   updated_at: string;
+}
+
+/** A newly created student + its ONE-TIME server-generated temp password (BP7d). */
+export interface ProvisionedStudentResponse {
+  student: StudentResponse;
+  temp_password: string;
+}
+
+/** One CSV row's outcome from a bulk import (BP7d). `status`: created | duplicate |
+ *  invalid | error; `temp_password` set only when created. */
+export interface BulkStudentResult {
+  name: string;
+  email: string;
+  status: "created" | "duplicate" | "invalid" | "error";
+  temp_password: string | null;
+  student_id: string | null;
+  error: string | null;
+}
+export interface BulkImportResponse {
+  results: BulkStudentResult[];
 }
 
 /** A schools-list/detail row: the school + its rollup (BP2, decisions/0039). */

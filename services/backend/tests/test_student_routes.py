@@ -1,8 +1,9 @@
-"""End-to-end student routes over HTTP (decisions/0026).
+"""End-to-end student routes over HTTP (decisions/0026, BP7d).
 
 Real JWT + argon2 + RBAC + StudentService; fake repos/object-store/ML-client injected
 via a Container subclass. Exercises tenant isolation (school from the token), the
-`student:manage` gate, and the enroll/delete integration seams.
+`student:manage` gate, the enroll/delete integration seams, and BP7d's optional-photo
+create + CSV bulk import.
 """
 
 from __future__ import annotations
@@ -92,31 +93,43 @@ def test_school_admin_creates_student_in_own_school() -> None:
     client, token, container = _admin_client()
     resp = client.post(
         "/v1/students",
-        json={"name": "Bart", "email": "bart@s1.io", "password": "temp-pw-123",
-              "reference_photo_path": _PATH},
+        json={"name": "Bart", "email": "bart@s1.io", "reference_photo_path": _PATH},
         headers=_auth(token),
     )
     assert resp.status_code == 201, resp.text
     body = resp.json()
-    # Tenant isolation: the student lands in the admin's own school, from the token.
-    assert body["school_id"] == "s1" and body["name"] == "Bart"
-    assert body["enrollment_status"] == "enrolled"
-    # email is now exposed (0033) — the student's login email; the hash never is.
-    assert body["email"] == "bart@s1.io" and "password_hash" not in body
+    # BP7d: the response is {student, temp_password} — the temp password is server-gen'd
+    # and returned once; the hash never appears.
+    student = body["student"]
+    assert student["school_id"] == "s1" and student["name"] == "Bart"
+    assert student["enrollment_status"] == "enrolled"
+    assert student["email"] == "bart@s1.io" and "password_hash" not in student
+    assert isinstance(body["temp_password"], str) and len(body["temp_password"]) >= 8
     # The ML enrollment seam was invoked for this student's photo.
     ml = container.ml_enrollment_client()
     assert isinstance(ml, FakeMlClient) and ml.enroll_calls[0][2] == [_PATH]
 
 
-def test_teacher_can_manage_students() -> None:
-    client, container = _build(
-        users=[_user(id="tch", role=Role.TEACHER, school_id="s1")]
+def test_create_without_a_photo_is_pending() -> None:
+    # BP7d: the reference photo is optional — a photoless student is created pending.
+    client, token, container = _admin_client()
+    resp = client.post(
+        "/v1/students", json={"name": "No Photo", "email": "np@s1.io"}, headers=_auth(token)
     )
+    assert resp.status_code == 201, resp.text
+    student = resp.json()["student"]
+    assert student["enrollment_status"] == "pending"
+    assert student["reference_photo_path"] is None
+    ml = container.ml_enrollment_client()
+    assert isinstance(ml, FakeMlClient) and ml.enroll_calls == []  # no enroll fired
+
+
+def test_teacher_can_manage_students() -> None:
+    client, container = _build(users=[_user(id="tch", role=Role.TEACHER, school_id="s1")])
     token = _token(client, "tch")
     resp = client.post(
         "/v1/students",
-        json={"name": "Lisa", "email": "lisa@s1.io", "password": "temp-pw-123",
-              "reference_photo_path": _PATH},
+        json={"name": "Lisa", "email": "lisa@s1.io", "reference_photo_path": _PATH},
         headers=_auth(token),
     )
     assert resp.status_code == 201, resp.text
@@ -126,22 +139,11 @@ def test_create_rejects_foreign_prefix_path() -> None:
     client, token, _ = _admin_client()
     resp = client.post(
         "/v1/students",
-        json={"name": "X", "email": "x@s1.io", "password": "temp-pw-123",
+        json={"name": "X", "email": "x@s1.io",
               "reference_photo_path": "reference-photos/other/p.jpg"},
         headers=_auth(token),
     )
     assert resp.status_code == 400  # ValidationError (tenant path guard)
-
-
-def test_create_short_password_rejected_by_schema() -> None:
-    client, token, _ = _admin_client()
-    resp = client.post(
-        "/v1/students",
-        json={"name": "X", "email": "x@s1.io", "password": "short",
-              "reference_photo_path": _PATH},
-        headers=_auth(token),
-    )
-    assert resp.status_code == 422  # min_length=8
 
 
 def test_whitespace_name_rejected_as_400_not_422() -> None:
@@ -149,8 +151,7 @@ def test_whitespace_name_rejected_as_400_not_422() -> None:
     client, token, _ = _admin_client()
     resp = client.post(
         "/v1/students",
-        json={"name": "   ", "email": "x@s1.io", "password": "temp-pw-123",
-              "reference_photo_path": _PATH},
+        json={"name": "   ", "email": "x@s1.io", "reference_photo_path": _PATH},
         headers=_auth(token),
     )
     assert resp.status_code == 400
@@ -160,18 +161,70 @@ def test_name_length_boundary() -> None:
     client, token, _ = _admin_client()
     ok = client.post(
         "/v1/students",
-        json={"name": "a" * 200, "email": "ok@s1.io", "password": "temp-pw-123",
-              "reference_photo_path": _PATH},
+        json={"name": "a" * 200, "email": "ok@s1.io", "reference_photo_path": _PATH},
         headers=_auth(token),
     )
     assert ok.status_code == 201, ok.text  # exactly 200 accepted
     too_long = client.post(
         "/v1/students",
-        json={"name": "a" * 201, "email": "long@s1.io", "password": "temp-pw-123",
-              "reference_photo_path": _PATH},
+        json={"name": "a" * 201, "email": "long@s1.io", "reference_photo_path": _PATH},
         headers=_auth(token),
     )
     assert too_long.status_code == 422  # schema max_length=200
+
+
+# ---- bulk import (BP7d) ------------------------------------------------
+
+
+def test_bulk_import_creates_and_reports_per_row() -> None:
+    client, token, _ = _admin_client()
+    # Pre-seed a duplicate.
+    client.post("/v1/students", json={"name": "Old", "email": "dup@s1.io"}, headers=_auth(token))
+    resp = client.post(
+        "/v1/students/bulk",
+        json={"students": [
+            {"name": "Alice", "email": "alice@s1.io"},
+            {"name": "Dupe", "email": "dup@s1.io"},
+            {"name": "Bad", "email": "not-an-email"},
+        ]},
+        headers=_auth(token),
+    )
+    assert resp.status_code == 201, resp.text
+    results = resp.json()["results"]
+    assert [r["status"] for r in results] == ["created", "duplicate", "invalid"]
+    # The created row carries a one-time temp password + a student_id.
+    assert results[0]["temp_password"] and results[0]["student_id"]
+    # Security invariant: EVERY non-created row omits the password + student_id.
+    for r in results:
+        if r["status"] != "created":
+            assert r["temp_password"] is None and r["student_id"] is None
+    # The whole class landed in the caller's school (list has the pre-seed + Alice = 2).
+    assert len(client.get("/v1/students", headers=_auth(token)).json()) == 2
+
+
+def test_bulk_import_empty_list_is_422() -> None:
+    client, token, _ = _admin_client()
+    resp = client.post("/v1/students/bulk", json={"students": []}, headers=_auth(token))
+    assert resp.status_code == 422  # min_length=1
+
+
+def test_bulk_import_over_the_cap_is_422() -> None:
+    # The batch is capped at 500 rows per request (schema max_length).
+    client, token, _ = _admin_client()
+    rows = [{"name": "a", "email": f"a{i}@s1.io"} for i in range(501)]
+    resp = client.post("/v1/students/bulk", json={"students": rows}, headers=_auth(token))
+    assert resp.status_code == 422
+
+
+def test_bulk_import_requires_student_manage() -> None:
+    client, _ = _build(users=[_user(id="stu", role=Role.STUDENT, school_id="s1")])
+    token = _token(client, "stu")
+    resp = client.post(
+        "/v1/students/bulk",
+        json={"students": [{"name": "A", "email": "a@s1.io"}]},
+        headers=_auth(token),
+    )
+    assert resp.status_code == 403
 
 
 # ---- list + get + tenant isolation ------------------------------------
@@ -181,11 +234,10 @@ def test_list_and_get_and_cross_tenant_404() -> None:
     client, token, _ = _admin_client()
     created = client.post(
         "/v1/students",
-        json={"name": "Bart", "email": "bart@s1.io", "password": "temp-pw-123",
-              "reference_photo_path": _PATH},
+        json={"name": "Bart", "email": "bart@s1.io", "reference_photo_path": _PATH},
         headers=_auth(token),
     ).json()
-    sid = created["id"]
+    sid = created["student"]["id"]
 
     listed = client.get("/v1/students", headers=_auth(token))
     assert listed.status_code == 200 and [s["id"] for s in listed.json()] == [sid]
@@ -208,10 +260,9 @@ def test_reenroll_endpoint_updates_status() -> None:
     token = _token(client, "sa")
     created = client.post(
         "/v1/students",
-        json={"name": "R", "email": "r@s1.io", "password": "temp-pw-123",
-              "reference_photo_path": _PATH},
+        json={"name": "R", "email": "r@s1.io", "reference_photo_path": _PATH},
         headers=_auth(token),
-    ).json()
+    ).json()["student"]
     assert created["enrollment_status"] == "failed"
     # BP7b: the failure reason serializes through StudentResponse end-to-end.
     assert created["enrollment_failure_reason"] == "no_face"
@@ -225,6 +276,16 @@ def test_reenroll_endpoint_updates_status() -> None:
     assert body["enrollment_failure_reason"] is None
 
 
+def test_enroll_photoless_student_is_rejected() -> None:
+    # BP7d: enrolling a photoless (bulk-imported) student -> 400.
+    client, token, _ = _admin_client()
+    created = client.post(
+        "/v1/students", json={"name": "NP", "email": "np@s1.io"}, headers=_auth(token)
+    ).json()["student"]
+    resp = client.post(f"/v1/students/{created['id']}/enroll", headers=_auth(token))
+    assert resp.status_code == 400
+
+
 # ---- delete ------------------------------------------------------------
 
 
@@ -232,10 +293,9 @@ def test_delete_student() -> None:
     client, token, container = _admin_client()
     created = client.post(
         "/v1/students",
-        json={"name": "D", "email": "d@s1.io", "password": "temp-pw-123",
-              "reference_photo_path": _PATH},
+        json={"name": "D", "email": "d@s1.io", "reference_photo_path": _PATH},
         headers=_auth(token),
-    ).json()
+    ).json()["student"]
     resp = client.delete(f"/v1/students/{created['id']}", headers=_auth(token))
     assert resp.status_code == 204
     # Gone afterwards.
@@ -252,10 +312,9 @@ def test_delete_surfaces_ml_outage_as_502() -> None:
     token = _token(client, "sa")
     created = client.post(
         "/v1/students",
-        json={"name": "K", "email": "k@s1.io", "password": "temp-pw-123",
-              "reference_photo_path": _PATH},
+        json={"name": "K", "email": "k@s1.io", "reference_photo_path": _PATH},
         headers=_auth(token),
-    ).json()
+    ).json()["student"]
     resp = client.delete(f"/v1/students/{created['id']}", headers=_auth(token))
     assert resp.status_code == 502
 

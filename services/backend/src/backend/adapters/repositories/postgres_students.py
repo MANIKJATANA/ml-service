@@ -49,7 +49,7 @@ class PostgresStudentRepository:
         school_id: str,
         user_id: str,
         name: str,
-        reference_photo_path: str,
+        reference_photo_path: str | None = None,
     ) -> Student:
         sid = req_uuid(school_id, field="school_id")
         uid = req_uuid(user_id, field="user_id")

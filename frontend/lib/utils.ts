@@ -20,6 +20,20 @@ export function formatDate(iso: string): string {
   });
 }
 
+/** Format an ISO timestamp as a short local date + time (e.g. "Jul 12, 2026, 2:34 PM");
+ *  "—" if invalid. Used where a bare date isn't precise enough (e.g. the download audit). */
+export function formatDateTime(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "—";
+  return date.toLocaleString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
 /** Copy text to the clipboard (BP7c — the shown-once temp password). Resolves `true` on
  *  success, `false` if the Clipboard API is unavailable (insecure context) or denied, so
  *  the caller can fall back to "select it manually". */

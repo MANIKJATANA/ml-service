@@ -4,6 +4,7 @@ import { Download } from "lucide-react";
 import { useParams } from "next/navigation";
 
 import { AppearanceEditor } from "@/components/gallery/appearance-editor";
+import { DownloadHistory } from "@/components/gallery/download-history";
 import { SignedImage } from "@/components/gallery/signed-image";
 import { Breadcrumb } from "@/components/ui/breadcrumb";
 import { Button } from "@/components/ui/button";
@@ -70,7 +71,9 @@ export default function PhotoDetailPage() {
             <Download className="size-4" aria-hidden="true" />
             Download
           </Button>
-          <div className="flex flex-col gap-3">
+          {/* School-admin-only; renders nothing for teachers (BP8b). */}
+          <DownloadHistory mediaId={mediaId} />
+          <div className="flex flex-col gap-3 border-t border-hairline pt-4">
             <h2 className="text-body-sm font-medium text-ink">
               In this {media.media_type === "video" ? "video" : "photo"}
             </h2>

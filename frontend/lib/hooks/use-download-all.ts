@@ -3,7 +3,7 @@
 import { downloadZip } from "client-zip";
 import { useState } from "react";
 
-import { downloadMedia } from "@/lib/api/endpoints";
+import { downloadMedia, recordDownload } from "@/lib/api/endpoints";
 
 interface ZipEntry {
   name: string;
@@ -31,6 +31,8 @@ async function fetchEntries(
         const subtype = blob.type.split("/")[1];
         const ext = !subtype || subtype === "octet-stream" ? "jpg" : subtype;
         results[i] = { name: `photo-${String(i + 1).padStart(3, "0")}.${ext}`, input: blob };
+        // A real download → audit it best-effort (BP8b), never blocking the zip.
+        void recordDownload(mediaIds[i]).catch(() => {});
       } catch {
         results[i] = null; // skip this one; keep the rest
       } finally {

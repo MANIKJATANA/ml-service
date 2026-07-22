@@ -9,12 +9,13 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from dataclasses import replace
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 
 from backend.domain.emails import normalize_email
 from backend.domain.errors import ConflictError, NotFoundError
 from backend.domain.models import (
     Appearance,
+    DownloadAuditEntry,
     EnrollmentFailureReason,
     EnrollmentOutcome,
     EnrollmentStatus,
@@ -41,6 +42,7 @@ from backend.domain.models import (
     UserStatus,
 )
 from backend.domain.ports import (
+    DownloadAuditRepository,
     EventJobProducer,
     EventRepository,
     MatchCorrectionRepository,
@@ -219,6 +221,29 @@ def make_match_correction(
         event_id=event_id,
         verdict=verdict,
         resolves_review=resolves_review,
+    )
+
+
+def make_download_audit_entry(
+    *,
+    id: str = "audit-1",
+    school_id: str = "school-1",
+    media_id: str = "media-1",
+    event_id: str = "event-1",
+    actor_user_id: str | None = "user-1",
+    actor_role: str = "school_admin",
+    subject_student_id: str | None = None,
+    created_at: datetime = _NOW,
+) -> DownloadAuditEntry:
+    return DownloadAuditEntry(
+        id=id,
+        school_id=school_id,
+        media_id=media_id,
+        event_id=event_id,
+        actor_user_id=actor_user_id,
+        actor_role=actor_role,
+        subject_student_id=subject_student_id,
+        created_at=created_at,
     )
 
 
@@ -880,6 +905,101 @@ class FakeMatchCorrectionRepo:
         return sum(1 for c in self._by_pair.values() if c.resolves_review)
 
 
+class FakeDownloadAuditRepo:
+    """DownloadAuditRepository double: an in-memory append-only list (BP8b).
+
+    Filters by ``school_id`` like the real adapter; ``created_at`` increments per record so
+    the newest-first ordering is deterministic. ``raise_on_record`` exercises the best-effort
+    swallow in ``GalleryService.download_url`` (an audit failure must not fail a download)."""
+
+    def __init__(
+        self,
+        entries: list[DownloadAuditEntry] | None = None,
+        *,
+        raise_on_record: Exception | None = None,
+    ) -> None:
+        self._rows: list[DownloadAuditEntry] = list(entries or [])
+        self._seq = len(self._rows)
+        self._raise = raise_on_record
+
+    async def record(
+        self,
+        *,
+        school_id: str,
+        media_id: str,
+        event_id: str,
+        actor_user_id: str,
+        actor_role: str,
+        subject_student_id: str | None,
+    ) -> None:
+        if self._raise is not None:
+            raise self._raise
+        self._seq += 1
+        self._rows.append(
+            DownloadAuditEntry(
+                id=f"audit-{self._seq}",
+                school_id=school_id,
+                media_id=media_id,
+                event_id=event_id,
+                actor_user_id=actor_user_id,
+                actor_role=actor_role,
+                subject_student_id=subject_student_id,
+                created_at=_NOW + timedelta(seconds=self._seq),
+            )
+        )
+
+    def _scoped(self, school_id: str) -> list[DownloadAuditEntry]:
+        rows = [r for r in self._rows if r.school_id == school_id]
+        rows.sort(key=lambda r: r.created_at, reverse=True)  # newest-first
+        return rows
+
+    async def list_for_media(
+        self, school_id: str, media_id: str, *, limit: int
+    ) -> list[DownloadAuditEntry]:
+        return [r for r in self._scoped(school_id) if r.media_id == media_id][:limit]
+
+    async def count_for_media(self, school_id: str, media_id: str) -> int:
+        return sum(
+            1 for r in self._rows if r.school_id == school_id and r.media_id == media_id
+        )
+
+    async def list_recent(
+        self,
+        school_id: str,
+        *,
+        limit: int,
+        offset: int,
+        event_id: str | None = None,
+        student_id: str | None = None,
+    ) -> list[DownloadAuditEntry]:
+        rows = self._filtered(school_id, event_id, student_id)
+        return rows[offset : offset + limit]
+
+    async def count_recent(
+        self,
+        school_id: str,
+        *,
+        event_id: str | None = None,
+        student_id: str | None = None,
+    ) -> int:
+        return len(self._filtered(school_id, event_id, student_id))
+
+    def _filtered(
+        self, school_id: str, event_id: str | None, student_id: str | None
+    ) -> list[DownloadAuditEntry]:
+        rows = self._scoped(school_id)
+        if event_id is not None:
+            rows = [r for r in rows if r.event_id == event_id]
+        if student_id is not None:
+            rows = [r for r in rows if r.subject_student_id == student_id]
+        return rows
+
+    @property
+    def rows(self) -> list[DownloadAuditEntry]:
+        """Test accessor: every recorded row, in insertion order."""
+        return list(self._rows)
+
+
 class FakeNotificationReadRepo:
     """NotificationReadRepository double: (student_id, event_id) -> seen_at."""
 
@@ -944,6 +1064,7 @@ class SeededContainer(Container):
         event_job_producer: EventJobProducer | None = None,
         ml_results_reader: MlResultsReader | None = None,
         match_corrections: MatchCorrectionRepository | None = None,
+        download_audit: DownloadAuditRepository | None = None,
         notification_reads: NotificationReadRepository | None = None,
         notifier: NotificationChannel | None = None,
         jwt_secret: str = _TEST_JWT_SECRET,
@@ -964,6 +1085,9 @@ class SeededContainer(Container):
         )
         self._seed_match_corrections: MatchCorrectionRepository = (
             match_corrections or FakeMatchCorrectionRepo()
+        )
+        self._seed_download_audit: DownloadAuditRepository = (
+            download_audit or FakeDownloadAuditRepo()
         )
         self._seed_notification_reads: NotificationReadRepository = (
             notification_reads or FakeNotificationReadRepo()
@@ -1010,6 +1134,9 @@ class SeededContainer(Container):
 
     def match_correction_repo(self) -> MatchCorrectionRepository:
         return self._seed_match_corrections
+
+    def download_audit_repo(self) -> DownloadAuditRepository:
+        return self._seed_download_audit
 
     def notification_reads_repo(self) -> NotificationReadRepository:
         return self._seed_notification_reads

@@ -19,6 +19,7 @@ from backend.domain.models import (
 )
 from backend.services.gallery_service import GalleryService
 from backend_fakes import (
+    FakeDownloadAuditRepo,
     FakeEventRepo,
     FakeMatchCorrectionRepo,
     FakeMediaRepo,
@@ -42,6 +43,7 @@ def _svc(
     media: list[Media] | None = None,
     appearances: list[Appearance] | None = None,
     corrections: list[MatchCorrection] | None = None,
+    audit: FakeDownloadAuditRepo | None = None,
     ttl: int = 3600,
 ) -> GalleryService:
     return GalleryService(
@@ -51,6 +53,7 @@ def _svc(
         FakeMediaRepo(media or []),
         FakeMatchCorrectionRepo(corrections or []),
         FakeObjectStore(),
+        audit or FakeDownloadAuditRepo(),
         download_url_ttl_s=ttl,
     )
 
@@ -274,7 +277,9 @@ async def test_download_blocked_for_rejected_match() -> None:
         ],
     )
     with pytest.raises(NotFoundError):
-        await svc.download_url(school_id=_S1, media_id="m1", restrict_to_student_id="a")
+        await svc.download_url(
+            school_id=_S1, media_id="m1", restrict_to_student_id="a"
+        )
 
 
 async def test_download_allowed_for_added_student() -> None:
@@ -305,6 +310,98 @@ async def test_download_allowed_for_plain_and_confirmed_match() -> None:
     assert (
         await svc.download_url(school_id=_S1, media_id="m1", restrict_to_student_id="a")
     ).download_url
+
+
+# ---- BP8b download audit (decisions/0050) ------------------------------
+# Recording is a SEPARATE action (record_download) fired on the real download, NOT on the
+# signed-URL mint (which is shared with viewing) — so a mere view is never audited.
+
+
+async def test_download_url_mint_records_nothing() -> None:
+    # A view/mint (any number of times) must NOT record a download.
+    audit = FakeDownloadAuditRepo()
+    svc = _svc(
+        students=[make_student(id="a", school_id=_S1, user_id="ua")],
+        media=[make_media(id="m1", school_id=_S1, event_id="e1")],
+        appearances=[make_appearance(student_id="a", media_id="m1", event_id="e1")],
+        audit=audit,
+    )
+    await svc.download_url(school_id=_S1, media_id="m1", restrict_to_student_id=None)
+    await svc.download_url(school_id=_S1, media_id="m1", restrict_to_student_id="a")
+    assert audit.rows == []
+
+
+async def test_record_download_student_records_row_with_subject() -> None:
+    audit = FakeDownloadAuditRepo()
+    svc = _svc(
+        students=[make_student(id="a", school_id=_S1, user_id="ua")],
+        media=[make_media(id="m1", school_id=_S1, event_id="e1")],
+        appearances=[make_appearance(student_id="a", media_id="m1", event_id="e1")],
+        audit=audit,
+    )
+    await svc.record_download(
+        school_id=_S1,
+        media_id="m1",
+        restrict_to_student_id="a",
+        actor_user_id="ua",
+        actor_role="student",
+    )
+    assert len(audit.rows) == 1
+    row = audit.rows[0]
+    assert row.media_id == "m1" and row.event_id == "e1"
+    assert row.actor_user_id == "ua" and row.actor_role == "student"
+    # A student self-download stamps the subject student; staff would leave it None.
+    assert row.subject_student_id == "a"
+
+
+async def test_record_download_staff_records_row_without_subject() -> None:
+    audit = FakeDownloadAuditRepo()
+    svc = _svc(
+        media=[make_media(id="m1", school_id=_S1, event_id="e1")],
+        audit=audit,
+    )
+    await svc.record_download(
+        school_id=_S1,
+        media_id="m1",
+        restrict_to_student_id=None,
+        actor_user_id="staff-1",
+        actor_role="school_admin",
+    )
+    assert len(audit.rows) == 1
+    assert audit.rows[0].subject_student_id is None
+
+
+async def test_record_download_not_recorded_when_gate_denies() -> None:
+    # A blocked download (student not appearing) 404s and records nothing.
+    audit = FakeDownloadAuditRepo()
+    svc = _svc(
+        media=[make_media(id="m1", school_id=_S1, event_id="e1")],
+        appearances=[],  # student "a" does not appear
+        audit=audit,
+    )
+    with pytest.raises(NotFoundError):
+        await svc.record_download(
+            school_id=_S1,
+            media_id="m1",
+            restrict_to_student_id="a",
+            actor_user_id="ua",
+            actor_role="student",
+        )
+    assert audit.rows == []
+
+
+async def test_record_download_missing_media_raises() -> None:
+    audit = FakeDownloadAuditRepo()
+    svc = _svc(media=[], audit=audit)
+    with pytest.raises(NotFoundError):
+        await svc.record_download(
+            school_id=_S1,
+            media_id="ghost",
+            restrict_to_student_id=None,
+            actor_user_id="staff-1",
+            actor_role="school_admin",
+        )
+    assert audit.rows == []
 
 
 async def test_student_media_hides_rejected_and_adds_missed() -> None:

@@ -27,6 +27,7 @@ class Permission(StrEnum):
     DASHBOARD_VIEW = "dashboard:view"  # admin + teacher: the school command center
     NOTIFICATION_SEND = "notification:send"  # admin + teacher: announce photos to students
     MATCH_REVIEW = "match:review"  # admin + teacher: confirm/reject/add face matches
+    AUDIT_VIEW = "audit:view"  # school_admin: read the download/access audit
 
 
 # Hardcoded v1 policy. A later DbPermissionResolver overlays per-school overrides
@@ -44,6 +45,9 @@ ROLE_PERMISSIONS: dict[Role, frozenset[Permission]] = {
             Permission.DASHBOARD_VIEW,
             Permission.NOTIFICATION_SEND,
             Permission.MATCH_REVIEW,
+            # BP8b: the access/download audit is admin-only for now. Granting it to
+            # teachers later is a one-line addition to the TEACHER set below.
+            Permission.AUDIT_VIEW,
         }
     ),
     Role.TEACHER: frozenset(

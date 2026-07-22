@@ -28,6 +28,7 @@ from backend.domain.models import (
     Student,
 )
 from backend.domain.ports import (
+    DownloadAuditRepository,
     EventRepository,
     MatchCorrectionRepository,
     MediaRepository,
@@ -135,6 +136,7 @@ class GalleryService:
         media: MediaRepository,
         corrections: MatchCorrectionRepository,
         object_store: ObjectStore,
+        audit: DownloadAuditRepository,
         *,
         download_url_ttl_s: int,
     ) -> None:
@@ -144,6 +146,7 @@ class GalleryService:
         self._media = media
         self._corrections = corrections
         self._object_store = object_store
+        self._audit = audit
         self._ttl = download_url_ttl_s
 
     # ---- event-centric views -------------------------------------------
@@ -258,21 +261,45 @@ class GalleryService:
     ) -> SignedDownload:
         """A short-lived signed URL to fetch one media (decisions/0028 + BP5).
 
+        This mint is used for BOTH viewing (the browser renders the image/video off this
+        URL) and the download action, so it records **nothing** — the actual download is
+        audited separately via ``record_download`` (BP8b, decisions/0050), fired only when
+        the user saves, so a mere view is never logged as a download.
+
         ``restrict_to_student_id=None`` -> staff (any media in the school). Otherwise the
         media must be one the student **effectively** appears in (an un-rejected ML match or
         an ``added`` correction), else 404 — a rejected match blocks the download."""
         media = await self._require_media(school_id, media_id)
-        if restrict_to_student_id is not None:
-            appearances = await self._reader.list_media_appearances(school_id, media_id)
-            corrections = await self._corrections.list_for_media(school_id, media_id)
-            if restrict_to_student_id not in effective_media_student_ids(
-                appearances, corrections
-            ):
-                raise NotFoundError(f"media not found: {media_id}")
+        await self._require_downloadable(school_id, media_id, restrict_to_student_id)
         url = await self._object_store.create_signed_download_url(
             media.storage_path, expires_in_s=self._ttl
         )
         return SignedDownload(download_url=url, expires_in_s=self._ttl)
+
+    async def record_download(
+        self,
+        *,
+        school_id: str,
+        media_id: str,
+        restrict_to_student_id: str | None,
+        actor_user_id: str,
+        actor_role: str,
+    ) -> None:
+        """Record one **actual** media download in the audit (BP8b, decisions/0050) — fired
+        on the download action (the user clicked save), NOT on the signed-URL mint (which is
+        shared with viewing). Runs the same entitlement gate as ``download_url``, so a caller
+        who can't download the media 404s and records nothing. ``subject_student_id`` is the
+        downloading student's own id on a self-download (None for staff)."""
+        media = await self._require_media(school_id, media_id)
+        await self._require_downloadable(school_id, media_id, restrict_to_student_id)
+        await self._audit.record(
+            school_id=school_id,
+            media_id=media_id,
+            event_id=media.event_id,
+            actor_user_id=actor_user_id,
+            actor_role=actor_role,
+            subject_student_id=restrict_to_student_id,
+        )
 
     # ---- internals ------------------------------------------------------
 
@@ -293,3 +320,19 @@ class GalleryService:
         if media is None:
             raise NotFoundError(f"media not found: {media_id}")
         return media
+
+    async def _require_downloadable(
+        self, school_id: str, media_id: str, restrict_to_student_id: str | None
+    ) -> None:
+        """The download entitlement gate (shared by ``download_url`` + ``record_download``):
+        staff (``None``) may fetch any in-school media; a student only media they
+        **effectively** appear in (an un-rejected match or an ``added`` correction), else 404
+        — a rejected match blocks it, and it never confirms a photo they can't see."""
+        if restrict_to_student_id is None:
+            return
+        appearances = await self._reader.list_media_appearances(school_id, media_id)
+        corrections = await self._corrections.list_for_media(school_id, media_id)
+        if restrict_to_student_id not in effective_media_student_ids(
+            appearances, corrections
+        ):
+            raise NotFoundError(f"media not found: {media_id}")

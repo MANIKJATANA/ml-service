@@ -15,6 +15,7 @@ from fastapi import APIRouter, Depends
 
 from backend.api.deps import (
     ContainerDep,
+    CurrentUser,
     GalleryDownloadScope,
     require_permissions,
     tenant_of,
@@ -107,9 +108,31 @@ async def media_appearances(
 async def download_media(
     media_id: str, container: ContainerDep, scope: GalleryDownloadScope
 ) -> DownloadResponse:
+    # Mints the signed URL used for BOTH viewing and downloading — records nothing. The
+    # actual download is audited via the POST below (BP8b, decisions/0050).
     signed = await container.gallery_service().download_url(
         school_id=scope.school_id,
         media_id=media_id,
         restrict_to_student_id=scope.restrict_to_student_id,
     )
     return DownloadResponse.from_signed(signed)
+
+
+@router.post("/media/{media_id}/download", status_code=204)
+async def record_media_download(
+    media_id: str,
+    container: ContainerDep,
+    scope: GalleryDownloadScope,
+    actor: CurrentUser,
+) -> None:
+    # The FE fires this only when the user actually saves a media (BP8b) — so a view (which
+    # mints via the GET above) is never logged as a download. Same entitlement gate: a caller
+    # who can't download the media 404s and records nothing. `actor` reuses the already-
+    # resolved (cached) current user that `scope` derived from.
+    await container.gallery_service().record_download(
+        school_id=scope.school_id,
+        media_id=media_id,
+        restrict_to_student_id=scope.restrict_to_student_id,
+        actor_user_id=actor.id,
+        actor_role=actor.role.value,
+    )

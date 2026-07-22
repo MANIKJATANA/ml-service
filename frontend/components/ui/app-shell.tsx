@@ -10,6 +10,7 @@ import {
   LogOut,
   type LucideIcon,
   Menu,
+  ScrollText,
   Users,
   X,
 } from "lucide-react";
@@ -53,6 +54,7 @@ const NAV_BY_ROLE: Record<Role, NavItem[]> = {
     { href: "/staff", label: "Staff", icon: Users },
     { href: "/students", label: "Students", icon: GraduationCap },
     { href: "/events", label: "Events", icon: CalendarDays },
+    { href: "/audit", label: "Access log", icon: ScrollText },
   ],
   teacher: [
     { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },

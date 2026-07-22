@@ -195,7 +195,7 @@ cache-invalidation, fail-loud on model-version mismatch; model swap = offline re
 | Dashboards / analytics / counts | BE + FE (BP1) | ⚠️ partial | **school command center landed** (decisions/0038): `GET /v1/dashboard` rollups + needs-attention + nav scent; list-row counts + platform/analytics rollups still pending (BP2+) |
 | Search / filter / sort on lists | FE (BP2) | ✅ | all four admin lists (schools/staff/students/events): client search + sort + status/enrollment filter chips + per-row counts (decisions/0039). **Bulk** actions still absent (BP7). |
 | Self-serve onboarding / bulk import / billing | BE + FE (BP7a/d) | ⚠️ partial | **setup checklist (BP7a) + CSV bulk student import (BP7d) landed**; self-serve signup + billing still absent; `max_teachers` is the only quota |
-| Retention / hard-delete / audit log | — | ❌ **absent** | archive-not-delete; no retention; no access audit |
+| Retention / hard-delete / audit log | BE + FE (BP8b) | ⚠️ partial | **access/download audit landed** (decisions/0050): every entitled download → an append-only `download_audit` row, surfaced to school-admins (per-photo history + a paginated Access log; `audit:view`). Retention / hard-delete still **absent** (archive-not-delete; BP8e) |
 | Consent / compliance | — | ⛔ out of scope | handled by legal via school contracts |
 
 ---
@@ -245,10 +245,11 @@ Notified·Seen roster. **Outbound push (email/WhatsApp) is still absent** — a 
 seam ship now; auto drives only the in-app signal. No SMS/share-link.
 
 **Lifecycle & privacy posture:** events/media are **archive-not-delete** (no hard delete, no retention/expiry).
-Failed photos stay `pending` (no error state). Deleting a student does ML-delete-first (502 if ML down) then FK
-cascade — but **historical `matches` for deleted students are silently skipped** in gallery reads (not purged).
-**No access/download audit log.** Consent = out-of-band (legal/contracts). RBAC is static role→permission; tenant
-`school_id` always from the token (platform routes excepted).
+Failed photos are marked `failed` + retryable (BP8a, decisions/0049 — no longer a silent `pending`). Deleting a
+student does ML-delete-first (502 if ML down) then FK cascade — but **historical `matches` for deleted students are
+silently skipped** in gallery reads (not purged). **Entitled downloads are now audited** (BP8b, decisions/0050 —
+`download_audit`, school-admin `audit:view`); retention / hard-delete still absent (BP8e). Consent = out-of-band
+(legal/contracts). RBAC is static role→permission; tenant `school_id` always from the token (platform routes excepted).
 
 **RBAC:** platform_admin→`school:manage`; school_admin→`staff/student/event/media/job:status/gallery:view_all` +
 `dashboard:view` (BP1) + `notification:send` (BP4); teacher→ same minus `staff:manage`; student→`gallery:view_own`.

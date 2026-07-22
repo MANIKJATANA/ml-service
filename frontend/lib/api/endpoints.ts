@@ -2,6 +2,7 @@ import { bffFetch } from "./client";
 import type {
   BulkImportResponse,
   DashboardResponse,
+  DownloadLogPageResponse,
   DownloadResponse,
   EventForStudentResponse,
   EventListItem,
@@ -11,6 +12,7 @@ import type {
   GalleryMediaResponse,
   LoginResult,
   MediaAppearanceResponse,
+  MediaDownloadLogResponse,
   MediaResponse,
   MediaReviewResponse,
   MediaType,
@@ -418,9 +420,43 @@ export function reportNotMe(mediaId: string): Promise<void> {
 }
 
 /** Mint a short-lived signed URL for one media's bytes (entitlement-gated: staff any
- *  in-school, a student only media they appear in, else 404). */
+ *  in-school, a student only media they appear in, else 404). Used for BOTH viewing and
+ *  downloading, so it records nothing — `recordDownload` audits the actual download. */
 export function downloadMedia(mediaId: string): Promise<DownloadResponse> {
   return bffFetch<DownloadResponse>(`/api/v1/media/${encodeURIComponent(mediaId)}/download`);
+}
+
+/** Record one actual media download in the audit (BP8b) — fired only when the user saves a
+ *  media, never on a mere view. Same entitlement gate as the mint (404 if not entitled). */
+export function recordDownload(mediaId: string): Promise<void> {
+  return bffFetch<void>(`/api/v1/media/${encodeURIComponent(mediaId)}/download`, {
+    method: "POST",
+  });
+}
+
+// --- Access / download audit (BP8b, audit:view — school_admin only) ---
+
+/** One photo's download history (who downloaded it + when). School-admin only (403 else). */
+export function getMediaDownloadLog(mediaId: string): Promise<MediaDownloadLogResponse> {
+  return bffFetch<MediaDownloadLogResponse>(
+    `/api/v1/media/${encodeURIComponent(mediaId)}/download-log`,
+  );
+}
+
+/** One page of the school-wide access log, newest first (school-admin only). */
+export function getDownloadLog(params: {
+  limit: number;
+  offset: number;
+  eventId?: string;
+  studentId?: string;
+}): Promise<DownloadLogPageResponse> {
+  const q = new URLSearchParams({
+    limit: String(params.limit),
+    offset: String(params.offset),
+  });
+  if (params.eventId) q.set("event_id", params.eventId);
+  if (params.studentId) q.set("student_id", params.studentId);
+  return bffFetch<DownloadLogPageResponse>(`/api/v1/audit/downloads?${q.toString()}`);
 }
 
 // --- Student self-view (F6, gallery:view_own — the caller's own student_id from the token) ---

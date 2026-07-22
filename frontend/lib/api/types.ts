@@ -208,6 +208,36 @@ export interface DownloadResponse {
   expires_in_s: number;
 }
 
+/** One recorded media download — the school-admin trust audit (BP8b, decisions/0050).
+ *  `actor_email` is null once the account is deleted; `actor_role` (denormalized) survives.
+ *  `subject_student_*` is set only for a student's own self-download (null for staff). */
+export interface DownloadAuditEntryResponse {
+  id: string;
+  media_id: string;
+  event_id: string;
+  event_name: string | null;
+  actor_user_id: string | null;
+  actor_email: string | null;
+  actor_role: Role;
+  subject_student_id: string | null;
+  subject_student_name: string | null;
+  downloaded_at: string;
+}
+
+/** One photo's download history — total count + the recent entries (newest first). */
+export interface MediaDownloadLogResponse {
+  count: number;
+  entries: DownloadAuditEntryResponse[];
+}
+
+/** One page of the school-wide access log + the unpaginated total. */
+export interface DownloadLogPageResponse {
+  items: DownloadAuditEntryResponse[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
 /**
  * The admin command-center rollup (BP1, decisions/0038). Every count is read live from
  * the backend's own rows (and the ML `matches` seam) — there is no stored aggregate.

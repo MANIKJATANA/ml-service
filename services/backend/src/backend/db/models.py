@@ -406,3 +406,66 @@ class MatchCorrection(Base):
             name="ck_match_corrections_verdict",
         ),
     )
+
+
+class DownloadAudit(Base):
+    """An append-only record of one entitled media download (migration 0010, decisions/0050).
+
+    Backend-owned trust audit (BP8b): the backend writes a row every time it mints a signed
+    download URL for an entitled caller. ``actor_role`` is denormalized at write time so the
+    log still shows who + in what capacity after the account is deleted (``actor_user_id`` →
+    NULL). ``subject_student_id`` is the student on a *student self-download* (else NULL for
+    staff). Rows are immutable — no ``updated_at``, no update/delete path. The composite
+    indexes serve the per-media history and the school-wide log (+ its event/student
+    filters); ``created_at`` trails each so a backward scan orders newest-first."""
+
+    __tablename__ = "download_audit"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    school_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("schools.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    media_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("media.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    event_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("events.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    # SET NULL so the audit row outlives the account that made the download.
+    actor_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    actor_role: Mapped[str] = mapped_column(String, nullable=False)
+    # The downloading student, on a student self-download (else NULL for staff).
+    subject_student_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("students.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        Index("ix_download_audit_media", "school_id", "media_id", "created_at"),
+        Index("ix_download_audit_school", "school_id", "created_at"),
+        Index("ix_download_audit_event", "school_id", "event_id", "created_at"),
+        Index(
+            "ix_download_audit_student", "school_id", "subject_student_id", "created_at"
+        ),
+        # Lockstep with the Role domain enum.
+        CheckConstraint(
+            "actor_role IN ('platform_admin', 'school_admin', 'teacher', 'student')",
+            name="ck_download_audit_actor_role",
+        ),
+    )

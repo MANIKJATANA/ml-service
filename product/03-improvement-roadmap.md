@@ -178,6 +178,13 @@ convention. Order = my recommended build order.
     can't process is now marked **`failed`** (was silently `pending` forever) — visible + **retryable via redistribute**
     (the worker re-attempts non-`completed` photos; the `process_event` guard was widened to allow `failed`-only events).
     **Migration `0009`**; BE + ML worker + FE (a "Retry failed" action + warning). No ML-contract break.
+  - **BP8b landed** ([decisions/0050](decisions/0050-product-build-BP8b-download-audit.md)): every entitled photo
+    download is now recorded in an append-only **`download_audit`** table (**migration `0010`**), surfaced to
+    school-admins two ways — a per-photo **download history** panel + a paginated school-wide **"Access log"** page.
+    **Trust, not compliance.** Recording is a **separate `POST /media/{id}/download` action** (fired only on the actual
+    save), NOT the `GET` signed-URL mint — which is shared with **viewing**, so a mere view is never logged as a download;
+    new **`audit:view`** perm, **school_admin only** (one-line flip for teachers later). BE + FE, **no ML change, no new
+    env var**.
 - **Persona:** ops. **Source lens:** T7, X3, X5. **Acceptance:** failures are visible + recoverable (**BP8a**); enrollment
   isn't a silent SPOF (BP8d).
 

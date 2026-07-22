@@ -328,3 +328,24 @@ class MatchCorrection:
     event_id: str
     verdict: MatchVerdict
     resolves_review: bool
+
+
+@dataclass(frozen=True, slots=True)
+class DownloadAuditEntry:
+    """One recorded media download — the trust audit (BP8b, decisions/0050).
+
+    Append-only: the backend writes a row every time an entitled caller mints a signed
+    download URL. ``actor_role`` is the caller's role denormalized at write time (so the
+    log still shows *who* even after the account is deleted → ``actor_user_id`` becomes
+    None). ``subject_student_id`` is set only for a student's own self-download (the
+    student they are), None for staff. Display data (actor email, event/student names) is
+    joined from the backend's own rows by ``AuditService`` — never stored here."""
+
+    id: str
+    school_id: str
+    media_id: str
+    event_id: str
+    actor_user_id: str | None
+    actor_role: str
+    subject_student_id: str | None
+    created_at: datetime

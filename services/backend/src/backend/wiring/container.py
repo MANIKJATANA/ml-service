@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from backend.adapters.notification.composite import CompositeNotifier
 from backend.db.session import make_engine, make_sessionmaker
 from backend.domain.ports import (
+    DownloadAuditRepository,
     EventJobProducer,
     EventRepository,
     MatchCorrectionRepository,
@@ -38,6 +39,7 @@ from backend.domain.ports import (
     TokenService,
     UserRepository,
 )
+from backend.services.audit_service import AuditService
 from backend.services.auth_service import AuthService
 from backend.services.dashboard_service import DashboardService
 from backend.services.event_service import EventService
@@ -69,6 +71,7 @@ class Container:
         self._media_repo: MediaRepository | None = None
         self._ml_results_reader: MlResultsReader | None = None
         self._match_correction_repo: MatchCorrectionRepository | None = None
+        self._download_audit_repo: DownloadAuditRepository | None = None
         self._notification_reads_repo: NotificationReadRepository | None = None
         self._notifier: NotificationChannel | None = None
         self._event_job_producer: EventJobProducer | None = None
@@ -83,6 +86,7 @@ class Container:
         self._event_service: EventService | None = None
         self._media_service: MediaService | None = None
         self._gallery_service: GalleryService | None = None
+        self._audit_service: AuditService | None = None
         self._dashboard_service: DashboardService | None = None
         self._listing_service: ListingService | None = None
         self._notification_service: NotificationService | None = None
@@ -179,6 +183,17 @@ class Container:
                     )
                     self._match_correction_repo = cls(self.sessionmaker())
         return self._match_correction_repo
+
+    def download_audit_repo(self) -> DownloadAuditRepository:
+        if self._download_audit_repo is None:
+            with self._lock:
+                if self._download_audit_repo is None:
+                    cls = registry.resolve(
+                        registry.DOWNLOAD_AUDIT_REPO_REGISTRY,
+                        self._s.repository_impl,
+                    )
+                    self._download_audit_repo = cls(self.sessionmaker())
+        return self._download_audit_repo
 
     def notification_reads_repo(self) -> NotificationReadRepository:
         if self._notification_reads_repo is None:
@@ -376,9 +391,23 @@ class Container:
                         self.media_repo(),
                         self.match_correction_repo(),
                         self.object_store(),
+                        self.download_audit_repo(),
                         download_url_ttl_s=self._s.download_url_ttl_s,
                     )
         return self._gallery_service
+
+    def audit_service(self) -> AuditService:
+        if self._audit_service is None:
+            with self._lock:
+                if self._audit_service is None:
+                    self._audit_service = AuditService(
+                        self.download_audit_repo(),
+                        self.media_repo(),
+                        self.event_repo(),
+                        self.student_repo(),
+                        self.user_repo(),
+                    )
+        return self._audit_service
 
     def review_service(self) -> ReviewService:
         if self._review_service is None:

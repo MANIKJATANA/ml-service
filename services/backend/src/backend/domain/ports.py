@@ -15,6 +15,7 @@ from typing import Protocol
 
 from backend.domain.models import (
     Appearance,
+    DownloadAuditEntry,
     EnrollmentFailureReason,
     EnrollmentOutcome,
     EnrollmentStatus,
@@ -262,6 +263,46 @@ class MatchCorrectionRepository(Protocol):
         self, school_id: str, student_id: str
     ) -> list[MatchCorrection]: ...
     async def count_resolved(self, school_id: str) -> int: ...
+
+
+class DownloadAuditRepository(Protocol):
+    """Append-only audit of entitled media downloads (BP8b, decisions/0050).
+
+    ``record`` is called best-effort on every successful signed-download mint (a failure
+    must never block the download). The reads back the two school-admin surfaces: a
+    per-media history and a paginated, filterable school-wide log. Tenant-scoped by
+    ``school_id`` like every other repo; rows are immutable (no update/delete)."""
+
+    async def record(
+        self,
+        *,
+        school_id: str,
+        media_id: str,
+        event_id: str,
+        actor_user_id: str,
+        actor_role: str,
+        subject_student_id: str | None,
+    ) -> None: ...
+    async def list_for_media(
+        self, school_id: str, media_id: str, *, limit: int
+    ) -> list[DownloadAuditEntry]: ...
+    async def count_for_media(self, school_id: str, media_id: str) -> int: ...
+    async def list_recent(
+        self,
+        school_id: str,
+        *,
+        limit: int,
+        offset: int,
+        event_id: str | None = None,
+        student_id: str | None = None,
+    ) -> list[DownloadAuditEntry]: ...
+    async def count_recent(
+        self,
+        school_id: str,
+        *,
+        event_id: str | None = None,
+        student_id: str | None = None,
+    ) -> int: ...
 
 
 class NotificationReadRepository(Protocol):

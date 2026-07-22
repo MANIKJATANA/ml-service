@@ -16,6 +16,9 @@ import os
 from collections.abc import AsyncIterator
 
 import pytest
+from backend.adapters.repositories.postgres_download_audit import (
+    PostgresDownloadAuditRepository,
+)
 from backend.adapters.repositories.postgres_events import PostgresEventRepository
 from backend.adapters.repositories.postgres_match_corrections import (
     PostgresMatchCorrectionRepository,
@@ -680,6 +683,74 @@ async def test_match_corrections_upsert_get_delete_list_and_scope(
 
     await corr.delete(a.id, m.id, student.id)
     assert await corr.get(a.id, m.id, student.id) is None
+
+
+async def test_download_audit_record_list_and_scope(
+    sm: async_sessionmaker[AsyncSession],
+) -> None:
+    schools = PostgresSchoolRepository(sm)
+    users = PostgresUserRepository(sm)
+    students = PostgresStudentRepository(sm)
+    events = PostgresEventRepository(sm)
+    media = PostgresMediaRepository(sm)
+    audit = PostgresDownloadAuditRepository(sm)
+    a = await schools.create(name="A", max_teachers=5)
+    login = await users.create(
+        school_id=a.id, email="s@x.io", password_hash="h", role=Role.STUDENT
+    )
+    student = await students.create(
+        school_id=a.id, user_id=login.id, name="N", reference_photo_path="p"
+    )
+    staff = await users.create(
+        school_id=a.id, email="t@x.io", password_hash="h", role=Role.SCHOOL_ADMIN
+    )
+    ev = await events.create(
+        school_id=a.id, name="E", description=None, event_date=None, created_by=None
+    )
+    m = await media.create(
+        school_id=a.id, event_id=ev.id, storage_path="p1.jpg", media_type=MediaType.IMAGE
+    )
+
+    assert await audit.count_for_media(a.id, m.id) == 0
+    # A staff download (no subject) + a student self-download (subject = the student).
+    await audit.record(
+        school_id=a.id, media_id=m.id, event_id=ev.id, actor_user_id=staff.id,
+        actor_role="school_admin", subject_student_id=None,
+    )
+    await audit.record(
+        school_id=a.id, media_id=m.id, event_id=ev.id, actor_user_id=login.id,
+        actor_role="student", subject_student_id=student.id,
+    )
+
+    assert await audit.count_for_media(a.id, m.id) == 2
+    entries = await audit.list_for_media(a.id, m.id, limit=10)
+    assert len(entries) == 2
+    assert {e.actor_role for e in entries} == {"school_admin", "student"}
+    assert {e.subject_student_id for e in entries} == {None, student.id}
+    # Newest-first: the student self-download (recorded second) leads. Verifies the real
+    # SQL ORDER BY created_at DESC, not just the in-memory fake's sort.
+    assert entries[0].actor_role == "student"
+    assert entries[0].created_at >= entries[1].created_at
+
+    # School-wide log + filters.
+    assert await audit.count_recent(a.id) == 2
+    by_student = await audit.list_recent(a.id, limit=10, offset=0, student_id=student.id)
+    assert [e.actor_role for e in by_student] == ["student"]
+    assert await audit.count_recent(a.id, event_id=ev.id) == 2
+    assert await audit.count_recent(a.id, student_id=student.id) == 1
+
+    # Pagination.
+    page1 = await audit.list_recent(a.id, limit=1, offset=0)
+    page2 = await audit.list_recent(a.id, limit=1, offset=1)
+    assert len(page1) == 1 and len(page2) == 1
+    assert page1[0].id != page2[0].id
+    # Newest-first across pages: page 1's row is at least as recent as page 2's.
+    assert page1[0].created_at >= page2[0].created_at
+
+    # Tenant-safe: a malformed/foreign school never leaks rows.
+    assert await audit.list_for_media("not-a-uuid", m.id, limit=10) == []
+    assert await audit.list_recent(_MISSING_UUID, limit=10, offset=0) == []
+    assert await audit.count_for_media(_MISSING_UUID, m.id) == 0
 
 
 async def test_student_get_by_user_id_is_tenant_scoped(

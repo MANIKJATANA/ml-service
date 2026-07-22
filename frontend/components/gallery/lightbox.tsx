@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { AppearanceEditor } from "@/components/gallery/appearance-editor";
 import { AppearanceList } from "@/components/gallery/appearance-list";
+import { DownloadHistory } from "@/components/gallery/download-history";
 import { SignedImage } from "@/components/gallery/signed-image";
 import { Button } from "@/components/ui/button";
 import { useDownloadToDisk } from "@/lib/hooks/use-download-to-disk";
@@ -153,6 +154,9 @@ export function Lightbox({
               <Download className="size-4" aria-hidden="true" />
               Download
             </Button>
+
+            {/* School-admin-only download history (BP8b); the staff surface only. */}
+            {showAppearances ? <DownloadHistory mediaId={mediaId} /> : null}
 
             {onNotMe ? (
               <Button

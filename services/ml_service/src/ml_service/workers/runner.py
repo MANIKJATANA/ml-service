@@ -40,6 +40,7 @@ def log_outcome(job: EventJob, outcome: EventOutcome, latency_ms: float) -> None
             "photos_total": outcome.photos_total,
             "photos_processed": outcome.photos_processed,
             "photos_skipped": outcome.photos_skipped,
+            "photos_failed": outcome.photos_failed,
             "faces_detected": outcome.faces_detected,
             "matches_emitted": outcome.matches_emitted,
             "processing_latency_ms": round(latency_ms, 1),

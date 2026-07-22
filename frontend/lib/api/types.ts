@@ -149,6 +149,7 @@ export interface EventStatusResponse {
   processing_status: EventProcessingStatus;
   pending: number;
   completed: number;
+  failed: number; // BP8a: photos the ML worker couldn't process (retryable via redistribute)
   total: number;
 }
 

@@ -166,13 +166,20 @@ convention. Order = my recommended build order.
   value (**BP7a**); a class imports from CSV (**BP7d**) + a photo added per student to enroll (**BP7d-2**); a failed
   reference photo explains itself + is fixable in place (**BP7b/d-2**); staff can disable/re-invite (**BP7c**).
 
-### BP8 — Ops & reliability · **Effort L · Impact M (mostly risk reduction) · BE/ML (+ migration/infra)**
+### BP8 — Ops & reliability · **Effort L · Impact M (mostly risk reduction) · BE/ML (+ migration/infra)** · 🚧 in progress (sliced a–e)
 - **Problem:** a permanently-bad photo looks `pending` forever; no retention/erasure; single-replica enrollment is a
   SPOF/bottleneck; no rate limiting; no access/download audit. Fails **X3/X5/T7**.
 - **Change:** a **failed-photo state + retry**, a retention/erasure story, **multi-replica enrollment** (the
   documented Redis-lock Option B), **rate limiting**, and an **access/download audit** (trust, not compliance).
-- **Persona:** ops. **Source lens:** T7, X3, X5. **Acceptance:** failures are visible + recoverable; enrollment
-  isn't a silent SPOF.
+- **Sliced into five approve-before-commit sub-phases** (grounded in exploration): **BP8a** failed-photo state + retry ·
+  **BP8b** access/download audit · **BP8c** rate limiting (+ security headers) · **BP8d** multi-replica enrollment
+  (Redis-lock Option B, config-gated) · **BP8e** retention/erasure.
+  - **BP8a landed** ([decisions/0049](decisions/0049-product-build-BP8a-failed-photo-retry.md)): a photo the ML worker
+    can't process is now marked **`failed`** (was silently `pending` forever) — visible + **retryable via redistribute**
+    (the worker re-attempts non-`completed` photos; the `process_event` guard was widened to allow `failed`-only events).
+    **Migration `0009`**; BE + ML worker + FE (a "Retry failed" action + warning). No ML-contract break.
+- **Persona:** ops. **Source lens:** T7, X3, X5. **Acceptance:** failures are visible + recoverable (**BP8a**); enrollment
+  isn't a silent SPOF (BP8d).
 
 ---
 

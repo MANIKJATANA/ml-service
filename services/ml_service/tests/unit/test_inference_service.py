@@ -537,7 +537,9 @@ async def test_process_event_skips_already_completed_photo() -> None:
     assert store.media_completed == ["m1"]  # only the pending one marked
 
 
-async def test_process_event_skips_photo_on_fetch_error_and_continues() -> None:
+async def test_process_event_marks_photo_failed_on_fetch_error_and_continues() -> None:
+    # BP8a: a photo the worker can't process is marked `failed` (not left pending) —
+    # visible + retryable — and the batch continues.
     index = StubVectorIndex()
     index.script([Candidate("stu1", 0.95)])  # consumed by the good photo only
     store = _store(_pending("bad", "missing"), _pending("good", "u1"))
@@ -552,9 +554,33 @@ async def test_process_event_skips_photo_on_fetch_error_and_continues() -> None:
     outcome = await svc.process_event(EventJob("sch1", "ev1"))
 
     assert outcome.photos_total == 2
-    assert outcome.photos_processed == 1 and outcome.photos_skipped == 1
-    assert store.media_completed == ["good"]  # the failed photo stays pending
+    assert outcome.photos_processed == 1 and outcome.photos_failed == 1
+    assert outcome.photos_skipped == 0  # skipped is now only already-completed photos
+    assert store.media_completed == ["good"]
+    assert store.media_failed == ["bad"]  # the un-fetchable photo is marked failed
     assert store.event_status["ev1"] == "completed"  # event still finalized
+
+
+async def test_process_event_retries_a_failed_photo_on_redistribute() -> None:
+    # BP8a: a `failed` photo is NOT skipped (only `completed` is) — a redistribute
+    # re-attempts it, and it completes once the transient cause is gone.
+    index = StubVectorIndex()
+    index.script([Candidate("stu1", 0.95)])
+    store = _store(
+        BackendMedia("m1", "u1", MediaType.IMAGE, processing_status="failed"),
+    )
+    svc = make_service(
+        index,
+        repo=StubMatchRepository(),
+        media=StubMediaStore({"u1": b"img"}),
+        detector=StubDetector(mapping={b"img": [box()]}),
+        backend_store=store,
+    )
+
+    outcome = await svc.process_event(EventJob("sch1", "ev1"))
+
+    assert outcome.photos_processed == 1 and outcome.photos_skipped == 0
+    assert store.media_completed == ["m1"]  # the previously-failed photo now completes
 
 
 async def test_process_event_propagates_version_mismatch() -> None:
@@ -575,6 +601,29 @@ async def test_process_event_propagates_version_mismatch() -> None:
     with pytest.raises(EmbeddingVersionMismatch):
         await svc.process_event(EventJob("sch1", "ev1"))
     assert store.event_status["ev1"] == "processing"  # not completed
+    # BP8a: a version mismatch is the INDEX being wrong, not the photo — mark nothing failed.
+    assert store.media_failed == []
+
+
+async def test_process_event_marks_photo_failed_on_unexpected_error() -> None:
+    # BP8a: an unexpected per-photo error (not fetch/decode, not version-mismatch) is
+    # caught, the photo marked failed, and the event still finalizes.
+    store = _store(_pending("m1", "u1"))
+    svc = make_service(
+        StubVectorIndex(),
+        repo=StubMatchRepository(),
+        media=StubMediaStore({"u1": b"img"}),
+        backend_store=store,
+    )
+
+    async def _boom(job: InferenceJob) -> JobOutcome:
+        raise RuntimeError("unexpected")
+
+    svc.process = _boom  # type: ignore[method-assign]
+    outcome = await svc.process_event(EventJob("sch1", "ev1"))
+    assert outcome.photos_failed == 1 and outcome.photos_processed == 0
+    assert store.media_failed == ["m1"]
+    assert store.event_status["ev1"] == "completed"  # one bad photo doesn't block it
 
 
 async def test_process_event_empty_roster_completes() -> None:

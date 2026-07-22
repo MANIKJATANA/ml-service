@@ -118,6 +118,24 @@ async def test_process_event_with_no_pending_photos_rejected() -> None:
     assert prod.jobs == []  # nothing enqueued
 
 
+async def test_process_retries_a_failed_only_event() -> None:
+    # BP8a: "Retry failed" — an event whose leftovers are `failed` (0 pending) still
+    # enqueues, and the worker re-attempts the failed photos.
+    svc, _, _, prod = _svc(
+        events=[make_event(id=_E1, school_id=_S1,
+                           processing_status=EventProcessingStatus.COMPLETED)],
+        media=[
+            make_media(id="ok", school_id=_S1, event_id=_E1,
+                       processing_status=MediaProcessingStatus.COMPLETED),
+            make_media(id="bad", school_id=_S1, event_id=_E1,
+                       processing_status=MediaProcessingStatus.FAILED),
+        ],
+    )
+    event = await svc.process_event(school_id=_S1, event_id=_E1)
+    assert event.processing_status is EventProcessingStatus.QUEUED
+    assert len(prod.jobs) == 1
+
+
 async def test_process_empty_event_rejected() -> None:
     svc, _, _, prod = _svc(events=[make_event(id=_E1, school_id=_S1)])
     with pytest.raises(ValidationError):

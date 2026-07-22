@@ -294,7 +294,8 @@ class EventOutcome:
 
     photos_total: int  # photos in the event's roster
     photos_processed: int  # photos run through the pipeline this job
-    photos_skipped: int  # already-detected (skipped) + per-photo errors
+    photos_skipped: int  # already-completed on a redistribute (skipped)
+    photos_failed: int  # couldn't be processed -> marked failed (BP8a)
     faces_detected: int
     candidates_above_threshold: int
     matches_emitted: int

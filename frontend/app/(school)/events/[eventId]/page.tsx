@@ -447,6 +447,7 @@ export default function EventDetailPage() {
                     <p className="text-body-sm text-ink-secondary">
                       {status.completed} of {status.total} processed
                       {status.pending > 0 ? ` · ${status.pending} pending` : ""}
+                      {status.failed > 0 ? ` · ${status.failed} failed` : ""}
                     </p>
                   </>
                 ) : (
@@ -468,10 +469,14 @@ export default function EventDetailPage() {
                       <Upload className="size-4" aria-hidden="true" />
                       {status.total === 0 ? "Upload photos" : "Add more photos"}
                     </Link>
-                    {!inFlight && status.pending > 0 ? (
+                    {!inFlight && (status.pending > 0 || status.failed > 0) ? (
                       <Button onClick={onProcess} loading={processing}>
                         <Play className="size-4" aria-hidden="true" />
-                        {proc === "completed" ? "Redistribute" : "Process photos"}
+                        {status.pending > 0
+                          ? proc === "completed"
+                            ? "Redistribute"
+                            : "Process photos"
+                          : "Retry failed"}
                       </Button>
                     ) : null}
                   </div>
@@ -483,7 +488,15 @@ export default function EventDetailPage() {
                       Distribution is running — this updates automatically.
                     </p>
                   ) : null}
-                  {!isArchived && !inFlight && status.total > 0 && status.pending === 0 ? (
+                  {!isArchived && !inFlight && status.failed > 0 ? (
+                    <p className="text-body-sm text-warning-strong">
+                      {status.failed} {status.failed === 1 ? "photo" : "photos"} couldn&apos;t
+                      be processed. Retry — if it keeps failing, the file may be corrupt or
+                      unreadable, so replace it.
+                    </p>
+                  ) : null}
+                  {!isArchived && !inFlight && status.total > 0 && status.pending === 0 &&
+                  status.failed === 0 ? (
                     <p className="text-body-sm text-success-strong">All photos processed.</p>
                   ) : null}
                 </div>

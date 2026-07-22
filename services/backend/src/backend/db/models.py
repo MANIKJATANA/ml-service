@@ -287,7 +287,7 @@ class Media(Base):
             "media_type IN ('image', 'video')", name="ck_media_type"
         ),
         CheckConstraint(
-            "processing_status IN ('pending', 'completed')",
+            "processing_status IN ('pending', 'completed', 'failed')",
             name="ck_media_processing_status",
         ),
     )

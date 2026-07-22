@@ -109,10 +109,11 @@ class EventService:
         `queued` or `processing`, this refuses — the same event must never be XADD'd twice
         (a stuck in-flight event is recovered by the queue's `XAUTOCLAIM` reclaim, not by a
         manual re-add). "Redistribute" therefore applies to a `completed` event that still
-        has `pending` photos (a run finished but some photos couldn't be processed):
-        re-pressing re-enqueues and the ML worker skips the already-`completed` photos, so
-        only the leftovers are re-done — idempotent. Enqueue first, then flip status — a
-        failed enqueue (Redis down → `UpstreamError`→502) leaves the prior status intact.
+        has `pending` **or `failed`** photos (a run finished but some couldn't be
+        processed): re-pressing re-enqueues and the ML worker skips the already-`completed`
+        photos and re-attempts the rest — so `pending` and `failed` (BP8a) leftovers are
+        re-done, idempotent. Enqueue first, then flip status — a failed enqueue (Redis down
+        → `UpstreamError`→502) leaves the prior status intact.
         """
         event = await self.get_event(school_id=school_id, event_id=event_id)
         if event.status is not EventStatus.ACTIVE:
@@ -125,9 +126,13 @@ class EventService:
             raise ValidationError("event is already queued or processing")
 
         counts = await self._media.status_counts(school_id, event_id)
-        if counts.get(MediaProcessingStatus.PENDING, 0) == 0:
-            # Nothing to do: no photos, or every photo already processed.
-            raise ValidationError("no pending photos to process")
+        # Anything not yet `completed` is re-attempted — pending photos OR failed ones
+        # (BP8a's "Retry failed"). Only refuse when there's genuinely nothing to do.
+        outstanding = counts.get(MediaProcessingStatus.PENDING, 0) + counts.get(
+            MediaProcessingStatus.FAILED, 0
+        )
+        if outstanding == 0:
+            raise ValidationError("no photos to process")
 
         await self._producer.enqueue(EventJob(school_id=school_id, event_id=event_id))
         await self._events.set_processing(

@@ -21,10 +21,11 @@ from ml_service.db.backend_tables import events as backend_events
 from ml_service.db.backend_tables import media as backend_media
 from ml_service.domain.models import BackendMedia, MediaType
 
-# Contract with the backend's status CHECK constraints (decisions/0027).
+# Contract with the backend's status CHECK constraints (decisions/0027, BP8a/0049).
 _EVENT_PROCESSING = "processing"
 _EVENT_COMPLETED = "completed"
 _MEDIA_COMPLETED = "completed"
+_MEDIA_FAILED = "failed"
 
 
 def _opt_uuid(value: str) -> uuid.UUID | None:
@@ -89,6 +90,21 @@ class PostgresBackendEventStore:
                 update(backend_media)
                 .where(backend_media.c.id == key, backend_media.c.school_id == sid)
                 .values(processing_status=_MEDIA_COMPLETED, completed_at=func.now())
+            )
+
+    async def mark_media_failed(self, school_id: str, media_id: str) -> None:
+        # BP8a: a photo the worker couldn't process. `failed` (not `completed`), so a
+        # redistribute re-attempts it (the roster-skip is `== completed` only). No
+        # completed_at — it never completed. Tenant-scoped like every write (NFR-3).
+        sid = _opt_uuid(school_id)
+        key = _opt_uuid(media_id)
+        if sid is None or key is None:
+            return
+        async with self._sessionmaker() as session, session.begin():
+            await session.execute(
+                update(backend_media)
+                .where(backend_media.c.id == key, backend_media.c.school_id == sid)
+                .values(processing_status=_MEDIA_FAILED)
             )
 
     async def mark_event_processing(self, school_id: str, event_id: str) -> None:

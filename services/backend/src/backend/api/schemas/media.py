@@ -69,16 +69,19 @@ class EventStatusResponse(BaseModel):
     processing_status: EventProcessingStatus
     pending: int
     completed: int
+    failed: int  # BP8a: photos the ML worker couldn't process (retryable via redistribute)
     total: int
 
     @classmethod
     def from_view(cls, view: EventStatusView) -> EventStatusResponse:
         pending = view.counts.get(MediaProcessingStatus.PENDING, 0)
         completed = view.counts.get(MediaProcessingStatus.COMPLETED, 0)
+        failed = view.counts.get(MediaProcessingStatus.FAILED, 0)
         return cls(
             event_id=view.event.id,
             processing_status=view.event.processing_status,
             pending=pending,
             completed=completed,
-            total=pending + completed,
+            failed=failed,
+            total=pending + completed + failed,
         )

@@ -25,6 +25,7 @@ OUTCOME = EventOutcome(
     photos_total=2,
     photos_processed=2,
     photos_skipped=0,
+    photos_failed=0,
     faces_detected=3,
     candidates_above_threshold=3,
     matches_emitted=2,

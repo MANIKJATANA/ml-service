@@ -195,6 +195,7 @@ class StubBackendEventStore:
         self._roster = roster or {}
         self.list_calls: list[tuple[str, str]] = []
         self.media_completed: list[str] = []
+        self.media_failed: list[str] = []
         self.event_status: dict[str, str] = {}
 
     async def list_event_media(
@@ -205,6 +206,9 @@ class StubBackendEventStore:
 
     async def mark_media_completed(self, school_id: str, media_id: str) -> None:
         self.media_completed.append(media_id)
+
+    async def mark_media_failed(self, school_id: str, media_id: str) -> None:
+        self.media_failed.append(media_id)
 
     async def mark_event_processing(self, school_id: str, event_id: str) -> None:
         self.event_status[event_id] = "processing"

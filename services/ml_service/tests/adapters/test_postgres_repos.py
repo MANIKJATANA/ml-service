@@ -252,16 +252,20 @@ async def test_backend_event_store_reads_roster_and_writes_status() -> None:
 
         # Status writes land on the backend rows (tenant-scoped by school).
         await store.mark_media_completed(str(school), str(m1))
+        await store.mark_media_failed(str(school), str(m2))  # BP8a: the 'failed' state
         await store.mark_event_processing(str(school), str(event))
         await store.mark_event_completed(str(school), str(event))
         async with sm() as session:
-            media_status = (
-                await session.execute(
-                    select(backend_media.c.processing_status).where(
-                        backend_media.c.id == m1
+            statuses = {
+                str(mid): status
+                for mid, status in (
+                    await session.execute(
+                        select(
+                            backend_media.c.id, backend_media.c.processing_status
+                        ).where(backend_media.c.id.in_([m1, m2]))
                     )
-                )
-            ).scalar_one()
+                ).all()
+            }
             event_status = (
                 await session.execute(
                     select(backend_events.c.processing_status).where(
@@ -269,7 +273,9 @@ async def test_backend_event_store_reads_roster_and_writes_status() -> None:
                     )
                 )
             ).scalar_one()
-        assert media_status == "completed" and event_status == "completed"
+        assert statuses[str(m1)] == "completed"
+        assert statuses[str(m2)] == "failed"  # writes through the widened CHECK (0009)
+        assert event_status == "completed"
     finally:
         async with engine.begin() as conn:
             await conn.run_sync(backend_metadata.drop_all)

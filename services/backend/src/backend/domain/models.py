@@ -74,13 +74,14 @@ class MediaType(StrEnum):
 
 
 class MediaProcessingStatus(StrEnum):
-    """Per-photo status, a column on the backend ``media`` row (decisions/0027). The
-    **ML worker** flips it ``pending -> completed`` as it finishes each photo, and reads
-    it to skip photos already done on a redistribute. A photo that never finishes just
-    stays ``pending``."""
+    """Per-photo status, a column on the backend ``media`` row (decisions/0027, BP8a). The
+    **ML worker** flips it ``pending -> completed`` as it finishes each photo (or
+    ``-> failed`` when it can't process one), and reads it to skip only ``completed`` photos
+    on a redistribute — so a ``failed`` photo is **re-attempted** on the next Process."""
 
     PENDING = "pending"  # uploaded; not yet processed by ML
     COMPLETED = "completed"  # ML finished processing this photo
+    FAILED = "failed"  # ML couldn't process it (corrupt/undecodable/error) — retryable
 
 
 @dataclass(frozen=True, slots=True)

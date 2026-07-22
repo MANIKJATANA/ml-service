@@ -127,7 +127,7 @@ School (tenant)
 | `Student.enrollment_status` | pending · enrolled · failed | `failed` = no/blur face or ML down; the specific reason (`no_face`/`ml_unavailable`/`error`) is now recorded + shown (BP7b) |
 | `Event.status` | active · archived | archived = hidden from workflows, kept for records (no hard delete) |
 | `Event.processing_status` | not_started · queued · processing · completed | polled live |
-| `Media.processing_status` | pending · completed | per-photo; a permanently-bad photo *looks* pending (no error state) |
+| `Media.processing_status` | pending · completed · failed | per-photo; a photo the worker can't process is now **`failed`** — visible + retryable via redistribute (BP8a) |
 | `media_type` | image · video | video renders + uploads in the UI (BP6); still no per-frame timeline UI |
 
 **Timing/counts that exist in the data** (mostly unrendered — see §7 "dark data"): `created_at`/`updated_at`
@@ -308,7 +308,8 @@ are a backend overlay only), reference-photo quality gating. *(CSV bulk student 
 decisions/0047.)* **Onboarding/business:** self-serve school signup, plans/tiers/billing, per-school analytics.
 **Ops/scale:** multi-replica
 enrollment (Redis lock), rate limiting, retention/erasure policy, access audit log, OTel tracing, security headers,
-image thumbnails/derivatives, batch signed-URL minting. **Model:** re-enrollment cadence for growing children,
+image thumbnails/derivatives, batch signed-URL minting. *(A **failed-photo state + retry** shipped in BP8a,
+decisions/0049; the rest are BP8b–e.)* **Model:** re-enrollment cadence for growing children,
 unknown-face handling. **Out of scope (owned by legal/contracts):** consent capture, parental consent, compliance
 (COPPA/GDPR/DPDP). **UI polish:** dark-mode toggle.
 

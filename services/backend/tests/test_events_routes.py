@@ -154,6 +154,7 @@ def test_process_event_enqueues_and_reports_status() -> None:
         "processing_status": "queued",
         "pending": 1,
         "completed": 0,
+        "failed": 0,  # BP8a: the per-photo failed count
         "total": 1,
     }
 

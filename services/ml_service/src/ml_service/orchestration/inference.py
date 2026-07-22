@@ -103,19 +103,20 @@ class InferenceService:
         ``completed`` as it finishes), then mark the event ``completed`` (decisions/0027).
 
         The ML worker owns these backend status writes, so the backend needs no poller.
-        Idempotent: a redistribute re-runs only the still-``pending`` photos (already
-        ``completed`` ones are skipped via the backend status column). A per-photo
-        fetch/decode/unexpected error is logged and skipped — the photo stays ``pending``
-        and a later redistribute retries it — so one bad photo never blocks the event. An
-        ``EmbeddingVersionMismatch`` is systemic (stale index), so it aborts the whole
-        event and propagates for the worker to nack + alert (the event stays
-        ``processing`` and is retried on redelivery).
+        Idempotent: a redistribute re-runs every photo not yet ``completed`` (``completed``
+        ones are skipped via the backend status column) — so a ``failed`` photo is
+        **re-attempted** on the next Process. A per-photo fetch/decode/unexpected error is
+        logged and the photo is marked ``failed`` (BP8a) — visible + retryable, so one bad
+        photo never blocks the event. An ``EmbeddingVersionMismatch`` is systemic (stale
+        index), so it aborts the whole event and propagates for the worker to nack + alert
+        (the event stays ``processing`` and is retried on redelivery — nothing is marked
+        failed, since it's the index that's wrong, not the photo).
         """
         await self._backend_store.mark_event_processing(job.school_id, job.event_id)
         roster = await self._backend_store.list_event_media(
             job.school_id, job.event_id
         )
-        processed = skipped = 0
+        processed = skipped = failed = 0
         faces = candidates = matches = ambiguous = unknown = frames = 0
         for media in roster:
             if media.processing_status == _MEDIA_COMPLETED:
@@ -127,18 +128,24 @@ class InferenceService:
                 raise  # systemic — abort the event; worker nacks + alerts (§7.3/§8.4)
             except (MediaFetchError, MediaDecodeError) as exc:
                 log.warning(
-                    "skipping photo after %s",
+                    "marking photo failed after %s",
                     type(exc).__name__,
                     extra={"media_id": media.media_id, "event_id": job.event_id},
                 )
-                skipped += 1
+                await self._backend_store.mark_media_failed(
+                    job.school_id, media.media_id
+                )
+                failed += 1
                 continue
             except Exception:
                 log.exception(
-                    "photo failed; skipping",
+                    "photo failed; marking failed",
                     extra={"media_id": media.media_id, "event_id": job.event_id},
                 )
-                skipped += 1
+                await self._backend_store.mark_media_failed(
+                    job.school_id, media.media_id
+                )
+                failed += 1
                 continue
             # Persist per-photo completion on the backend row (its status column).
             await self._backend_store.mark_media_completed(
@@ -156,6 +163,7 @@ class InferenceService:
             photos_total=len(roster),
             photos_processed=processed,
             photos_skipped=skipped,
+            photos_failed=failed,
             faces_detected=faces,
             candidates_above_threshold=candidates,
             matches_emitted=matches,

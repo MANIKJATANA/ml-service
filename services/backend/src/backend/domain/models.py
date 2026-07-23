@@ -331,6 +331,15 @@ class MatchCorrection:
 
 
 @dataclass(frozen=True, slots=True)
+class RateLimitResult:
+    """The outcome of one rate-limit check (BP8c, decisions/0051). ``retry_after_s`` is
+    meaningful only when not ``allowed`` — how many seconds until the window resets."""
+
+    allowed: bool
+    retry_after_s: int
+
+
+@dataclass(frozen=True, slots=True)
 class DownloadAuditEntry:
     """One recorded media download — the trust audit (BP8b, decisions/0050).
 

@@ -35,6 +35,12 @@ REQUEST_LATENCY = Histogram(
     # Coarse buckets spanning a fast health probe to a slow ML-backed gallery read.
     buckets=(0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0),
 )
+RATE_LIMIT_REJECTIONS = Counter(
+    "backend_rate_limit_rejections_total",
+    "Requests rejected by the rate limiter (BP8c), by tier.",
+    # `scope` is one of a fixed set (global/auth/school) — never an id (cardinality-safe).
+    ("scope",),
+)
 
 
 def record_request(method: str, route: str, status: int, duration_s: float) -> None:
@@ -46,6 +52,11 @@ def record_request(method: str, route: str, status: int, duration_s: float) -> N
     method = method if method in _KNOWN_METHODS else "OTHER"
     REQUESTS.labels(method=method, route=route, status=str(status)).inc()
     REQUEST_LATENCY.labels(method=method, route=route).observe(duration_s)
+
+
+def record_rate_limit_rejection(scope: str) -> None:
+    """Count one rate-limited request by tier (``global``/``auth``/``school``)."""
+    RATE_LIMIT_REJECTIONS.labels(scope=scope).inc()
 
 
 def render_latest() -> tuple[bytes, str]:

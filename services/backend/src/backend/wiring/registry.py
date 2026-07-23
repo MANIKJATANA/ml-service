@@ -82,6 +82,11 @@ NOTIFICATION_CHANNEL_REGISTRY: dict[str, str] = {
     "log": "backend.adapters.notification.log_channel:LogNotificationChannel",
 }
 
+RATE_LIMITER_REGISTRY: dict[str, str] = {
+    "memory": "backend.adapters.rate_limit.memory:InMemoryRateLimiter",
+    "redis": "backend.adapters.rate_limit.redis_limiter:RedisRateLimiter",
+}
+
 PASSWORD_HASHER_REGISTRY: dict[str, str] = {
     "argon2": "backend.adapters.security.argon2_hasher:Argon2PasswordHasher",
 }

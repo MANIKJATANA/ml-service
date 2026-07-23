@@ -96,5 +96,31 @@ class Settings(BaseSettings):
     # --- readiness probe (/readyz) --------------------------------------
     readiness_timeout_s: float = 5.0
 
+    # --- rate limiting (BP8c, decisions/0051) ----------------------------
+    # A fixed-window request throttle, keyed by a global bucket + a per-school (tenant)
+    # bucket (school_id derived from the JWT) + a stricter bucket on /v1/auth/* (brute-force
+    # guard). memory = per-replica counters; redis = cross-replica (reuses redis_url).
+    # Fail-open: a store outage never blocks requests. Disabled -> the middleware is not
+    # installed. The backend sits behind the Next BFF (no real client IP), so there is no
+    # per-IP tier — per-IP limiting belongs at the edge/ingress (documented).
+    rate_limit_enabled: bool = True
+    rate_limit_impl: str = "memory"  # memory | redis
+    rate_limit_window_s: int = 60
+    rate_limit_global_per_min: int = 6000  # all requests, this replica
+    rate_limit_school_per_min: int = 600  # per tenant (school_id from the token)
+    # Stricter, on /v1/auth/*. This is a SINGLE bucket shared across all schools (no client
+    # IP behind the BFF), so keep it generous enough not to lock out legitimate concurrent
+    # logins/refreshes — it's a coarse brute-force ceiling, not per-attacker (per-IP belongs
+    # at the ingress). Tune per deployment.
+    rate_limit_auth_per_min: int = 300
+
+    # --- security headers (BP8c, decisions/0051) -------------------------
+    # Defense-in-depth headers on every API response (the browser-facing set lives in the
+    # FE next.config, since only the Next BFF talks to the browser). HSTS is off by default
+    # (dev is http); enable it behind TLS in prod.
+    security_headers_enabled: bool = True
+    hsts_enabled: bool = False
+    hsts_max_age_s: int = 63072000  # 2 years
+
 
 settings = Settings()

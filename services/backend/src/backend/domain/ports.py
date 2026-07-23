@@ -31,6 +31,7 @@ from backend.domain.models import (
     MediaProcessingStatus,
     MediaType,
     NotificationEvent,
+    RateLimitResult,
     Role,
     School,
     SignedUpload,
@@ -327,6 +328,18 @@ class NotificationChannel(Protocol):
     so email/WhatsApp are future drop-ins with no service change."""
 
     async def notify(self, event: NotificationEvent) -> None: ...
+
+
+class RateLimiter(Protocol):
+    """A fixed-window request rate limiter (BP8c, decisions/0051).
+
+    One ``acquire`` = one hit against ``key``'s current window; the HTTP middleware calls it
+    once per tier (global / auth / per-school). Implementations are **fail-open** — a store
+    outage returns ``allowed=True`` so a limiter failure never takes the API down."""
+
+    async def acquire(
+        self, key: str, *, limit: int, window_s: int
+    ) -> RateLimitResult: ...
 
 
 class PasswordHasher(Protocol):

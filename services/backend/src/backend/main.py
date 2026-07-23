@@ -41,9 +41,17 @@ from backend.domain.errors import (
     UpstreamError,
     ValidationError,
 )
+from backend.domain.ports import RateLimiter
+from backend.domain.tokens import TokenType
 from backend.observability import metrics
-from backend.observability.logging import configure_logging
+from backend.observability.logging import configure_logging, get_logger
 from backend.settings import settings
+from backend.wiring import registry
+
+_log = get_logger(__name__)
+
+# Operational endpoints never rate-limited (probes must not flap; scrapes are internal).
+_RATE_LIMIT_EXEMPT = frozenset({"/healthz", "/readyz", "/metrics"})
 
 
 @asynccontextmanager
@@ -55,6 +63,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         yield
     finally:
         await app.state.container.aclose()
+        # Close the rate limiter if it holds a connection (the redis impl; memory has none).
+        limiter_close = getattr(getattr(app.state, "rate_limiter", None), "aclose", None)
+        if limiter_close is not None:
+            await limiter_close()
 
 
 def _register_error_handlers(app: FastAPI) -> None:
@@ -128,6 +140,109 @@ def _install_metrics(app: FastAPI) -> None:
         return Response(content=body, media_type=content_type)
 
 
+def _build_rate_limiter() -> RateLimiter:
+    """Build the configured rate limiter (memory | redis) via the registry."""
+    cls = registry.resolve(registry.RATE_LIMITER_REGISTRY, settings.rate_limit_impl)
+    if settings.rate_limit_impl == "redis":
+        return cls(settings.redis_url)  # type: ignore[no-any-return]
+    return cls()  # type: ignore[no-any-return]
+
+
+def _install_rate_limit(app: FastAPI, rate_limiter: RateLimiter | None) -> None:
+    """A fixed-window throttle (BP8c, decisions/0051): a global tier + a stricter tier on
+    ``/v1/auth/*`` + a per-school tier (``school_id`` from the JWT). The first tier exceeded
+    returns 429 + ``Retry-After``. Fail-open — any limiter error lets the request through, so
+    a store outage never takes the API down. Not installed when disabled.
+
+    The limiter is built once here (per app instance, not the process-global container), so
+    the in-memory counters can't accumulate across a test suite's many ``create_app()`` calls.
+    """
+    if not settings.rate_limit_enabled:
+        return
+    limiter = rate_limiter or _build_rate_limiter()
+    # Held on app.state so lifespan can close it (the redis impl) at shutdown.
+    app.state.rate_limiter = limiter
+
+    async def _school_id(request: Request) -> str | None:
+        # Best-effort verified decode of the bearer access token (never trust an unverified
+        # claim). Any failure — no/invalid token, a refresh token, an unbuildable token
+        # service (empty secret) — skips the per-school tier; the global tier still applies.
+        auth = request.headers.get("authorization", "")
+        if not auth.lower().startswith("bearer "):
+            return None
+        try:
+            claims = get_container().token_service().decode(
+                auth[7:].strip(), expected_type=TokenType.ACCESS
+            )
+            return claims.school_id
+        except Exception:
+            return None
+
+    @app.middleware("http")
+    async def _rate_limit(
+        request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
+        # Never throttle liveness/readiness probes or metric scrapes — a limited probe
+        # would flap the deploy, and a scrape shouldn't consume a tenant's budget.
+        if request.url.path in _RATE_LIMIT_EXEMPT:
+            return await call_next(request)
+        window = settings.rate_limit_window_s
+        tiers: list[tuple[str, str, int]] = [
+            ("global", "global", settings.rate_limit_global_per_min),
+        ]
+        if request.url.path.startswith("/v1/auth/"):
+            tiers.append(("auth", "auth", settings.rate_limit_auth_per_min))
+        school = await _school_id(request)
+        if school:
+            tiers.append(
+                ("school", f"school:{school}", settings.rate_limit_school_per_min)
+            )
+        try:
+            for scope, key, limit in tiers:
+                result = await limiter.acquire(key, limit=limit, window_s=window)
+                if not result.allowed:
+                    metrics.record_rate_limit_rejection(scope)
+                    return JSONResponse(
+                        status_code=429,
+                        content={"detail": "rate limit exceeded"},
+                        headers={"Retry-After": str(result.retry_after_s)},
+                    )
+        except Exception:  # fail-open — a limiter fault must never block the API
+            _log.warning("rate_limit_check_failed", exc_info=True)
+        return await call_next(request)
+
+
+def _install_security_headers(app: FastAPI) -> None:
+    """Defense-in-depth security headers on every API response (BP8c, decisions/0051).
+
+    The browser never talks to the backend directly (only the Next BFF does), so these are
+    a belt-and-suspenders layer; the browser-facing headers (incl. the CSP) live in the FE
+    ``next.config``. Installed outermost so the headers land on error + 429 responses too.
+    """
+    if not settings.security_headers_enabled:
+        return
+
+    @app.middleware("http")
+    async def _security_headers(
+        request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
+        response = await call_next(request)
+        headers = response.headers
+        headers.setdefault("X-Content-Type-Options", "nosniff")
+        headers.setdefault("X-Frame-Options", "DENY")
+        headers.setdefault("Referrer-Policy", "no-referrer")
+        # A JSON API loads nothing — a maximally-restrictive CSP is safe here.
+        headers.setdefault(
+            "Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'"
+        )
+        if settings.hsts_enabled:
+            headers.setdefault(
+                "Strict-Transport-Security",
+                f"max-age={settings.hsts_max_age_s}; includeSubDomains",
+            )
+        return response
+
+
 def _install_cors(app: FastAPI) -> None:
     """Install CORS only when BE_CORS_ORIGINS lists at least one origin.
 
@@ -154,7 +269,7 @@ def _install_cors(app: FastAPI) -> None:
     )
 
 
-def create_app() -> FastAPI:
+def create_app(rate_limiter: RateLimiter | None = None) -> FastAPI:
     app = FastAPI(title="Backend", version=__version__, lifespan=lifespan)
     app.include_router(health.router)
     app.include_router(auth.router)
@@ -168,8 +283,15 @@ def create_app() -> FastAPI:
     app.include_router(dashboard.router)
     app.include_router(review.router)
     app.include_router(audit.router)
+    # Middleware runs in reverse order of registration (last added = outermost), so this
+    # yields, outer→inner: security-headers → CORS → rate-limit → metrics → routes.
+    # Rate-limit sits INSIDE CORS (preflight OPTIONS short-circuits at CORS, unthrottled) and
+    # OUTSIDE metrics (a 429 is counted by its own rejection metric, not the HTTP counter);
+    # security-headers is outermost so its headers reach the 429 + every error response.
     _install_metrics(app)
+    _install_rate_limit(app, rate_limiter)
     _install_cors(app)
+    _install_security_headers(app)
     _register_error_handlers(app)
     return app
 

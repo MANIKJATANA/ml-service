@@ -185,6 +185,13 @@ convention. Order = my recommended build order.
     save), NOT the `GET` signed-URL mint — which is shared with **viewing**, so a mere view is never logged as a download;
     new **`audit:view`** perm, **school_admin only** (one-line flip for teachers later). BE + FE, **no ML change, no new
     env var**.
+  - **BP8c landed** ([decisions/0051](decisions/0051-product-build-BP8c-rate-limiting-security-headers.md)): pure
+    hardening (**no migration, no ML change, on by default**) redeeming what 0029 deferred — a **`RateLimiter`** middleware
+    (a global tier + a stricter `/v1/auth/*` tier + a per-`school_id` tier from the JWT; pluggable in-memory/**Redis**
+    store, **fail-open**; 429 + `Retry-After`; probes exempt) + **security headers on both** the backend
+    (defense-in-depth) and the frontend (`next.config` `headers()` — the browser-facing set incl. a CSP + COOP + HSTS).
+    New `BE_RATE_LIMIT_*`/`BE_SECURITY_HEADERS_ENABLED`/`BE_HSTS_*` env vars. Honest limits: fixed-window 2× burst; the
+    auth tier is a single global bucket (no per-IP behind the BFF); an `'unsafe-inline'` CSP (nonce-strict is a follow-up).
 - **Persona:** ops. **Source lens:** T7, X3, X5. **Acceptance:** failures are visible + recoverable (**BP8a**); enrollment
   isn't a silent SPOF (BP8d).
 

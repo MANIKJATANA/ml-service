@@ -308,9 +308,10 @@ timeline UI stays deferred.)* **Trust/accuracy (still deferred):** threshold-tun
 are a backend overlay only), reference-photo quality gating. *(CSV bulk student import **shipped** in BP7d,
 decisions/0047.)* **Onboarding/business:** self-serve school signup, plans/tiers/billing, per-school analytics.
 **Ops/scale:** multi-replica
-enrollment (Redis lock), rate limiting, retention/erasure policy, access audit log, OTel tracing, security headers,
-image thumbnails/derivatives, batch signed-URL minting. *(A **failed-photo state + retry** shipped in BP8a,
-decisions/0049; the rest are BP8b–e.)* **Model:** re-enrollment cadence for growing children,
+enrollment (Redis lock), retention/erasure policy, OTel tracing, image thumbnails/derivatives, batch signed-URL
+minting. *(A **failed-photo state + retry** shipped in BP8a, decisions/0049; an **access/download audit** in BP8b,
+decisions/0050; **rate limiting + security headers** in BP8c, decisions/0051; retention/erasure + multi-replica
+enrollment remain — BP8d–e.)* **Model:** re-enrollment cadence for growing children,
 unknown-face handling. **Out of scope (owned by legal/contracts):** consent capture, parental consent, compliance
 (COPPA/GDPR/DPDP). **UI polish:** dark-mode toggle.
 

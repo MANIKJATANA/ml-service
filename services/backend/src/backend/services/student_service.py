@@ -10,6 +10,7 @@ blocks account creation — a failed/unreachable enroll is a recorded, retryable
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from dataclasses import dataclass, replace
 
@@ -38,6 +39,10 @@ from backend.domain.ports import (
 from backend.services.credentials import generate_temp_password
 
 _MAX_NAME_LEN = 200
+# BP8e: bounded retry for the erasure storage-object delete before falling back to
+# best-effort (log the orphan, never block the erasure).
+_MAX_OBJECT_DELETE_ATTEMPTS = 3
+_OBJECT_DELETE_BACKOFF_S = 0.2
 _log = structlog.get_logger(__name__)
 
 
@@ -324,12 +329,44 @@ class StudentService:
     # ---- delete (FR-E2) -------------------------------------------------
 
     async def delete_student(self, *, school_id: str, student_id: str) -> None:
+        """Erase a student completely (BP8e, decisions/0053).
+
+        ML delete FIRST (embeddings + reference-photo URIs + the student's ``matches`` and
+        detection audit) — must succeed so we never orphan ML data; an ML outage surfaces as
+        a 502 and the operator retries. Then the reference-photo **object** is removed from
+        storage (best-effort, bounded retry — a leaked object is a storage cost, not a
+        DB/privacy hole). Finally the login row is deleted, cascading the profile +
+        ``notification_reads`` + the student's ``match_corrections`` away; ``download_audit``
+        rows survive with the student/actor NULLed (the PII link is severed, decisions/0050).
+        """
         student = await self.get_student(school_id=school_id, student_id=student_id)
-        # ML delete FIRST — must succeed so we never orphan embeddings; if the ML
-        # service is down the UpstreamError surfaces (502) and the operator retries.
         await self._ml.delete(school_id=school_id, student_id=student.id)
-        # Deleting the login row cascades the profile away (students.user_id FK).
+        if student.reference_photo_path is not None:
+            await self._delete_object_best_effort(student.reference_photo_path)
         await self._users.delete(student.user_id)
+
+    async def _delete_object_best_effort(self, object_path: str) -> None:
+        """Delete a storage object with a bounded retry; on repeated failure log a loud,
+        greppable warning and continue — the erasure must not hang on a transient blip.
+
+        Catches *any* exception (not just ``UpstreamError``): an object leak must never block
+        the erasure regardless of which ``ObjectStore`` adapter is wired. The last error is
+        logged so a real adapter bug (vs a transient blip) is still visible."""
+        last_error: str | None = None
+        for attempt in range(1, _MAX_OBJECT_DELETE_ATTEMPTS + 1):
+            try:
+                await self._object_store.delete(object_path)
+                return
+            except Exception as exc:  # noqa: BLE001 — best-effort; never block erasure
+                last_error = str(exc)
+                if attempt < _MAX_OBJECT_DELETE_ATTEMPTS:
+                    await asyncio.sleep(_OBJECT_DELETE_BACKOFF_S)
+        _log.warning(
+            "orphaned_reference_photo",
+            object_path=object_path,
+            attempts=_MAX_OBJECT_DELETE_ATTEMPTS,
+            error=last_error,
+        )
 
     async def _reload(
         self,

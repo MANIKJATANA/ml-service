@@ -12,7 +12,7 @@ from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 
 from backend.domain.emails import normalize_email
-from backend.domain.errors import ConflictError, NotFoundError
+from backend.domain.errors import ConflictError, NotFoundError, UpstreamError
 from backend.domain.models import (
     Appearance,
     DownloadAuditEntry,
@@ -507,7 +507,14 @@ class FakeStudentRepo:
 
 
 class FakeObjectStore:
-    """ObjectStore double: returns deterministic signed upload/download URLs."""
+    """ObjectStore double: returns deterministic signed upload/download URLs and records
+    deletes. ``fail_deletes`` makes ``delete`` raise ``UpstreamError`` (to exercise the
+    BP8e retry/best-effort path)."""
+
+    def __init__(self, *, fail_deletes: bool = False) -> None:
+        self.deleted: list[str] = []
+        self.delete_attempts = 0
+        self._fail_deletes = fail_deletes
 
     async def create_signed_upload_url(self, object_path: str) -> SignedUpload:
         return SignedUpload(
@@ -520,6 +527,12 @@ class FakeObjectStore:
         self, object_path: str, *, expires_in_s: int
     ) -> str:
         return f"https://downloads.test/{object_path}?ttl={expires_in_s}"
+
+    async def delete(self, object_path: str) -> None:
+        self.delete_attempts += 1
+        if self._fail_deletes:
+            raise UpstreamError(f"fake delete failed for {object_path}")
+        self.deleted.append(object_path)
 
 
 class FakeMlClient:

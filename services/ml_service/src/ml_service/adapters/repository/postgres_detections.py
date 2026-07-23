@@ -125,3 +125,16 @@ class PostgresDetectionRepository:
                 await session.execute(insert(FaceDetection), face_rows)
             if candidate_rows:
                 await session.execute(insert(FaceDetectionCandidate), candidate_rows)
+
+    async def delete_candidates_by_student(
+        self, school_id: str, student_id: str
+    ) -> None:
+        """Purge a student's per-face candidate rows (BP8e erasure). The media-centric
+        parents (media_detections/media_frames/face_detections) stay — they belong to the
+        media, shared across students. ``student_id`` is globally unique, so no school join
+        is needed; ``school_id`` is accepted for a tenant-shaped signature."""
+        stmt = delete(FaceDetectionCandidate).where(
+            FaceDetectionCandidate.student_id == student_id
+        )
+        async with self._sessionmaker() as session, session.begin():
+            await session.execute(stmt)

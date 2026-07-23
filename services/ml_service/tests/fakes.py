@@ -161,6 +161,7 @@ class StubMatchRepository:
         self.rows: dict[tuple[str, str], MatchRecord] = {}
         self.saved_batches: list[list[MatchRecord]] = []
         self.save_calls = 0
+        self.deleted_students: list[tuple[str, str]] = []
 
     async def save_batch(self, records: list[MatchRecord]) -> None:
         self.save_calls += 1
@@ -174,6 +175,10 @@ class StubMatchRepository:
     async def exists(self, media_id: str, student_id: str) -> bool:
         return (media_id, student_id) in self.rows
 
+    async def delete_by_student(self, school_id: str, student_id: str) -> None:
+        self.deleted_students.append((school_id, student_id))
+        self.rows = {k: v for k, v in self.rows.items() if v.student_id != student_id}
+
 
 class StubDetectionRepository:
     """In-memory DetectionRepository mirroring replace-by-media (last write wins)."""
@@ -181,10 +186,16 @@ class StubDetectionRepository:
     def __init__(self) -> None:
         self.by_media: dict[str, MediaDetectionRecord] = {}
         self.save_calls = 0
+        self.deleted_students: list[tuple[str, str]] = []
 
     async def save_detections(self, detection: MediaDetectionRecord) -> None:
         self.save_calls += 1
         self.by_media[detection.media_id] = detection
+
+    async def delete_candidates_by_student(
+        self, school_id: str, student_id: str
+    ) -> None:
+        self.deleted_students.append((school_id, student_id))
 
 
 class StubBackendEventStore:

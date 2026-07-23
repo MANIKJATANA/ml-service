@@ -200,6 +200,14 @@ convention. Order = my recommended build order.
     cross-replica-safe (`meta.version` reload). **ML-only; no migration, no backend/FE change, no ML-contract change.**
     Honest limit: a write slower than the lease auto-expires the lock (loudly logged; `lease_s` must exceed the slowest
     write).
+  - **BP8e landed** ([decisions/0053](decisions/0053-product-build-BP8e-student-erasure.md)): **complete student
+    erasure** — "delete a student" left three orphans (the reference-photo **object** in storage, the ML **`matches`**,
+    the ML **detection-audit** rows); BP8e closes all three so delete means gone (trust, not compliance). BE adds
+    `ObjectStore.delete` + a **best-effort 3×-retry** object purge in `delete_student`; ML adds `delete_by_student` +
+    `delete_candidates_by_student` and `EnrollmentService.delete` purges them; `match_corrections`/`notification_reads`
+    need no code (FK cascade), `download_audit` is anonymized — proven by a gated real-PG cascade test. **Cross-service;
+    no migration, no perm, no env var, no ML-contract change.** Deferred: event hard-delete + time-based retention.
+- **BP8 is complete (a–e) → the entire BP1–BP8 roadmap is complete.**
 - **Persona:** ops. **Source lens:** T7, X3, X5. **Acceptance:** failures are visible + recoverable (**BP8a**); enrollment
   isn't a silent SPOF (BP8d).
 

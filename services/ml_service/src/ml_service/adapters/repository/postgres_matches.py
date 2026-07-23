@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -71,6 +71,14 @@ class PostgresMatchRepository:
         async with self._sessionmaker() as session:
             result = await session.execute(stmt)
             return result.first() is not None
+
+    async def delete_by_student(self, school_id: str, student_id: str) -> None:
+        """Purge every match for one student (BP8e erasure) — tenant-scoped."""
+        stmt = delete(Match).where(
+            Match.school_id == school_id, Match.student_id == student_id
+        )
+        async with self._sessionmaker() as session, session.begin():
+            await session.execute(stmt)
 
     def _to_row(self, r: MatchRecord) -> dict[str, object]:
         return {

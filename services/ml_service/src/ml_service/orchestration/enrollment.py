@@ -20,8 +20,10 @@ from ml_service.domain.models import (
     PhotoStatus,
 )
 from ml_service.domain.ports import (
+    DetectionRepository,
     FaceDetector,
     FaceEmbedder,
+    MatchRepository,
     MediaStore,
     ReferencePhotoRepository,
     VectorIndex,
@@ -41,12 +43,16 @@ class EnrollmentService:
         detector: FaceDetector,
         embedder: FaceEmbedder,
         index: VectorIndex,
+        matches: MatchRepository,
+        detections: DetectionRepository,
     ) -> None:
         self._reference_photos = reference_photos
         self._media_store = media_store
         self._detector = detector
         self._embedder = embedder
         self._index = index
+        self._matches = matches
+        self._detections = detections
 
     async def enroll(
         self,
@@ -137,6 +143,11 @@ class EnrollmentService:
             return PhotoResult(photo_index, PhotoStatus.ERROR, str(exc)), None
 
     async def delete(self, school_id: str, student_id: str) -> None:
-        """Remove the student's embeddings and stored reference-photo URIs (FR-E2)."""
+        """Erase a student's entire ML footprint (FR-E2 + BP8e, decisions/0053): the FAISS
+        embeddings, the stored reference-photo URIs, the ``matches`` rows, and the per-face
+        detection-audit candidate rows naming them. The media-centric detection parents stay
+        (they belong to the media, shared across students)."""
         await self._index.delete(school_id, student_id)
         await self._reference_photos.delete(school_id, student_id)
+        await self._matches.delete_by_student(school_id, student_id)
+        await self._detections.delete_candidates_by_student(school_id, student_id)

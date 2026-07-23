@@ -307,11 +307,12 @@ BP5, decisions/0042; **video render/upload/play/download shipped** in BP6, decis
 timeline UI stays deferred.)* **Trust/accuracy (still deferred):** threshold-tuning UI, an **ML feedback loop** (corrections
 are a backend overlay only), reference-photo quality gating. *(CSV bulk student import **shipped** in BP7d,
 decisions/0047.)* **Onboarding/business:** self-serve school signup, plans/tiers/billing, per-school analytics.
-**Ops/scale:** retention/erasure
-policy, OTel tracing, image thumbnails/derivatives, batch signed-URL minting. *(A **failed-photo state + retry** shipped
-in BP8a, decisions/0049; an **access/download audit** in BP8b, decisions/0050; **rate limiting + security headers** in
-BP8c, decisions/0051; **multi-replica enrollment** (FAISS write lock Option B / Redis, config-gated) in BP8d,
-decisions/0052; only **retention/erasure** remains — BP8e.)* **Model:** re-enrollment cadence for growing children,
+**Ops/scale:** OTel tracing, image
+thumbnails/derivatives, batch signed-URL minting. *(A **failed-photo state + retry** shipped in BP8a, decisions/0049; an
+**access/download audit** in BP8b, decisions/0050; **rate limiting + security headers** in BP8c, decisions/0051;
+**multi-replica enrollment** (FAISS write lock Option B / Redis) in BP8d, decisions/0052; **complete student erasure**
+(the reference-photo object + ML matches/detections are now purged on delete) in BP8e, decisions/0053. **BP8 + the whole
+BP1–BP8 roadmap are complete.** Deferred: event hard-delete + time-based retention — a future track.)* **Model:** re-enrollment cadence for growing children,
 unknown-face handling. **Out of scope (owned by legal/contracts):** consent capture, parental consent, compliance
 (COPPA/GDPR/DPDP). **UI polish:** dark-mode toggle.
 

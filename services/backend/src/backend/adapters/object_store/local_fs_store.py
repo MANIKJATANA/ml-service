@@ -33,3 +33,8 @@ class LocalFsObjectStore:
         # the upload stub (decisions/0028). Real downloads use the supabase impl.
         target = PurePosixPath(self._base) / object_path.lstrip("/")
         return f"file://{target}"
+
+    async def delete(self, object_path: str) -> None:
+        # Dev stub: uploads aren't real here (no bytes are ever written), so there's
+        # nothing to remove — a no-op. Real deletes use the supabase impl (BP8e).
+        return None

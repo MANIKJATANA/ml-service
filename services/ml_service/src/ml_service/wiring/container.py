@@ -292,6 +292,10 @@ class Container:
                         detector=self.detector(),
                         embedder=self.embedder(),
                         index=self.vector_index(),
+                        # BP8e: delete() also purges the student's matches + detection audit
+                        # (these repos are already built for the inference service).
+                        matches=self.match_repo(),
+                        detections=self.detection_repo(),
                     )
         return self._enrollment
 

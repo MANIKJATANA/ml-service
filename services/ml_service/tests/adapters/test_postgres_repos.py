@@ -198,6 +198,36 @@ async def test_detection_replace_by_media_and_cascade(
     assert rows[0].student_id == "carol"
 
 
+async def test_delete_matches_by_student(
+    sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    # BP8e erasure: purge one student's matches, tenant-scoped; others survive.
+    repo = PostgresMatchRepository(sessionmaker)
+    await repo.save_batch([_record(0.8, student="alice"), _record(0.7, student="bob")])
+    await repo.delete_by_student("s1", "alice")
+    assert not await repo.exists("m1", "alice")
+    assert await repo.exists("m1", "bob")  # a different student's match remains
+    await repo.delete_by_student("other", "bob")  # wrong school -> no-op
+    assert await repo.exists("m1", "bob")
+
+
+async def test_delete_detection_candidates_by_student(
+    sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    # BP8e erasure: only the student's candidate rows go; the media-centric parents
+    # (media_detections/frames/faces) stay, and other students' candidates survive.
+    repo = PostgresDetectionRepository(sessionmaker)
+    await repo.save_detections(_detection_record("m1", ["alice", "bob"]))
+    assert await _count(sessionmaker, FaceDetectionCandidate) == 2
+    await repo.delete_candidates_by_student("s1", "alice")
+    assert await _count(sessionmaker, FaceDetectionCandidate) == 1
+    assert await _count(sessionmaker, MediaDetection) == 1  # parents untouched
+    assert await _count(sessionmaker, FaceDetection) == 2
+    async with sessionmaker() as session:
+        rows = (await session.execute(select(FaceDetectionCandidate))).scalars().all()
+    assert rows[0].student_id == "bob"
+
+
 async def test_backend_event_store_reads_roster_and_writes_status() -> None:
     # Self-contained: build the backend `events`/`media` tables on the shared DB, then
     # assert the worker's read (tenant scope + type filter) AND its status writes (0027).

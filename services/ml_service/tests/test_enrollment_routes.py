@@ -12,8 +12,10 @@ from collections.abc import Iterator
 
 import pytest
 from fakes import (
+    StubDetectionRepository,
     StubDetector,
     StubEmbedder,
+    StubMatchRepository,
     StubMediaStore,
     StubReferencePhotoRepository,
     StubVectorIndex,
@@ -32,7 +34,13 @@ class _Fixture:
         self.media = StubMediaStore({URI: b"img-bytes"})
         self.index = StubVectorIndex()
         self.service = EnrollmentService(
-            self.refrepo, self.media, StubDetector(), StubEmbedder(), self.index
+            self.refrepo,
+            self.media,
+            StubDetector(),
+            StubEmbedder(),
+            self.index,
+            StubMatchRepository(),
+            StubDetectionRepository(),
         )
 
 

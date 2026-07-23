@@ -189,6 +189,11 @@ class ObjectStore(Protocol):
     async def create_signed_download_url(
         self, object_path: str, *, expires_in_s: int
     ) -> str: ...
+    async def delete(self, object_path: str) -> None:
+        """Delete one stored object (BP8e erasure, decisions/0053). Idempotent — a missing
+        object is not an error. Raises ``UpstreamError`` when the store is unreachable, so
+        the caller can retry (a failed delete leaves an orphaned object, never a bad row)."""
+        ...
 
 
 class MlEnrollmentClient(Protocol):

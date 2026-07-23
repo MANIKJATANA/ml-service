@@ -91,11 +91,16 @@ class VideoFrameExtractor(Protocol):
 
 
 class MatchRepository(Protocol):
-    """Persists match records. ``save_batch`` is the only write path."""
+    """Persists match records. ``save_batch`` is the only match-EMITTING write path;
+    ``delete_by_student`` is the erasure path (BP8e, decisions/0053)."""
 
     async def save_batch(self, records: list[MatchRecord]) -> None: ...
 
     async def exists(self, media_id: str, student_id: str) -> bool: ...
+
+    async def delete_by_student(self, school_id: str, student_id: str) -> None:
+        """Purge every match for one student (erasure). Tenant-scoped by ``school_id``."""
+        ...
 
 
 class DetectionRepository(Protocol):
@@ -105,9 +110,18 @@ class DetectionRepository(Protocol):
     transaction, FK cascade) — the per-media detection set is regenerated
     deterministically. Kept separate from ``MatchRepository`` so that repo's
     "``save_batch`` is the only write path" invariant stays intact.
+    ``delete_candidates_by_student`` is the erasure path (BP8e, decisions/0053).
     """
 
     async def save_detections(self, detection: MediaDetectionRecord) -> None: ...
+
+    async def delete_candidates_by_student(
+        self, school_id: str, student_id: str
+    ) -> None:
+        """Purge a student's per-face candidate rows (erasure). The media-centric parents
+        (media_detections/media_frames/face_detections) stay — they're shared across the
+        students in a media. Keyed on the globally-unique ``student_id``."""
+        ...
 
 
 class BackendEventStore(Protocol):

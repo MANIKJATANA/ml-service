@@ -36,6 +36,19 @@ class SupabaseObjectStore:
             self._sign_download_sync, object_path, expires_in_s
         )
 
+    async def delete(self, object_path: str) -> None:
+        await anyio.to_thread.run_sync(self._delete_sync, object_path)
+
+    def _delete_sync(self, object_path: str) -> None:
+        path = object_path.lstrip("/")
+        try:
+            # remove() is idempotent — removing a missing key is a no-op, not an error.
+            self._client.storage.from_(self._bucket).remove([path])
+        except Exception as exc:  # storage3 raises on transport/permission errors
+            raise UpstreamError(
+                f"supabase delete failed for {path!r}: {exc}"
+            ) from exc
+
     def _sign_download_sync(self, object_path: str, expires_in_s: int) -> str:
         path = object_path.lstrip("/")
         try:

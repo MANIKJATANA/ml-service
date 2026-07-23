@@ -38,6 +38,7 @@ def _svc(
     schools: list[School] | None = None,
     users: list[User] | None = None,
     ml_client: FakeMlClient | None = None,
+    object_store: FakeObjectStore | None = None,
 ) -> tuple[StudentService, FakeStudentRepo, FakeUserRepo, FakeMlClient]:
     srepo = FakeSchoolRepo(schools or [make_school(id=_S1, max_teachers=5)])
     urepo = FakeUserRepo(users or [])
@@ -50,7 +51,7 @@ def _svc(
         urepo,
         srepo,
         FakeHasher(),
-        FakeObjectStore(),
+        object_store or FakeObjectStore(),
         ml,
         reference_photo_prefix="reference-photos",
     )
@@ -495,10 +496,13 @@ async def test_delete_missing_student_raises_before_ml_call() -> None:
 
 
 async def test_delete_keeps_local_rows_when_ml_delete_fails() -> None:
-    # ML delete must succeed before we remove local rows, so we never orphan
-    # embeddings; on failure everything stays for a retry (0026).
+    # ML delete must succeed before we remove local rows / the storage object, so we never
+    # orphan embeddings; on failure everything stays for a retry (0026). ML is deleted FIRST,
+    # so a failure means the object was NOT touched.
+    store = FakeObjectStore()
     svc, strepo, urepo, _ = _svc(
-        ml_client=FakeMlClient(raise_on_delete=UpstreamError("ml down"))
+        ml_client=FakeMlClient(raise_on_delete=UpstreamError("ml down")),
+        object_store=store,
     )
     student = await _create(
         svc, school_id=_S1, name="K", email="k@x.io", reference_photo_path=_PATH,
@@ -507,3 +511,46 @@ async def test_delete_keeps_local_rows_when_ml_delete_fails() -> None:
         await svc.delete_student(school_id=_S1, student_id=student.id)
     assert await urepo.get(student.user_id) is not None
     assert await strepo.get(_S1, student.id) is not None
+    assert store.delete_attempts == 0  # ML-first: the object is untouched on ML failure
+
+
+# ---- BP8e: erasure of the reference-photo object (decisions/0053) -------
+
+
+async def test_delete_erases_reference_photo_object() -> None:
+    store = FakeObjectStore()
+    svc, _, urepo, _ = _svc(object_store=store)
+    student = await _create(
+        svc, school_id=_S1, name="E", email="e@x.io", reference_photo_path=_PATH,
+    )
+    await svc.delete_student(school_id=_S1, student_id=student.id)
+    assert store.deleted == [_PATH]  # the storage object was removed
+    assert await urepo.get(student.user_id) is None  # + the login gone
+
+
+async def test_delete_storage_failure_retries_then_best_effort() -> None:
+    # A failing storage delete is retried, then swallowed (best-effort) — the erasure
+    # still completes; a leaked object is a storage cost, not a DB/privacy hole.
+    store = FakeObjectStore(fail_deletes=True)
+    svc, strepo, urepo, _ = _svc(object_store=store)
+    student = await _create(
+        svc, school_id=_S1, name="R", email="r@x.io", reference_photo_path=_PATH,
+    )
+    await svc.delete_student(school_id=_S1, student_id=student.id)  # does NOT raise
+    assert store.delete_attempts == 3  # bounded retry
+    assert await urepo.get(student.user_id) is None  # student still fully deleted
+    assert await strepo.get(_S1, student.id) is None
+
+
+async def test_delete_photoless_student_skips_object_delete() -> None:
+    # A bulk-imported (photoless) student has no object to erase, but ML delete still fires
+    # (its embeddings/matches/detections may exist from a since-cleared photo).
+    store = FakeObjectStore()
+    svc, _, urepo, ml = _svc(object_store=store)
+    student = await _create(
+        svc, school_id=_S1, name="P", email="p@x.io", reference_photo_path=None,
+    )
+    await svc.delete_student(school_id=_S1, student_id=student.id)
+    assert store.delete_attempts == 0
+    assert ml.delete_calls == [(_S1, student.id)]  # ML footprint still purged
+    assert await urepo.get(student.user_id) is None

@@ -685,6 +685,77 @@ async def test_match_corrections_upsert_get_delete_list_and_scope(
     assert await corr.get(a.id, m.id, student.id) is None
 
 
+async def test_student_erasure_cascades_and_anonymizes(
+    sm: async_sessionmaker[AsyncSession],
+) -> None:
+    # BP8e (decisions/0053): deleting a student's login cascades the profile +
+    # notification_reads + the student's match_corrections away (two-level FK cascade
+    # users -> students -> {...}); download_audit rows survive with the student/actor NULLed.
+    # A second student's data must be untouched.
+    schools = PostgresSchoolRepository(sm)
+    users = PostgresUserRepository(sm)
+    students = PostgresStudentRepository(sm)
+    events = PostgresEventRepository(sm)
+    media = PostgresMediaRepository(sm)
+    corr = PostgresMatchCorrectionRepository(sm)
+    reads = PostgresNotificationReadRepository(sm)
+    audit = PostgresDownloadAuditRepository(sm)
+
+    a = await schools.create(name="A", max_teachers=5)
+    login = await users.create(
+        school_id=a.id, email="s@x.io", password_hash="h", role=Role.STUDENT
+    )
+    student = await students.create(
+        school_id=a.id, user_id=login.id, name="N", reference_photo_path="p"
+    )
+    login2 = await users.create(
+        school_id=a.id, email="s2@x.io", password_hash="h", role=Role.STUDENT
+    )
+    student2 = await students.create(
+        school_id=a.id, user_id=login2.id, name="N2", reference_photo_path="p2"
+    )
+    ev = await events.create(
+        school_id=a.id, name="E", description=None, event_date=None, created_by=None
+    )
+    m = await media.create(
+        school_id=a.id, event_id=ev.id, storage_path="p1.jpg", media_type=MediaType.IMAGE
+    )
+    # The erased student's correction + notification-read + a self-download audit row,
+    # plus the OTHER student's correction (must survive).
+    await corr.upsert(
+        school_id=a.id, media_id=m.id, student_id=student.id, event_id=ev.id,
+        verdict=MatchVerdict.REJECTED, corrected_by=login.id, reason=None,
+        resolves_review=False,
+    )
+    await corr.upsert(
+        school_id=a.id, media_id=m.id, student_id=student2.id, event_id=ev.id,
+        verdict=MatchVerdict.CONFIRMED, corrected_by=None, reason=None,
+        resolves_review=False,
+    )
+    await reads.mark_seen(school_id=a.id, student_id=student.id, event_id=ev.id)
+    await audit.record(
+        school_id=a.id, media_id=m.id, event_id=ev.id, actor_user_id=login.id,
+        actor_role="student", subject_student_id=student.id,
+    )
+    assert {c.student_id for c in await corr.list_for_media(a.id, m.id)} == {
+        student.id, student2.id,
+    }
+
+    # Erase the student = delete the login (the cascade does the rest).
+    await users.delete(login.id)
+
+    assert await students.get(a.id, student.id) is None  # profile cascaded
+    assert await students.get(a.id, student2.id) is not None  # the other survives
+    # the student's correction cascaded away; the other student's remains
+    assert {c.student_id for c in await corr.list_for_media(a.id, m.id)} == {student2.id}
+    assert await reads.list_for_student(a.id, student.id) == {}  # notification-reads gone
+    # the download-audit row survives, anonymized (subject + actor NULLed)
+    entries = await audit.list_for_media(a.id, m.id, limit=10)
+    assert len(entries) == 1
+    assert entries[0].subject_student_id is None
+    assert entries[0].actor_user_id is None
+
+
 async def test_download_audit_record_list_and_scope(
     sm: async_sessionmaker[AsyncSession],
 ) -> None:

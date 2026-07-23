@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from ml_service.adapters.repository._engine import make_engine, make_sessionmaker
+from ml_service.adapters.vector_index._locks import WriteLockProvider
 from ml_service.domain.errors import ConfigurationError
 from ml_service.domain.ports import (
     BackendEventStore,
@@ -62,6 +63,7 @@ class Container:
         self._detector: FaceDetector | None = None
         self._embedder: FaceEmbedder | None = None
         self._index: VectorIndex | None = None
+        self._write_lock_provider: WriteLockProvider | None = None
         self._media_store: MediaStore | None = None
         self._extractor: VideoFrameExtractor | None = None
         self._match_repo: MatchRepository | None = None
@@ -130,6 +132,28 @@ class Container:
             )
         raise ConfigurationError(f"no construction wiring for index_store_impl {impl!r}")
 
+    def write_lock_provider(self) -> WriteLockProvider:
+        """The per-school enrollment write lock (decisions/0052): in-process (Option A,
+        single-replica) or a Redis distributed lock (Option B, multi-replica)."""
+        if self._write_lock_provider is None:
+            with self._lock:
+                if self._write_lock_provider is None:
+                    impl = self._s.faiss_lock_impl
+                    cls = registry.resolve(registry.FAISS_LOCK_REGISTRY, impl)
+                    if impl == "redis":
+                        self._write_lock_provider = cls(
+                            self.redis(),
+                            lease_s=self._s.faiss_lock_lease_s,
+                            wait_s=self._s.faiss_lock_wait_s,
+                        )
+                    elif impl == "inproc":
+                        self._write_lock_provider = cls()
+                    else:
+                        raise ConfigurationError(
+                            f"no construction wiring for faiss_lock_impl {impl!r}"
+                        )
+        return self._write_lock_provider
+
     def vector_index(self) -> VectorIndex:
         if self._index is None:
             with self._lock:
@@ -142,6 +166,7 @@ class Container:
                         store=self._index_store(),
                         embedder_version=self.embedder().version,
                         cache_size=self._s.faiss_cache_size,
+                        lock_provider=self.write_lock_provider(),
                     )
         return self._index
 

@@ -36,6 +36,13 @@ INDEX_STORE_REGISTRY: dict[str, str] = {
     "supabase": "ml_service.adapters.vector_index._index_store:SupabaseIndexStore",
 }
 
+# Per-school enrollment write lock (decisions/0052): in-process (Option A, single-replica)
+# or Redis (Option B, multi-replica). See wiring/container.py::write_lock_provider.
+FAISS_LOCK_REGISTRY: dict[str, str] = {
+    "inproc": "ml_service.adapters.vector_index._locks:InProcLockProvider",
+    "redis": "ml_service.adapters.vector_index._redis_locks:RedisLockProvider",
+}
+
 MEDIA_STORE_REGISTRY: dict[str, str] = {
     "local_fs": "ml_service.adapters.media_store.local_fs:LocalFsMediaStore",
     "supabase": "ml_service.adapters.media_store.supabase_storage:SupabaseMediaStore",

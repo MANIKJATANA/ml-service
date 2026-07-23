@@ -7,6 +7,8 @@ and the fail-loud version check precisely.
 
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 from fakes import normalized
 from ml_service.adapters.vector_index._index_store import LocalFsIndexStore
@@ -19,6 +21,27 @@ EMB_V = "emb-test-1"
 def _make(tmp_path: object, version: str = EMB_V, **kwargs: object) -> FaissPerSchoolVectorIndex:
     store = LocalFsIndexStore(str(tmp_path))
     return FaissPerSchoolVectorIndex(store, version, **kwargs)  # type: ignore[arg-type]
+
+
+class _SpyLockProvider:
+    """Records the school_ids it's asked to lock; returns a real lock so the write proceeds."""
+
+    def __init__(self) -> None:
+        self.acquired: list[str] = []
+
+    def acquire(self, school_id: str) -> asyncio.Lock:
+        self.acquired.append(school_id)
+        return asyncio.Lock()
+
+
+async def test_upsert_and_delete_go_through_the_injected_lock(tmp_path: object) -> None:
+    # Guards the serialization contract: both write paths must acquire the school's lock
+    # via the injected provider (a dropped `async with` would make this fail).
+    spy = _SpyLockProvider()
+    idx = _make(tmp_path, lock_provider=spy)
+    await idx.upsert("s1", "alice", [normalized([1.0])], {})
+    await idx.delete("s1", "alice")
+    assert spy.acquired == ["s1", "s1"]
 
 
 async def test_search_on_missing_index_returns_empty(tmp_path: object) -> None:

@@ -106,6 +106,11 @@ services:
       ML_VIDEO_EXTRACTOR_IMPL: ${ML_VIDEO_EXTRACTOR_IMPL:-decord}
       # FAISS index files live on a volume shared by the API (writes on enroll)
       # and the worker (reads on inference) — see docs/06-faiss-lifecycle.md.
+      # Enrollment writes are serialized per school by an in-process lock (Option A), which
+      # is the fleet lock ONLY because this service runs single-replica. To scale enrollment
+      # to multiple replicas, set ML_FAISS_LOCK_IMPL=redis (Option B, a per-school Redis
+      # lock) + raise this service's replica count (decisions/0052). Reads are already
+      # multi-replica-safe (meta.version reload); this is the shipped default (Option A).
       ML_INDEX_STORE_DIR: /var/lib/ml-service/faiss
       ML_MEDIA_DIR: /var/lib/ml-service/media
       # Dev-only browser test UI at GET /test (enroll + identify). On for local.

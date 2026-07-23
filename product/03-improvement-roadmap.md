@@ -192,6 +192,14 @@ convention. Order = my recommended build order.
     (defense-in-depth) and the frontend (`next.config` `headers()` — the browser-facing set incl. a CSP + COOP + HSTS).
     New `BE_RATE_LIMIT_*`/`BE_SECURITY_HEADERS_ENABLED`/`BE_HSTS_*` env vars. Honest limits: fixed-window 2× burst; the
     auth tier is a single global bucket (no per-IP behind the BFF); an `'unsafe-inline'` CSP (nonce-strict is a follow-up).
+  - **BP8d landed** ([decisions/0052](decisions/0052-product-build-BP8d-multi-replica-enrollment.md)): **multi-replica
+    enrollment** — the FAISS per-school write lock (0011's Option A, in-process) becomes a **pluggable `WriteLockProvider`**
+    so enrollment can scale out via **Option B**, a per-school **Redis** distributed lock (config-gated
+    `ML_FAISS_LOCK_IMPL=redis`; in-process stays the default). **Fail-loud** — a lock-backend outage/timeout fails the
+    enroll (retryable) rather than writing the index unlocked (correctness > availability). Reads were already
+    cross-replica-safe (`meta.version` reload). **ML-only; no migration, no backend/FE change, no ML-contract change.**
+    Honest limit: a write slower than the lease auto-expires the lock (loudly logged; `lease_s` must exceed the slowest
+    write).
 - **Persona:** ops. **Source lens:** T7, X3, X5. **Acceptance:** failures are visible + recoverable (**BP8a**); enrollment
   isn't a silent SPOF (BP8d).
 

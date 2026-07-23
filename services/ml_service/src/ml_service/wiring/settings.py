@@ -81,6 +81,13 @@ class Settings(BaseSettings):
     # FAISS index files (local_fs store = shared Docker volume in dev)
     index_store_dir: str = "/var/lib/ml-service/faiss"
     faiss_cache_size: int = 32
+    # Per-school enrollment write lock (decisions/0052). inproc = an in-process asyncio.Lock
+    # (the fleet lock ONLY under a single-replica enrollment deployment, Option A); redis = a
+    # per-school Redis distributed lock (Option B) that lets enrollment scale to multiple
+    # replicas (reuses redis_url). Fail-loud on a lock-backend outage.
+    faiss_lock_impl: str = "inproc"  # inproc | redis
+    faiss_lock_lease_s: float = 60.0  # lock auto-expiry ceiling (> slowest index write)
+    faiss_lock_wait_s: float = 30.0  # blocking-acquire timeout before failing loud
 
     # local_fs media store base (offline dev/CI); Supabase needs no base dir
     media_dir: str = "/var/lib/ml-service/media"

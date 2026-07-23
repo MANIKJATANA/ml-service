@@ -27,6 +27,10 @@ import numpy as np
 
 from ml_service.adapters.vector_index._faiss_cache import IndexCache, LoadedIndex
 from ml_service.adapters.vector_index._index_store import IndexBlob, IndexStore
+from ml_service.adapters.vector_index._locks import (
+    InProcLockProvider,
+    WriteLockProvider,
+)
 from ml_service.domain.errors import EmbeddingVersionMismatch, MLServiceError
 from ml_service.domain.models import (
     EMBEDDING_DIM,
@@ -48,11 +52,15 @@ class FaissPerSchoolVectorIndex:
         *,
         cache_size: int = 32,
         overfetch: int = _DEFAULT_OVERFETCH,
+        lock_provider: WriteLockProvider | None = None,
     ) -> None:
         self._store = store
         self._embedder_version = embedder_version
         self._cache = IndexCache(cache_size)
         self._overfetch = max(2, overfetch)
+        # Serializes per-school writes. In-process (Option A) by default; the container
+        # injects a Redis provider (Option B) for multi-replica enrollment (decisions/0052).
+        self._locks = lock_provider or InProcLockProvider()
 
     # ---- write path (enrollment) ---------------------------------------
 
@@ -65,7 +73,7 @@ class FaissPerSchoolVectorIndex:
     ) -> None:
         if not embeddings:
             return  # nothing to add; never wipe on empty (service also guards this)
-        async with self._cache.write_lock(school_id):
+        async with self._locks.acquire(school_id):
             loaded = await self._store.load(school_id)
             index_bytes, id_map, meta = await anyio.to_thread.run_sync(
                 self._apply_upsert, loaded, student_id, embeddings
@@ -74,7 +82,7 @@ class FaissPerSchoolVectorIndex:
             await self._cache.invalidate(school_id)
 
     async def delete(self, school_id: str, student_id: str) -> None:
-        async with self._cache.write_lock(school_id):
+        async with self._locks.acquire(school_id):
             loaded = await self._store.load(school_id)
             if loaded is None:
                 return

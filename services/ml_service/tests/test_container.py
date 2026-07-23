@@ -14,6 +14,8 @@ from concurrent.futures import ThreadPoolExecutor
 import pytest
 from ml_service.adapters.media_store.local_fs import LocalFsMediaStore
 from ml_service.adapters.queue.inproc_queue import InProcJobQueue
+from ml_service.adapters.vector_index._locks import InProcLockProvider
+from ml_service.adapters.vector_index._redis_locks import RedisLockProvider
 from ml_service.adapters.video.opencv_extractor import OpenCvFrameExtractor
 from ml_service.domain.errors import ConfigurationError
 from ml_service.wiring.container import Container
@@ -26,6 +28,9 @@ def _cpu_settings(**overrides: object) -> Settings:
         index_store_impl="local_fs",
         video_extractor_impl="opencv",
         queue_impl="inproc",
+        # Pin the impls explicitly (not via .env, which pydantic-settings would read for
+        # any unset field) so the selector tests are deterministic on any host.
+        faiss_lock_impl="inproc",
         media_dir="/tmp/media",
         index_store_dir="/tmp/faiss",
         database_url="postgresql+asyncpg://u:p@localhost:5432/db",
@@ -65,6 +70,25 @@ def test_unknown_media_impl_raises() -> None:
     c = Container(_cpu_settings(media_store_impl="s3"))
     with pytest.raises(ConfigurationError):
         c.media_store()
+
+
+def test_write_lock_provider_inproc_default_memoized() -> None:
+    c = Container(_cpu_settings())  # faiss_lock_impl defaults to "inproc"
+    p = c.write_lock_provider()
+    assert isinstance(p, InProcLockProvider)
+    assert c.write_lock_provider() is p  # singleton — one per-school lock registry / process
+
+
+def test_write_lock_provider_redis_selector() -> None:
+    # redis-py builds the client lazily (no connection), so this instantiates offline.
+    c = Container(_cpu_settings(faiss_lock_impl="redis"))
+    assert isinstance(c.write_lock_provider(), RedisLockProvider)
+
+
+def test_unknown_faiss_lock_impl_raises() -> None:
+    c = Container(_cpu_settings(faiss_lock_impl="zookeeper"))
+    with pytest.raises(ConfigurationError):
+        c.write_lock_provider()
 
 
 def test_aclose_is_idempotent() -> None:

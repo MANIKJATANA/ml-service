@@ -32,5 +32,11 @@ class EmbeddingVersionMismatch(MLServiceError):
     (architecture §7.3) — never search a stale-model index."""
 
 
+class LockAcquisitionError(MLServiceError):
+    """Could not acquire the per-school FAISS write lock (Option B / Redis, decisions/0052)
+    — the lock backend is unreachable or the wait timed out. Fail-loud: an unlocked write
+    under multi-replica risks a lost enrollment, so the enroll fails (retryable) instead."""
+
+
 class ConfigurationError(MLServiceError):
     """Invalid or missing wiring/configuration."""

@@ -2,12 +2,13 @@
 
 import useSWR from "swr";
 
-import { getSchool, listSchoolAdmins, listSchools } from "@/lib/api/endpoints";
+import { getSchool, getSchoolAdmins, getSchools } from "@/lib/api/endpoints";
 import type { SchoolWithRollup, UserResponse } from "@/lib/api/types";
+import { type ListQuery, useInfiniteList } from "@/lib/hooks/use-infinite-list";
 
-export function useSchools() {
-  const { data, error, isLoading, mutate } = useSWR<SchoolWithRollup[]>("schools", listSchools);
-  return { schools: data, error, isLoading, mutate };
+/** One server page at a time of the platform schools list (BP9). */
+export function useSchools(query: ListQuery) {
+  return useInfiniteList<SchoolWithRollup>("schools", query, getSchools);
 }
 
 export function useSchool(schoolId: string) {
@@ -18,10 +19,11 @@ export function useSchool(schoolId: string) {
   return { school: data, error, isLoading, mutate };
 }
 
-export function useSchoolAdmins(schoolId: string) {
-  const { data, error, isLoading, mutate } = useSWR<UserResponse[]>(
+/** One server page at a time of a school's administrator roster (BP9). */
+export function useSchoolAdmins(schoolId: string, query: ListQuery) {
+  return useInfiniteList<UserResponse>(
     schoolId ? `schools/${schoolId}/admins` : null,
-    () => listSchoolAdmins(schoolId),
+    query,
+    (params) => getSchoolAdmins(schoolId, params),
   );
-  return { admins: data, error, isLoading, mutate };
 }

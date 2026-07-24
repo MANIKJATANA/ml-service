@@ -11,20 +11,27 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Query, status
 
 from backend.api.deps import ContainerDep, require_permissions, tenant_of
+from backend.api.pagination import (
+    DEFAULT_PAGE_SIZE,
+    LimitQuery,
+    OffsetQuery,
+    SearchQuery,
+    is_descending,
+)
 from backend.api.schemas.students import (
     BulkImportRequest,
     BulkImportResponse,
     CreateStudentRequest,
     ProvisionedStudentResponse,
     SetReferencePhotoRequest,
-    StudentListItem,
+    StudentListPageResponse,
     StudentResponse,
     UploadUrlResponse,
 )
-from backend.domain.models import User
+from backend.domain.models import EnrollmentStatus, SortDir, StudentSort, User
 from backend.domain.permissions import Permission
 
 router = APIRouter(prefix="/v1/students", tags=["students"])
@@ -77,14 +84,29 @@ async def bulk_import_students(
     return BulkImportResponse.from_results(results)
 
 
-@router.get("", response_model=list[StudentListItem])
+@router.get("", response_model=StudentListPageResponse)
 async def list_students(
-    container: ContainerDep, actor: StudentManager
-) -> list[StudentListItem]:
-    listings = await container.listing_service().list_students(
-        school_id=tenant_of(actor)
+    container: ContainerDep,
+    actor: StudentManager,
+    limit: LimitQuery = DEFAULT_PAGE_SIZE,
+    offset: OffsetQuery = 0,
+    q: SearchQuery = None,
+    sort: Annotated[StudentSort, Query()] = StudentSort.NAME,
+    dir: Annotated[SortDir, Query()] = SortDir.ASC,
+    status: Annotated[EnrollmentStatus | None, Query()] = None,
+) -> StudentListPageResponse:
+    """One page of the students list (BP9): server search (name/email), sort (incl. the
+    whole-list appearance/event count columns), and enrollment-status filter."""
+    page = await container.listing_service().list_students_page(
+        school_id=tenant_of(actor),
+        limit=limit,
+        offset=offset,
+        q=q,
+        sort=sort,
+        descending=is_descending(dir),
+        status=status,
     )
-    return [StudentListItem.from_listing(x) for x in listings]
+    return StudentListPageResponse.from_page(page)
 
 
 @router.get("/{student_id}", response_model=StudentResponse)

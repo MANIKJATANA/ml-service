@@ -84,6 +84,66 @@ class MediaProcessingStatus(StrEnum):
     FAILED = "failed"  # ML couldn't process it (corrupt/undecodable/error) — retryable
 
 
+class SortDir(StrEnum):
+    """List sort direction (BP9, decisions/0055)."""
+
+    ASC = "asc"
+    DESC = "desc"
+
+
+# Per-endpoint list sort keys (BP9, decisions/0055). Each enum is the full allow-set for
+# one list endpoint (used as the API Query type → a bad value 422s for free) and names both
+# **row-native** columns (sorted in SQL, via ``list_page``) and **count columns** (sorted
+# across the whole list in-Python off a school-wide aggregate + ``list_ids``, so the isolated
+# ML ``matches`` seam is never SQL-joined — see ``ListingService``). The ``*_COUNT_SORTS``
+# frozensets below mark which members take the count path.
+
+
+class StudentSort(StrEnum):
+    NAME = "name"
+    CREATED_AT = "created_at"
+    APPEARANCE_COUNT = "appearance_count"  # count column
+    EVENT_COUNT = "event_count"  # count column
+
+
+class EventSort(StrEnum):
+    EVENT_DATE = "event_date"
+    NAME = "name"
+    CREATED_AT = "created_at"
+    MEDIA_COUNT = "media_count"  # count column
+    MATCHED_STUDENTS = "matched_students"  # count column
+    NEEDS_REVIEW = "needs_review"  # count column
+
+
+class UserSort(StrEnum):
+    """Staff/admin rows are ``users`` — no ``name`` column, so email is the only text sort."""
+
+    EMAIL = "email"
+    CREATED_AT = "created_at"
+
+
+class SchoolSort(StrEnum):
+    NAME = "name"
+    CREATED_AT = "created_at"
+    STUDENTS = "students"  # count column
+    EVENTS = "events"  # count column
+    TEACHERS = "teachers"  # count column
+    ADMINS = "admins"  # count column
+
+
+# The count-column members of each sort enum (the ones that take the in-Python global-sort
+# path). Row-native members (the complement) are sorted directly in SQL.
+STUDENT_COUNT_SORTS: frozenset[StudentSort] = frozenset(
+    {StudentSort.APPEARANCE_COUNT, StudentSort.EVENT_COUNT}
+)
+EVENT_COUNT_SORTS: frozenset[EventSort] = frozenset(
+    {EventSort.MEDIA_COUNT, EventSort.MATCHED_STUDENTS, EventSort.NEEDS_REVIEW}
+)
+SCHOOL_COUNT_SORTS: frozenset[SchoolSort] = frozenset(
+    {SchoolSort.STUDENTS, SchoolSort.EVENTS, SchoolSort.TEACHERS, SchoolSort.ADMINS}
+)
+
+
 @dataclass(frozen=True, slots=True)
 class School:
     id: str

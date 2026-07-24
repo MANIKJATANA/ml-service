@@ -129,8 +129,16 @@ class AuditService:
         """Join display data onto the raw audit rows — batched, no N+1."""
         if not rows:
             return []
-        events = {e.id: e for e in await self._events.list_by_school(school_id)}
-        students = {s.id: s for s in await self._students.list_by_school(school_id)}
+        # De-rostered (BP9): fetch only the events/students this page references, not the
+        # whole school — bounded by the page size.
+        event_ids = list({r.event_id for r in rows})
+        student_ids = list(
+            {r.subject_student_id for r in rows if r.subject_student_id is not None}
+        )
+        events = {e.id: e for e in await self._events.list_by_ids(school_id, event_ids)}
+        students = {
+            s.id: s for s in await self._students.list_by_ids(school_id, student_ids)
+        }
         # Actors are users (no per-school list method); fetch each distinct id once.
         actors: dict[str, User] = {}
         for r in rows:

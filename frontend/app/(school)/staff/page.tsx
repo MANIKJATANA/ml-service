@@ -1,7 +1,7 @@
 "use client";
 
 import { UserPlus, Users } from "lucide-react";
-import { type FormEvent, useMemo, useState } from "react";
+import { type FormEvent, useState } from "react";
 
 import { RoleGate } from "@/components/role-gate";
 import { type Invite, InviteResultDialog } from "@/components/staff/invite-result-dialog";
@@ -11,6 +11,7 @@ import { Dialog, DialogClose, DialogContent, DialogTrigger } from "@/components/
 import { EmptyState } from "@/components/ui/empty-state";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { LoadMore } from "@/components/ui/load-more";
 import { PageHeader } from "@/components/ui/page-header";
 import { SearchInput } from "@/components/ui/search-input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -20,14 +21,16 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { useToast } from "@/components/ui/toast";
 import { createStaff, resendStaffInvite, setStaffStatus } from "@/lib/api/endpoints";
 import { isApiError } from "@/lib/api/errors";
-import type { UserResponse } from "@/lib/api/types";
-import { useSort } from "@/lib/hooks/use-sort";
+import type { SortDir, UserResponse } from "@/lib/api/types";
+import { useDebouncedValue } from "@/lib/hooks/use-debounced-value";
+import { useListSort } from "@/lib/hooks/use-sort";
 import { useStaff } from "@/lib/hooks/use-staff";
 import { formatDate } from "@/lib/utils";
 
-const SORT: Record<string, (u: UserResponse) => string | number> = {
-  email: (u) => u.email.toLowerCase(),
-  added: (u) => u.created_at,
+// Default direction when a column is first selected (BP9): email A→Z, added newest-first.
+const SORT_DEFAULT_DIR: Record<string, SortDir> = {
+  email: "asc",
+  created_at: "desc",
 };
 
 function staffStatus(user: UserResponse): {
@@ -174,32 +177,29 @@ function StaffActions({
 }
 
 function StaffContent() {
-  const { staff, isLoading, error, mutate } = useStaff();
-  const [query, setQuery] = useState("");
+  const [rawQuery, setRawQuery] = useState("");
+  const query = useDebouncedValue(rawQuery.trim(), 300);
+  const { sort, dir, onSort } = useListSort("email", SORT_DEFAULT_DIR);
   const [invite, setInvite] = useState<Invite | null>(null);
 
-  const filtered = useMemo(() => {
-    const rows = staff ?? [];
-    const q = query.trim().toLowerCase();
-    return q ? rows.filter((t) => t.email.toLowerCase().includes(q)) : rows;
-  }, [staff, query]);
+  const { items, total, isLoading, isLoadingMore, error, reachedEnd, loadMore, mutate } =
+    useStaff({ q: query || undefined, sort, dir });
 
-  const { sorted, sortKey, sortDir, toggle } = useSort(filtered, SORT, "email");
-  const count = staff?.length ?? 0;
+  const isInitialLoading = isLoading && items.length === 0;
 
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
         title="Staff"
         description={
-          count > 0
-            ? `${count} ${count === 1 ? "teacher" : "teachers"} managing students, events, and galleries.`
+          total > 0
+            ? `${total} ${total === 1 ? "teacher" : "teachers"} managing students, events, and galleries.`
             : "Teachers who manage students, events, and galleries."
         }
         actions={<CreateTeacherDialog onInvited={setInvite} />}
       />
 
-      {isLoading ? (
+      {isInitialLoading ? (
         <Card className="flex flex-col gap-2 p-4">
           {[0, 1, 2].map((i) => (
             <Skeleton key={i} className="h-10 w-full" />
@@ -216,7 +216,7 @@ function StaffContent() {
             </Button>
           }
         />
-      ) : !staff || staff.length === 0 ? (
+      ) : total === 0 && query.length === 0 ? (
         <EmptyState
           icon={<Users className="size-8" aria-hidden="true" />}
           title="No teachers yet"
@@ -226,46 +226,55 @@ function StaffContent() {
       ) : (
         <div className="flex flex-col gap-4">
           <div className="flex justify-end">
-            <SearchInput value={query} onChange={setQuery} placeholder="Search by email…" />
+            <SearchInput value={rawQuery} onChange={setRawQuery} placeholder="Search by email…" />
           </div>
-          {sorted.length === 0 ? (
+          {total === 0 ? (
             <EmptyState title="No matching teachers" description="Try a different search." />
           ) : (
-            <Card className="overflow-hidden">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <SortableHead label="Email" sortKey="email" activeKey={sortKey} dir={sortDir} onSort={toggle} />
-                    <TableHead>Status</TableHead>
-                    <SortableHead label="Added" sortKey="added" activeKey={sortKey} dir={sortDir} onSort={toggle} />
-                    <TableHead className="text-right">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {sorted.map((teacher) => {
-                    const status = staffStatus(teacher);
-                    return (
-                      <TableRow key={teacher.id}>
-                        <TableCell>{teacher.email}</TableCell>
-                        <TableCell>
-                          <StatusPill tone={status.tone}>{status.label}</StatusPill>
-                        </TableCell>
-                        <TableCell className="text-ink-secondary">
-                          {formatDate(teacher.created_at)}
-                        </TableCell>
-                        <TableCell>
-                          <StaffActions
-                            teacher={teacher}
-                            onInvited={setInvite}
-                            onChanged={() => mutate()}
-                          />
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
-            </Card>
+            <>
+              <Card className="overflow-hidden">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <SortableHead label="Email" sortKey="email" activeKey={sort} dir={dir} onSort={onSort} />
+                      <TableHead>Status</TableHead>
+                      <SortableHead label="Added" sortKey="created_at" activeKey={sort} dir={dir} onSort={onSort} />
+                      <TableHead className="text-right">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {items.map((teacher) => {
+                      const status = staffStatus(teacher);
+                      return (
+                        <TableRow key={teacher.id}>
+                          <TableCell>{teacher.email}</TableCell>
+                          <TableCell>
+                            <StatusPill tone={status.tone}>{status.label}</StatusPill>
+                          </TableCell>
+                          <TableCell className="text-ink-secondary">
+                            {formatDate(teacher.created_at)}
+                          </TableCell>
+                          <TableCell>
+                            <StaffActions
+                              teacher={teacher}
+                              onInvited={setInvite}
+                              onChanged={() => mutate()}
+                            />
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </Card>
+              <LoadMore
+                shown={items.length}
+                total={total}
+                reachedEnd={reachedEnd}
+                loading={isLoadingMore}
+                onLoadMore={loadMore}
+              />
+            </>
           )}
         </div>
       )}

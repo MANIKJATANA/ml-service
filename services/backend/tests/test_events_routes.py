@@ -119,7 +119,9 @@ def test_list_get_update_and_cross_tenant_404() -> None:
     eid = _event(client, token)
 
     listed = client.get("/v1/events", headers=_auth(token))
-    assert listed.status_code == 200 and [e["id"] for e in listed.json()] == [eid]
+    assert listed.status_code == 200 and [e["id"] for e in listed.json()["items"]] == [
+        eid
+    ]
 
     got = client.get(f"/v1/events/{eid}", headers=_auth(token))
     assert got.status_code == 200 and got.json()["id"] == eid

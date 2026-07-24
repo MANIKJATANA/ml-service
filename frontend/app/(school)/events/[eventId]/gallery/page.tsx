@@ -23,9 +23,11 @@ import {
 } from "@/lib/hooks/use-galleries";
 
 function AllPhotos({ eventId }: { eventId: string }) {
-  const { media, isLoading, error, mutate } = useEventMedia(eventId);
+  const { items, total, isLoading, isLoadingMore, error, reachedEnd, loadMore, mutate } =
+    useEventMedia(eventId);
+  const isInitialLoading = isLoading && items.length === 0;
 
-  if (isLoading) return <GridSkeleton />;
+  if (isInitialLoading) return <GridSkeleton />;
   if (error) {
     return (
       <EmptyState
@@ -40,7 +42,7 @@ function AllPhotos({ eventId }: { eventId: string }) {
       />
     );
   }
-  if (!media || media.length === 0) {
+  if (total === 0) {
     return (
       <EmptyState
         icon={<Images className="size-8" aria-hidden="true" />}
@@ -51,8 +53,11 @@ function AllPhotos({ eventId }: { eventId: string }) {
   }
   return (
     <PhotoGrid
-      items={media.map((m) => ({ id: m.id, mediaType: m.media_type }))}
+      items={items.map((m) => ({ id: m.id, mediaType: m.media_type }))}
       canManageAppearances
+      onLoadMore={loadMore}
+      hasMore={!reachedEnd}
+      loadingMore={isLoadingMore}
     />
   );
 }

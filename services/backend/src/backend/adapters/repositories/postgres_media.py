@@ -8,14 +8,28 @@ by the ML worker directly (shared DB), so this repo only reads it.
 
 from __future__ import annotations
 
+import uuid
 from collections.abc import Sequence
 
-from sqlalchemy import func, select
+from sqlalchemy import ColumnElement, func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from backend.adapters.repositories._common import opt_uuid, req_uuid
 from backend.db.models import Media as MediaRow
 from backend.domain.models import Media, MediaProcessingStatus, MediaType
+
+
+def _filtered_event(
+    sid: uuid.UUID, eid: uuid.UUID, status: MediaProcessingStatus | None
+) -> list[ColumnElement[bool]]:
+    """The shared WHERE clauses for the paginated event-media reads (BP9)."""
+    conds: list[ColumnElement[bool]] = [
+        MediaRow.school_id == sid,
+        MediaRow.event_id == eid,
+    ]
+    if status is not None:
+        conds.append(MediaRow.processing_status == status.value)
+    return conds
 
 
 def _to_media(row: MediaRow) -> Media:
@@ -84,6 +98,48 @@ class PostgresMediaRepository:
                 .order_by(MediaRow.created_at, MediaRow.id)  # stable on ties
             )
             return [_to_media(r) for r in result.scalars().all()]
+
+    async def list_page_by_event(
+        self,
+        school_id: str,
+        event_id: str,
+        *,
+        limit: int,
+        offset: int,
+        status: MediaProcessingStatus | None = None,
+    ) -> list[Media]:
+        sid = opt_uuid(school_id)
+        eid = opt_uuid(event_id)
+        if sid is None or eid is None:
+            return []
+        async with self._sessionmaker() as session:
+            result = await session.execute(
+                select(MediaRow)
+                .where(*_filtered_event(sid, eid, status))
+                .order_by(MediaRow.created_at, MediaRow.id)  # stable on ties
+                .offset(offset)
+                .limit(limit)
+            )
+            return [_to_media(r) for r in result.scalars().all()]
+
+    async def count_page_by_event(
+        self,
+        school_id: str,
+        event_id: str,
+        *,
+        status: MediaProcessingStatus | None = None,
+    ) -> int:
+        sid = opt_uuid(school_id)
+        eid = opt_uuid(event_id)
+        if sid is None or eid is None:
+            return 0
+        async with self._sessionmaker() as session:
+            result = await session.execute(
+                select(func.count())
+                .select_from(MediaRow)
+                .where(*_filtered_event(sid, eid, status))
+            )
+            return int(result.scalar_one())
 
     async def list_by_ids(
         self, school_id: str, media_ids: Sequence[str]

@@ -9,16 +9,24 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Query, status
 
 from backend.api.deps import ContainerDep, require_permissions, tenant_of
+from backend.api.pagination import (
+    DEFAULT_PAGE_SIZE,
+    LimitQuery,
+    OffsetQuery,
+    SearchQuery,
+    is_descending,
+)
 from backend.api.schemas.users import (
     CreateUserRequest,
     ProvisionedUserResponse,
     UpdateUserStatusRequest,
+    UserListPageResponse,
     UserResponse,
 )
-from backend.domain.models import Role, User
+from backend.domain.models import Role, SortDir, User, UserSort
 from backend.domain.permissions import Permission
 
 router = APIRouter(prefix="/v1/staff", tags=["staff"])
@@ -43,10 +51,26 @@ async def create_teacher(
     return ProvisionedUserResponse.from_provisioned(provisioned)
 
 
-@router.get("", response_model=list[UserResponse])
-async def list_staff(container: ContainerDep, actor: StaffManager) -> list[UserResponse]:
-    staff = await container.onboarding_service().list_staff(school_id=_tenant(actor))
-    return [UserResponse.from_user(u) for u in staff]
+@router.get("", response_model=UserListPageResponse)
+async def list_staff(
+    container: ContainerDep,
+    actor: StaffManager,
+    limit: LimitQuery = DEFAULT_PAGE_SIZE,
+    offset: OffsetQuery = 0,
+    q: SearchQuery = None,
+    sort: Annotated[UserSort, Query()] = UserSort.CREATED_AT,
+    dir: Annotated[SortDir, Query()] = SortDir.DESC,
+) -> UserListPageResponse:
+    """One page of the teacher roster (BP9): server search (email) + email/created sort."""
+    page = await container.onboarding_service().list_staff_page(
+        school_id=_tenant(actor),
+        limit=limit,
+        offset=offset,
+        q=q,
+        sort=sort,
+        descending=is_descending(dir),
+    )
+    return UserListPageResponse.from_page(page)
 
 
 @router.patch("/{user_id}", response_model=UserResponse)

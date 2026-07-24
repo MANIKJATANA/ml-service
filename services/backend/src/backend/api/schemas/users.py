@@ -13,6 +13,7 @@ from pydantic import BaseModel, EmailStr
 
 from backend.domain.models import Role, User, UserStatus
 from backend.services.onboarding_service import ProvisionedUser
+from backend.services.pagination import Page
 
 
 class CreateUserRequest(BaseModel):
@@ -64,3 +65,22 @@ class ProvisionedUserResponse(BaseModel):
     @classmethod
     def from_provisioned(cls, p: ProvisionedUser) -> ProvisionedUserResponse:
         return cls(user=UserResponse.from_user(p.user), temp_password=p.temp_password)
+
+
+class UserListPageResponse(BaseModel):
+    """One page of a users roster (BP9) — the staff (teacher) list + the school-admin
+    roster — plus the unpaginated total for the given search."""
+
+    items: list[UserResponse]
+    total: int
+    limit: int
+    offset: int
+
+    @classmethod
+    def from_page(cls, page: Page[User]) -> UserListPageResponse:
+        return cls(
+            items=[UserResponse.from_user(u) for u in page.items],
+            total=page.total,
+            limit=page.limit,
+            offset=page.offset,
+        )

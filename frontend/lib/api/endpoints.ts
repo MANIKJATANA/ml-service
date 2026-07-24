@@ -5,7 +5,7 @@ import type {
   DownloadLogPageResponse,
   DownloadResponse,
   EventForStudentResponse,
-  EventListItem,
+  EventListPageResponse,
   EventResponse,
   EventStatus,
   EventStatusResponse,
@@ -13,6 +13,7 @@ import type {
   LoginResult,
   MediaAppearanceResponse,
   MediaDownloadLogResponse,
+  MediaListPageResponse,
   MediaResponse,
   MediaReviewResponse,
   MediaType,
@@ -21,12 +22,15 @@ import type {
   NotifyResultResponse,
   ProvisionedStudentResponse,
   ProvisionedUserResponse,
+  SchoolListPageResponse,
   SchoolResponse,
   SchoolWithRollup,
+  SortDir,
   StudentInEventResponse,
-  StudentListItem,
+  StudentListPageResponse,
   StudentResponse,
   UploadUrlResponse,
+  UserListPageResponse,
   UserResponse,
   UserStatus,
 } from "./types";
@@ -36,6 +40,28 @@ import type {
  * password) are FE-owned cookie managers at `/api/auth/*`; everything else is a
  * transparent proxy to FastAPI under `/api/v1/*` (decisions/0031).
  */
+
+/** Shared query params for the server-paginated lists (BP9, decisions/0055). */
+export interface ListParams {
+  limit: number;
+  offset: number;
+  q?: string;
+  sort?: string;
+  dir?: SortDir;
+  status?: string;
+}
+
+function listQuery(params: ListParams): string {
+  const q = new URLSearchParams({
+    limit: String(params.limit),
+    offset: String(params.offset),
+  });
+  if (params.q) q.set("q", params.q);
+  if (params.sort) q.set("sort", params.sort);
+  if (params.dir) q.set("dir", params.dir);
+  if (params.status && params.status !== "all") q.set("status", params.status);
+  return q.toString();
+}
 
 // --- Auth (F1) ---
 
@@ -71,8 +97,9 @@ export function getDashboard(): Promise<DashboardResponse> {
 
 // --- Platform: schools + admins (F2, school:manage) ---
 
-export function listSchools(): Promise<SchoolWithRollup[]> {
-  return bffFetch<SchoolWithRollup[]>("/api/v1/schools");
+/** One page of the platform schools list (BP9): server search + rollup-count sort. */
+export function getSchools(params: ListParams): Promise<SchoolListPageResponse> {
+  return bffFetch<SchoolListPageResponse>(`/api/v1/schools?${listQuery(params)}`);
 }
 
 export function createSchool(name: string, maxTeachers: number): Promise<SchoolResponse> {
@@ -86,9 +113,14 @@ export function getSchool(schoolId: string): Promise<SchoolWithRollup> {
   return bffFetch<SchoolWithRollup>(`/api/v1/schools/${encodeURIComponent(schoolId)}`);
 }
 
-/** The school's administrator roster (BP2). */
-export function listSchoolAdmins(schoolId: string): Promise<UserResponse[]> {
-  return bffFetch<UserResponse[]>(`/api/v1/schools/${encodeURIComponent(schoolId)}/admins`);
+/** One page of the school's administrator roster (BP9): server search + email/created sort. */
+export function getSchoolAdmins(
+  schoolId: string,
+  params: ListParams,
+): Promise<UserListPageResponse> {
+  return bffFetch<UserListPageResponse>(
+    `/api/v1/schools/${encodeURIComponent(schoolId)}/admins?${listQuery(params)}`,
+  );
 }
 
 /** Add a school admin (BP7c): the temp password is generated server-side + returned once. */
@@ -127,8 +159,9 @@ export function resendSchoolAdminInvite(
 
 // --- School staff / teachers (F3, staff:manage) ---
 
-export function listStaff(): Promise<UserResponse[]> {
-  return bffFetch<UserResponse[]>("/api/v1/staff");
+/** One page of the teacher roster (BP9): server search (email) + email/created sort. */
+export function getStaff(params: ListParams): Promise<UserListPageResponse> {
+  return bffFetch<UserListPageResponse>(`/api/v1/staff?${listQuery(params)}`);
 }
 
 /** Add a teacher (BP7c): the temp password is generated server-side + returned once. */
@@ -160,8 +193,10 @@ export function resendStaffInvite(userId: string): Promise<ProvisionedUserRespon
 
 // --- Students + ML enrollment (F3, student:manage) ---
 
-export function listStudents(): Promise<StudentListItem[]> {
-  return bffFetch<StudentListItem[]>("/api/v1/students");
+/** One page of the students list (BP9): server search (name/email), sort (incl. the
+ *  whole-list appearance/event count columns), and enrollment-status filter. */
+export function getStudents(params: ListParams): Promise<StudentListPageResponse> {
+  return bffFetch<StudentListPageResponse>(`/api/v1/students?${listQuery(params)}`);
 }
 
 export function getStudent(studentId: string): Promise<StudentResponse> {
@@ -226,8 +261,10 @@ export function deleteStudent(studentId: string): Promise<void> {
 
 // --- Events (F4, event:manage / media:upload / job:status:view) ---
 
-export function listEvents(): Promise<EventListItem[]> {
-  return bffFetch<EventListItem[]>("/api/v1/events");
+/** One page of the events list (BP9): server search (name), sort (incl. the whole-list
+ *  media/matched/needs-review count columns), and lifecycle-status filter. */
+export function getEvents(params: ListParams): Promise<EventListPageResponse> {
+  return bffFetch<EventListPageResponse>(`/api/v1/events?${listQuery(params)}`);
 }
 
 export function getEvent(eventId: string): Promise<EventResponse> {
@@ -328,8 +365,14 @@ export function registerMedia(
   });
 }
 
-export function listEventMedia(eventId: string): Promise<MediaResponse[]> {
-  return bffFetch<MediaResponse[]>(`/api/v1/events/${encodeURIComponent(eventId)}/media`);
+/** One page of an event's media (BP9): pagination for the browse-all gallery + detail. */
+export function getEventMedia(
+  eventId: string,
+  params: ListParams,
+): Promise<MediaListPageResponse> {
+  return bffFetch<MediaListPageResponse>(
+    `/api/v1/events/${encodeURIComponent(eventId)}/media?${listQuery(params)}`,
+  );
 }
 
 export function getMedia(mediaId: string): Promise<MediaResponse> {

@@ -7,11 +7,21 @@ Platform-only — the whole router requires the `school:manage` permission, so a
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, status
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, Query, status
 
 from backend.api.deps import ContainerDep, require_permissions
+from backend.api.pagination import (
+    DEFAULT_PAGE_SIZE,
+    LimitQuery,
+    OffsetQuery,
+    SearchQuery,
+    is_descending,
+)
 from backend.api.schemas.schools import (
     CreateSchoolRequest,
+    SchoolListPageResponse,
     SchoolResponse,
     SchoolWithRollupResponse,
 )
@@ -19,9 +29,10 @@ from backend.api.schemas.users import (
     CreateUserRequest,
     ProvisionedUserResponse,
     UpdateUserStatusRequest,
+    UserListPageResponse,
     UserResponse,
 )
-from backend.domain.models import Role
+from backend.domain.models import Role, SchoolSort, SortDir, UserSort
 from backend.domain.permissions import Permission
 
 router = APIRouter(
@@ -41,10 +52,21 @@ async def create_school(
     return SchoolResponse.from_school(school)
 
 
-@router.get("", response_model=list[SchoolWithRollupResponse])
-async def list_schools(container: ContainerDep) -> list[SchoolWithRollupResponse]:
-    listings = await container.listing_service().list_schools()
-    return [SchoolWithRollupResponse.from_listing(x) for x in listings]
+@router.get("", response_model=SchoolListPageResponse)
+async def list_schools(
+    container: ContainerDep,
+    limit: LimitQuery = DEFAULT_PAGE_SIZE,
+    offset: OffsetQuery = 0,
+    q: SearchQuery = None,
+    sort: Annotated[SchoolSort, Query()] = SchoolSort.NAME,
+    dir: Annotated[SortDir, Query()] = SortDir.ASC,
+) -> SchoolListPageResponse:
+    """One page of the platform schools list (BP9): server search (name) + sort (incl. the
+    whole-list students/events/teachers/admins rollup columns)."""
+    page = await container.listing_service().list_schools_page(
+        limit=limit, offset=offset, q=q, sort=sort, descending=is_descending(dir)
+    )
+    return SchoolListPageResponse.from_page(page)
 
 
 @router.get("/{school_id}", response_model=SchoolWithRollupResponse)
@@ -55,13 +77,26 @@ async def get_school(
     return SchoolWithRollupResponse.from_listing(listing)
 
 
-@router.get("/{school_id}/admins", response_model=list[UserResponse])
+@router.get("/{school_id}/admins", response_model=UserListPageResponse)
 async def list_school_admins(
-    school_id: str, container: ContainerDep
-) -> list[UserResponse]:
-    """The school's administrator roster (BP2). Add-admin is the existing POST."""
-    admins = await container.listing_service().list_school_admins(school_id=school_id)
-    return [UserResponse.from_user(u) for u in admins]
+    school_id: str,
+    container: ContainerDep,
+    limit: LimitQuery = DEFAULT_PAGE_SIZE,
+    offset: OffsetQuery = 0,
+    q: SearchQuery = None,
+    sort: Annotated[UserSort, Query()] = UserSort.CREATED_AT,
+    dir: Annotated[SortDir, Query()] = SortDir.DESC,
+) -> UserListPageResponse:
+    """One page of the school's administrator roster (BP9). Add-admin is the existing POST."""
+    page = await container.listing_service().list_school_admins_page(
+        school_id=school_id,
+        limit=limit,
+        offset=offset,
+        q=q,
+        sort=sort,
+        descending=is_descending(dir),
+    )
+    return UserListPageResponse.from_page(page)
 
 
 @router.post(

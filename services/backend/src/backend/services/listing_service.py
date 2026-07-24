@@ -20,16 +20,28 @@ batch here yet).
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from backend.domain.errors import NotFoundError
 from backend.domain.models import (
+    EVENT_COUNT_SORTS,
+    SCHOOL_COUNT_SORTS,
+    STUDENT_COUNT_SORTS,
+    EnrollmentStatus,
     Event,
+    EventMatchCounts,
+    EventSort,
+    EventStatus,
     Role,
     School,
     SchoolRollup,
+    SchoolSort,
     Student,
+    StudentAppearanceCounts,
+    StudentSort,
     User,
+    UserSort,
 )
 from backend.domain.ports import (
     EventRepository,
@@ -39,6 +51,7 @@ from backend.domain.ports import (
     StudentRepository,
     UserRepository,
 )
+from backend.services.pagination import Page
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,6 +81,55 @@ class SchoolListing:
     rollup: SchoolRollup
 
 
+# ---- BP9 count-sort helpers (decisions/0055) ----------------------------
+#
+# A "count column" sort (e.g. students by most-photos) can't be paged in SQL — the order
+# depends on a count that lives in the isolated ML ``matches`` seam (never SQL-joined) or a
+# sibling aggregate. So the service fetches ALL matching ids (``list_ids``, id-only, bounded
+# by the tenant slice), sorts them in-Python off a school-wide count dict (the same grouped
+# query BP2 already runs), slices one page, then hydrates only that page (``list_by_ids``).
+# Row-native sorts (name/date) never touch this — they page directly in SQL.
+
+
+def _count_sorted_page(
+    ids: list[str],
+    *,
+    key: Callable[[str], int],
+    descending: bool,
+    offset: int,
+    limit: int,
+) -> list[str]:
+    """Sort ids by a count ``key`` (id as a stable tiebreak, so pages never overlap),
+    honoring direction, then slice one page. Mutates ``ids`` (a fresh list per call)."""
+    ids.sort(key=lambda i: (key(i), i), reverse=descending)
+    return ids[offset : offset + limit]
+
+
+def _student_listing(
+    student: Student, counts: dict[str, StudentAppearanceCounts]
+) -> StudentListing:
+    c = counts.get(student.id)
+    return StudentListing(
+        student=student,
+        appearance_count=c.appearance_count if c else 0,
+        event_count=c.event_count if c else 0,
+    )
+
+
+def _event_listing(
+    event: Event,
+    media_counts: dict[str, int],
+    match_counts: dict[str, EventMatchCounts],
+) -> EventListing:
+    m = match_counts.get(event.id)
+    return EventListing(
+        event=event,
+        media_count=media_counts.get(event.id, 0),
+        matched_students=m.matched_students if m else 0,
+        needs_review=m.needs_review if m else 0,
+    )
+
+
 class ListingService:
     def __init__(
         self,
@@ -91,33 +153,114 @@ class ListingService:
         events = await self._events.list_by_school(school_id)
         media_counts = await self._media.counts_by_event(school_id)
         match_counts = await self._reader.event_match_counts(school_id)
-        out: list[EventListing] = []
-        for e in events:
-            m = match_counts.get(e.id)
-            out.append(
-                EventListing(
-                    event=e,
-                    media_count=media_counts.get(e.id, 0),
-                    matched_students=m.matched_students if m else 0,
-                    needs_review=m.needs_review if m else 0,
+        return [_event_listing(e, media_counts, match_counts) for e in events]
+
+    async def list_events_page(
+        self,
+        *,
+        school_id: str,
+        limit: int,
+        offset: int,
+        q: str | None = None,
+        sort: EventSort = EventSort.EVENT_DATE,
+        descending: bool = True,
+        status: EventStatus | None = None,
+    ) -> Page[EventListing]:
+        """One page of the events list (BP9), searched/filtered/sorted server-side. Count
+        sorts (media/matched/needs_review) take the whole-list id-scan path; row-native
+        sorts page directly in SQL."""
+        media_counts = await self._media.counts_by_event(school_id)
+        match_counts = await self._reader.event_match_counts(school_id)
+        if sort in EVENT_COUNT_SORTS:
+            ids = await self._events.list_ids(school_id, q=q, status=status)
+            total = len(ids)
+
+            def key(eid: str) -> int:
+                if sort is EventSort.MEDIA_COUNT:
+                    return media_counts.get(eid, 0)
+                m = match_counts.get(eid)
+                if m is None:
+                    return 0
+                return (
+                    m.matched_students
+                    if sort is EventSort.MATCHED_STUDENTS
+                    else m.needs_review
                 )
+
+            page_ids = _count_sorted_page(
+                ids, key=key, descending=descending, offset=offset, limit=limit
             )
-        return out
+            by_id = {
+                e.id: e for e in await self._events.list_by_ids(school_id, page_ids)
+            }
+            events = [by_id[eid] for eid in page_ids if eid in by_id]
+        else:
+            events = await self._events.list_page(
+                school_id,
+                limit=limit,
+                offset=offset,
+                q=q,
+                sort=sort,
+                descending=descending,
+                status=status,
+            )
+            total = await self._events.count_page(school_id, q=q, status=status)
+        items = [_event_listing(e, media_counts, match_counts) for e in events]
+        return Page(items=items, total=total, limit=limit, offset=offset)
 
     async def list_students(self, *, school_id: str) -> list[StudentListing]:
         students = await self._students.list_by_school(school_id)
         appearance_counts = await self._reader.student_appearance_counts(school_id)
-        out: list[StudentListing] = []
-        for s in students:
-            c = appearance_counts.get(s.id)
-            out.append(
-                StudentListing(
-                    student=s,
-                    appearance_count=c.appearance_count if c else 0,
-                    event_count=c.event_count if c else 0,
+        return [_student_listing(s, appearance_counts) for s in students]
+
+    async def list_students_page(
+        self,
+        *,
+        school_id: str,
+        limit: int,
+        offset: int,
+        q: str | None = None,
+        sort: StudentSort = StudentSort.NAME,
+        descending: bool = False,
+        status: EnrollmentStatus | None = None,
+    ) -> Page[StudentListing]:
+        """One page of the students list (BP9). Count sorts (appearance/event) take the
+        whole-list id-scan path; row-native sorts page directly in SQL."""
+        counts = await self._reader.student_appearance_counts(school_id)
+        if sort in STUDENT_COUNT_SORTS:
+            ids = await self._students.list_ids(school_id, q=q, status=status)
+            total = len(ids)
+
+            def key(sid: str) -> int:
+                c = counts.get(sid)
+                if c is None:
+                    return 0
+                return (
+                    c.appearance_count
+                    if sort is StudentSort.APPEARANCE_COUNT
+                    else c.event_count
                 )
+
+            page_ids = _count_sorted_page(
+                ids, key=key, descending=descending, offset=offset, limit=limit
             )
-        return out
+            by_id = {
+                s.id: s for s in await self._students.list_by_ids(school_id, page_ids)
+            }
+            students = [by_id[sid] for sid in page_ids if sid in by_id]
+        else:
+            students = await self._students.list_page(
+                school_id,
+                limit=limit,
+                offset=offset,
+                q=q,
+                sort=sort,
+                descending=descending,
+                status=status,
+            )
+            total = await self._students.count_page(school_id, q=q, status=status)
+        items = [_student_listing(s, counts) for s in students]
+        return Page(items=items, total=total, limit=limit, offset=offset)
 
     # ---- platform (cross-tenant) ---------------------------------------
 
@@ -135,6 +278,54 @@ class ListingService:
             )
             for s in schools
         ]
+
+    async def list_schools_page(
+        self,
+        *,
+        limit: int,
+        offset: int,
+        q: str | None = None,
+        sort: SchoolSort = SchoolSort.NAME,
+        descending: bool = False,
+    ) -> Page[SchoolListing]:
+        """One page of the platform schools list (BP9). The rollup counts live on
+        backend-owned tables (no ML seam); count sorts still use the id-scan path for a
+        uniform contract with students/events."""
+        role_counts = await self._users.role_counts_by_school()
+        students_by_school = await self._students.counts_by_school()
+        events_by_school = await self._events.counts_by_school()
+
+        def rollup_of(school_id: str) -> SchoolRollup:
+            return _rollup(school_id, role_counts, students_by_school, events_by_school)
+
+        if sort in SCHOOL_COUNT_SORTS:
+            ids = await self._schools.list_ids(q=q)
+            total = len(ids)
+
+            def key(scid: str) -> int:
+                r = rollup_of(scid)
+                if sort is SchoolSort.STUDENTS:
+                    return r.students
+                if sort is SchoolSort.EVENTS:
+                    return r.events
+                if sort is SchoolSort.TEACHERS:
+                    return r.teachers
+                return r.admins
+
+            page_ids = _count_sorted_page(
+                ids, key=key, descending=descending, offset=offset, limit=limit
+            )
+            by_id = {s.id: s for s in await self._schools.list_by_ids(page_ids)}
+            schools = [by_id[scid] for scid in page_ids if scid in by_id]
+        else:
+            schools = await self._schools.list_page(
+                limit=limit, offset=offset, q=q, sort=sort, descending=descending
+            )
+            total = await self._schools.count_page(q=q)
+        items = [
+            SchoolListing(school=s, rollup=rollup_of(s.id)) for s in schools
+        ]
+        return Page(items=items, total=total, limit=limit, offset=offset)
 
     async def get_school(self, *, school_id: str) -> SchoolListing:
         school = await self._schools.get(school_id)
@@ -155,6 +346,35 @@ class ListingService:
         if school is None:
             raise NotFoundError(f"school not found: {school_id}")
         return await self._users.list_by_school_and_role(school_id, Role.SCHOOL_ADMIN)
+
+    async def list_school_admins_page(
+        self,
+        *,
+        school_id: str,
+        limit: int,
+        offset: int,
+        q: str | None = None,
+        sort: UserSort = UserSort.CREATED_AT,
+        descending: bool = True,
+    ) -> Page[User]:
+        """One page of a school's administrator roster (BP9). Searched on email + sorted
+        server-side (users have no name/count columns)."""
+        school = await self._schools.get(school_id)
+        if school is None:
+            raise NotFoundError(f"school not found: {school_id}")
+        users = await self._users.list_page_by_role(
+            school_id,
+            Role.SCHOOL_ADMIN,
+            limit=limit,
+            offset=offset,
+            q=q,
+            sort=sort,
+            descending=descending,
+        )
+        total = await self._users.count_page_by_role(
+            school_id, Role.SCHOOL_ADMIN, q=q
+        )
+        return Page(items=users, total=total, limit=limit, offset=offset)
 
 
 def _rollup(

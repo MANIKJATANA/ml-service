@@ -6,8 +6,8 @@ import {
   eventReview,
   eventStudentMedia,
   eventStudents,
+  getEventMedia,
   getMedia,
-  listEventMedia,
   mediaAppearances,
   studentEvents,
   studentMedia,
@@ -20,14 +20,15 @@ import type {
   MediaReviewResponse,
   StudentInEventResponse,
 } from "@/lib/api/types";
+import { useInfiniteList } from "@/lib/hooks/use-infinite-list";
 
-/** All of an event's photos (browse-all). */
+/** One server page at a time of an event's photos (browse-all gallery, BP9). */
 export function useEventMedia(eventId: string) {
-  const { data, error, isLoading, mutate } = useSWR<MediaResponse[]>(
+  return useInfiniteList<MediaResponse>(
     eventId ? `events/${eventId}/media` : null,
-    () => listEventMedia(eventId),
+    {},
+    (params) => getEventMedia(eventId, params),
   );
-  return { media: data, error, isLoading, mutate };
 }
 
 /** Students who appear in an event (+ per-student photo counts). */

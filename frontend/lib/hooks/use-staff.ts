@@ -1,11 +1,10 @@
 "use client";
 
-import useSWR from "swr";
-
-import { listStaff } from "@/lib/api/endpoints";
+import { getStaff } from "@/lib/api/endpoints";
 import type { UserResponse } from "@/lib/api/types";
+import { type ListQuery, useInfiniteList } from "@/lib/hooks/use-infinite-list";
 
-export function useStaff() {
-  const { data, error, isLoading, mutate } = useSWR<UserResponse[]>("staff", listStaff);
-  return { staff: data, error, isLoading, mutate };
+/** One server page at a time of the teacher roster (BP9): search (email) + sort hit SQL. */
+export function useStaff(query: ListQuery) {
+  return useInfiniteList<UserResponse>("staff", query, getStaff);
 }

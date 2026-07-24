@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 
 from backend.domain.models import Event, EventProcessingStatus, EventStatus
 from backend.services.listing_service import EventListing
+from backend.services.pagination import Page
 
 
 class CreateEventRequest(BaseModel):
@@ -76,4 +77,22 @@ class EventListItem(EventResponse):
             media_count=listing.media_count,
             matched_students=listing.matched_students,
             needs_review=listing.needs_review,
+        )
+
+
+class EventListPageResponse(BaseModel):
+    """One page of the events list (BP9) + the unpaginated total for the given filter."""
+
+    items: list[EventListItem]
+    total: int
+    limit: int
+    offset: int
+
+    @classmethod
+    def from_page(cls, page: Page[EventListing]) -> EventListPageResponse:
+        return cls(
+            items=[EventListItem.from_listing(x) for x in page.items],
+            total=page.total,
+            limit=page.limit,
+            offset=page.offset,
         )

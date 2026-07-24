@@ -10,12 +10,19 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Query, status
 
 from backend.api.deps import ContainerDep, require_permissions, tenant_of
+from backend.api.pagination import (
+    DEFAULT_PAGE_SIZE,
+    LimitQuery,
+    OffsetQuery,
+    SearchQuery,
+    is_descending,
+)
 from backend.api.schemas.events import (
     CreateEventRequest,
-    EventListItem,
+    EventListPageResponse,
     EventResponse,
     UpdateEventRequest,
 )
@@ -24,7 +31,7 @@ from backend.api.schemas.notifications import (
     NotificationRosterResponse,
     NotifyResultResponse,
 )
-from backend.domain.models import User
+from backend.domain.models import EventSort, EventStatus, SortDir, User
 from backend.domain.permissions import Permission
 
 router = APIRouter(prefix="/v1/events", tags=["events"])
@@ -49,12 +56,29 @@ async def create_event(
     return EventResponse.from_event(event)
 
 
-@router.get("", response_model=list[EventListItem])
+@router.get("", response_model=EventListPageResponse)
 async def list_events(
-    container: ContainerDep, actor: EventManager
-) -> list[EventListItem]:
-    listings = await container.listing_service().list_events(school_id=tenant_of(actor))
-    return [EventListItem.from_listing(x) for x in listings]
+    container: ContainerDep,
+    actor: EventManager,
+    limit: LimitQuery = DEFAULT_PAGE_SIZE,
+    offset: OffsetQuery = 0,
+    q: SearchQuery = None,
+    sort: Annotated[EventSort, Query()] = EventSort.EVENT_DATE,
+    dir: Annotated[SortDir, Query()] = SortDir.DESC,
+    status: Annotated[EventStatus | None, Query()] = None,
+) -> EventListPageResponse:
+    """One page of the events list (BP9): server search (name), sort (incl. the whole-list
+    media/matched/needs-review count columns), and lifecycle-status filter."""
+    page = await container.listing_service().list_events_page(
+        school_id=tenant_of(actor),
+        limit=limit,
+        offset=offset,
+        q=q,
+        sort=sort,
+        descending=is_descending(dir),
+        status=status,
+    )
+    return EventListPageResponse.from_page(page)
 
 
 @router.get("/{event_id}", response_model=EventResponse)

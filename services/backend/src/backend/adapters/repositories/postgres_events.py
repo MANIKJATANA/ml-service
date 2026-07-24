@@ -12,23 +12,39 @@ prior clear-on-requeue was dropped so an auto-announced event doesn't un-announc
 
 from __future__ import annotations
 
+import uuid
+from collections.abc import Sequence
 from datetime import date
 
-from sqlalchemy import and_, func, or_, select, update
+from sqlalchemy import ColumnElement, and_, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from backend.adapters.repositories._common import opt_uuid, req_uuid
+from backend.adapters.repositories._common import (
+    LIKE_ESCAPE,
+    ilike_term,
+    opt_uuid,
+    req_uuid,
+)
 from backend.db.models import Event as EventRow
 from backend.db.models import Media as MediaRow
 from backend.domain.models import (
     Event,
     EventProcessingStatus,
     EventRollup,
+    EventSort,
     EventStatus,
 )
 
 # Processing states that count as "currently distributing" for the dashboard rollup.
 _IN_FLIGHT = (EventProcessingStatus.QUEUED.value, EventProcessingStatus.PROCESSING.value)
+
+# Row-native sort columns (BP9); count sorts (media/matched/needs_review) take the id-scan
+# path in the service, so a stray one falls back to ``event_date``.
+_SORT_COLS = {
+    EventSort.EVENT_DATE: EventRow.event_date,
+    EventSort.NAME: EventRow.name,
+    EventSort.CREATED_AT: EventRow.created_at,
+}
 
 
 def _to_event(row: EventRow) -> Event:
@@ -100,6 +116,98 @@ class PostgresEventRepository:
             result = await session.execute(
                 select(EventRow)
                 .where(EventRow.school_id == sid)
+                .order_by(EventRow.created_at, EventRow.id)  # stable on ties
+            )
+            return [_to_event(r) for r in result.scalars().all()]
+
+    def _filtered(
+        self, sid: uuid.UUID, q: str | None, status: EventStatus | None
+    ) -> list[ColumnElement[bool]]:
+        """The shared WHERE clauses for the paginated events reads (BP9)."""
+        conds: list[ColumnElement[bool]] = [EventRow.school_id == sid]
+        if status is not None:
+            conds.append(EventRow.status == status.value)
+        if q:
+            conds.append(EventRow.name.ilike(ilike_term(q), escape=LIKE_ESCAPE))
+        return conds
+
+    async def list_page(
+        self,
+        school_id: str,
+        *,
+        limit: int,
+        offset: int,
+        q: str | None = None,
+        sort: EventSort = EventSort.EVENT_DATE,
+        descending: bool = True,
+        status: EventStatus | None = None,
+    ) -> list[Event]:
+        sid = opt_uuid(school_id)
+        if sid is None:
+            return []
+        col = _SORT_COLS.get(sort, EventRow.event_date)
+        order = (
+            (col.desc(), EventRow.id.desc())
+            if descending
+            else (col.asc(), EventRow.id.asc())
+        )
+        async with self._sessionmaker() as session:
+            result = await session.execute(
+                select(EventRow)
+                .where(*self._filtered(sid, q, status))
+                .order_by(*order)
+                .offset(offset)
+                .limit(limit)
+            )
+            return [_to_event(r) for r in result.scalars().all()]
+
+    async def count_page(
+        self,
+        school_id: str,
+        *,
+        q: str | None = None,
+        status: EventStatus | None = None,
+    ) -> int:
+        sid = opt_uuid(school_id)
+        if sid is None:
+            return 0
+        async with self._sessionmaker() as session:
+            result = await session.execute(
+                select(func.count())
+                .select_from(EventRow)
+                .where(*self._filtered(sid, q, status))
+            )
+            return int(result.scalar_one())
+
+    async def list_ids(
+        self,
+        school_id: str,
+        *,
+        q: str | None = None,
+        status: EventStatus | None = None,
+    ) -> list[str]:
+        sid = opt_uuid(school_id)
+        if sid is None:
+            return []
+        async with self._sessionmaker() as session:
+            result = await session.execute(
+                select(EventRow.id).where(*self._filtered(sid, q, status))
+            )
+            return [str(r) for r in result.scalars().all()]
+
+    async def list_by_ids(
+        self, school_id: str, event_ids: Sequence[str]
+    ) -> list[Event]:
+        sid = opt_uuid(school_id)
+        if sid is None:
+            return []
+        ids = [eid for eid in (opt_uuid(e) for e in event_ids) if eid is not None]
+        if not ids:
+            return []
+        async with self._sessionmaker() as session:
+            result = await session.execute(
+                select(EventRow)
+                .where(EventRow.school_id == sid, EventRow.id.in_(ids))
                 .order_by(EventRow.created_at, EventRow.id)  # stable on ties
             )
             return [_to_event(r) for r in result.scalars().all()]

@@ -14,6 +14,7 @@ from pydantic import BaseModel, EmailStr, Field
 
 from backend.domain.models import EnrollmentFailureReason, EnrollmentStatus, Student
 from backend.services.listing_service import StudentListing
+from backend.services.pagination import Page
 from backend.services.student_service import BulkStudentResult, ProvisionedStudent
 
 # The largest batch one CSV import can create in a single request (BP7d).
@@ -147,4 +148,22 @@ class StudentListItem(StudentResponse):
             **StudentResponse.from_student(listing.student).model_dump(),
             appearance_count=listing.appearance_count,
             event_count=listing.event_count,
+        )
+
+
+class StudentListPageResponse(BaseModel):
+    """One page of the students list (BP9) + the unpaginated total for the given filter."""
+
+    items: list[StudentListItem]
+    total: int
+    limit: int
+    offset: int
+
+    @classmethod
+    def from_page(cls, page: Page[StudentListing]) -> StudentListPageResponse:
+        return cls(
+            items=[StudentListItem.from_listing(x) for x in page.items],
+            total=page.total,
+            limit=page.limit,
+            offset=page.offset,
         )

@@ -159,11 +159,10 @@ class GalleryService:
         corrections = await self._corrections.list_for_event(school_id, event_id)
         pairs = effective_event_pairs(appearances, corrections)
         counts = Counter(student_id for student_id, _ in pairs)
-        roster = await self._students.list_by_school(school_id)
+        # De-rostered (BP9): fetch only the matched students, not the whole school roster.
+        students = await self._students.list_by_ids(school_id, list(counts))
         return [
-            StudentInEvent(student=s, media_count=counts[s.id])
-            for s in roster
-            if s.id in counts
+            StudentInEvent(student=s, media_count=counts[s.id]) for s in students
         ]
 
     async def event_student_media(
@@ -187,11 +186,10 @@ class GalleryService:
         corrections = await self._corrections.list_for_student(school_id, student_id)
         pairs = effective_student_pairs(appearances, corrections)
         counts = Counter(event_id for event_id, _ in pairs)
-        events = await self._events.list_by_school(school_id)
+        # De-rostered (BP9): fetch only the matched events, not the whole event list.
+        events = await self._events.list_by_ids(school_id, list(counts))
         return [
-            EventForStudent(event=e, media_count=counts[e.id])
-            for e in events
-            if e.id in counts
+            EventForStudent(event=e, media_count=counts[e.id]) for e in events
         ]
 
     async def student_media(
@@ -217,7 +215,16 @@ class GalleryService:
             c.student_id: c
             for c in await self._corrections.list_for_media(school_id, media_id)
         }
-        roster = {s.id: s for s in await self._students.list_by_school(school_id)}
+        # De-rostered (BP9): fetch only the students this photo names — the matched ones
+        # plus any ``added`` (report-a-miss) correction — not the whole school roster.
+        needed = {a.student_id for a in appearances} | {
+            sid
+            for sid, c in corrections.items()
+            if c.verdict is MatchVerdict.ADDED
+        }
+        roster = {
+            s.id: s for s in await self._students.list_by_ids(school_id, list(needed))
+        }
         # This is the staff-only review surface (gallery:view_all) — so it shows EVERY
         # match, including ``rejected`` ones (with the verdict), so staff can see + undo
         # a rejection. The student-facing reads (student_*/event_students/download) exclude

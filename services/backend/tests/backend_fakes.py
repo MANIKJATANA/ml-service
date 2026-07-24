@@ -24,6 +24,7 @@ from backend.domain.models import (
     EventMatchCounts,
     EventProcessingStatus,
     EventRollup,
+    EventSort,
     EventStatus,
     MatchCorrection,
     MatchVerdict,
@@ -34,11 +35,14 @@ from backend.domain.models import (
     PhotoResult,
     Role,
     School,
+    SchoolSort,
     SchoolStatus,
     SignedUpload,
     Student,
     StudentAppearanceCounts,
+    StudentSort,
     User,
+    UserSort,
     UserStatus,
 )
 from backend.domain.ports import (
@@ -63,6 +67,53 @@ from pydantic import SecretStr
 
 _NOW = datetime(2026, 1, 1, tzinfo=UTC)
 _TEST_JWT_SECRET = "test-signing-key-0123456789abcdef0123"
+
+
+# ---- BP9 pagination helpers for the repo fakes (decisions/0055) ----------
+
+
+def _q_match(q: str | None, *fields: str) -> bool:
+    """Case-insensitive substring match over any field — mirrors the adapters' ``ILIKE
+    '%q%'``. An empty/whitespace ``q`` matches everything (the adapter only filters ``if
+    q``)."""
+    needle = (q or "").strip().lower()
+    return not needle or any(needle in f.lower() for f in fields)
+
+
+def _page[R](
+    rows: list[R],
+    *,
+    key: Callable[[R], object],
+    descending: bool,
+    offset: int,
+    limit: int,
+) -> list[R]:
+    """Sort by ``key`` with the row ``id`` as a stable tiebreak, then slice one page —
+    mirrors the adapters' ``ORDER BY <col>, id`` + ``OFFSET/LIMIT``."""
+    ordered = sorted(rows, key=lambda r: (key(r), r.id), reverse=descending)  # type: ignore[attr-defined]
+    return ordered[offset : offset + limit]
+
+
+# Row-native sort keys per entity (the count-column sorts are resolved in ListingService,
+# never reach a fake's list_page). ``event_date`` maps None → date.min so a mixed list never
+# compares a date with None.
+_STUDENT_SORT_KEYS: dict[StudentSort, Callable[[Student], object]] = {
+    StudentSort.NAME: lambda s: s.name,
+    StudentSort.CREATED_AT: lambda s: s.created_at,
+}
+_EVENT_SORT_KEYS: dict[EventSort, Callable[[Event], object]] = {
+    EventSort.EVENT_DATE: lambda e: (e.event_date is None, e.event_date or date.min),
+    EventSort.NAME: lambda e: e.name,
+    EventSort.CREATED_AT: lambda e: e.created_at,
+}
+_USER_SORT_KEYS: dict[UserSort, Callable[[User], object]] = {
+    UserSort.EMAIL: lambda u: u.email,
+    UserSort.CREATED_AT: lambda u: u.created_at,
+}
+_SCHOOL_SORT_KEYS: dict[SchoolSort, Callable[[School], object]] = {
+    SchoolSort.NAME: lambda s: s.name,
+    SchoolSort.CREATED_AT: lambda s: s.created_at,
+}
 
 
 def make_user(
@@ -371,6 +422,42 @@ class FakeUserRepo:
             if u.school_id == school_id and u.role is role
         ]
 
+    def _match_role(
+        self, u: User, school_id: str, role: Role, q: str | None
+    ) -> bool:
+        return (
+            u.school_id == school_id and u.role is role and _q_match(q, u.email)
+        )
+
+    async def list_page_by_role(
+        self,
+        school_id: str,
+        role: Role,
+        *,
+        limit: int,
+        offset: int,
+        q: str | None = None,
+        sort: UserSort = UserSort.CREATED_AT,
+        descending: bool = True,
+    ) -> list[User]:
+        rows = [
+            u for u in self._by_id.values() if self._match_role(u, school_id, role, q)
+        ]
+        return _page(
+            rows,
+            key=_USER_SORT_KEYS.get(sort, _USER_SORT_KEYS[UserSort.CREATED_AT]),
+            descending=descending,
+            offset=offset,
+            limit=limit,
+        )
+
+    async def count_page_by_role(
+        self, school_id: str, role: Role, *, q: str | None = None
+    ) -> int:
+        return sum(
+            1 for u in self._by_id.values() if self._match_role(u, school_id, role, q)
+        )
+
     async def role_counts_by_school(self) -> dict[str, dict[Role, int]]:
         counts: dict[str, dict[Role, int]] = {}
         for u in self._by_id.values():
@@ -406,6 +493,34 @@ class FakeSchoolRepo:
 
     async def list_all(self) -> list[School]:
         return list(self._by_id.values())
+
+    async def list_page(
+        self,
+        *,
+        limit: int,
+        offset: int,
+        q: str | None = None,
+        sort: SchoolSort = SchoolSort.NAME,
+        descending: bool = False,
+    ) -> list[School]:
+        rows = [s for s in self._by_id.values() if _q_match(q, s.name)]
+        return _page(
+            rows,
+            key=_SCHOOL_SORT_KEYS.get(sort, _SCHOOL_SORT_KEYS[SchoolSort.NAME]),
+            descending=descending,
+            offset=offset,
+            limit=limit,
+        )
+
+    async def count_page(self, *, q: str | None = None) -> int:
+        return sum(1 for s in self._by_id.values() if _q_match(q, s.name))
+
+    async def list_ids(self, *, q: str | None = None) -> list[str]:
+        return [s.id for s in self._by_id.values() if _q_match(q, s.name)]
+
+    async def list_by_ids(self, school_ids: Sequence[str]) -> list[School]:
+        wanted = set(school_ids)
+        return [s for s in self._by_id.values() if s.id in wanted]
 
 
 class FakeStudentRepo:
@@ -459,6 +574,67 @@ class FakeStudentRepo:
 
     async def list_by_school(self, school_id: str) -> list[Student]:
         return [s for s in self._by_id.values() if s.school_id == school_id]
+
+    def _match(
+        self, s: Student, school_id: str, q: str | None, status: EnrollmentStatus | None
+    ) -> bool:
+        return (
+            s.school_id == school_id
+            and (status is None or s.enrollment_status is status)
+            and _q_match(q, s.name, s.email)
+        )
+
+    async def list_page(
+        self,
+        school_id: str,
+        *,
+        limit: int,
+        offset: int,
+        q: str | None = None,
+        sort: StudentSort = StudentSort.NAME,
+        descending: bool = False,
+        status: EnrollmentStatus | None = None,
+    ) -> list[Student]:
+        rows = [s for s in self._by_id.values() if self._match(s, school_id, q, status)]
+        return _page(
+            rows,
+            key=_STUDENT_SORT_KEYS.get(sort, _STUDENT_SORT_KEYS[StudentSort.CREATED_AT]),
+            descending=descending,
+            offset=offset,
+            limit=limit,
+        )
+
+    async def count_page(
+        self,
+        school_id: str,
+        *,
+        q: str | None = None,
+        status: EnrollmentStatus | None = None,
+    ) -> int:
+        return sum(
+            1 for s in self._by_id.values() if self._match(s, school_id, q, status)
+        )
+
+    async def list_ids(
+        self,
+        school_id: str,
+        *,
+        q: str | None = None,
+        status: EnrollmentStatus | None = None,
+    ) -> list[str]:
+        return [
+            s.id for s in self._by_id.values() if self._match(s, school_id, q, status)
+        ]
+
+    async def list_by_ids(
+        self, school_id: str, student_ids: Sequence[str]
+    ) -> list[Student]:
+        wanted = set(student_ids)
+        return [
+            s
+            for s in self._by_id.values()
+            if s.school_id == school_id and s.id in wanted
+        ]
 
     async def enrollment_counts(
         self, school_id: str
@@ -615,6 +791,67 @@ class FakeEventRepo:
     async def list_by_school(self, school_id: str) -> list[Event]:
         return [e for e in self._by_id.values() if e.school_id == school_id]
 
+    def _match(
+        self, e: Event, school_id: str, q: str | None, status: EventStatus | None
+    ) -> bool:
+        return (
+            e.school_id == school_id
+            and (status is None or e.status is status)
+            and _q_match(q, e.name)
+        )
+
+    async def list_page(
+        self,
+        school_id: str,
+        *,
+        limit: int,
+        offset: int,
+        q: str | None = None,
+        sort: EventSort = EventSort.EVENT_DATE,
+        descending: bool = True,
+        status: EventStatus | None = None,
+    ) -> list[Event]:
+        rows = [e for e in self._by_id.values() if self._match(e, school_id, q, status)]
+        return _page(
+            rows,
+            key=_EVENT_SORT_KEYS.get(sort, _EVENT_SORT_KEYS[EventSort.EVENT_DATE]),
+            descending=descending,
+            offset=offset,
+            limit=limit,
+        )
+
+    async def count_page(
+        self,
+        school_id: str,
+        *,
+        q: str | None = None,
+        status: EventStatus | None = None,
+    ) -> int:
+        return sum(
+            1 for e in self._by_id.values() if self._match(e, school_id, q, status)
+        )
+
+    async def list_ids(
+        self,
+        school_id: str,
+        *,
+        q: str | None = None,
+        status: EventStatus | None = None,
+    ) -> list[str]:
+        return [
+            e.id for e in self._by_id.values() if self._match(e, school_id, q, status)
+        ]
+
+    async def list_by_ids(
+        self, school_id: str, event_ids: Sequence[str]
+    ) -> list[Event]:
+        wanted = set(event_ids)
+        return [
+            e
+            for e in self._by_id.values()
+            if e.school_id == school_id and e.id in wanted
+        ]
+
     async def counts_by_school(self) -> dict[str, int]:
         counts: dict[str, int] = {}
         for e in self._by_id.values():
@@ -717,6 +954,44 @@ class FakeEventRepo:
             self._by_id[event_id] = replace(event, notified_at=_NOW)
 
 
+class RecordingStudentRepo(FakeStudentRepo):
+    """FakeStudentRepo that records which read the gallery took (BP9 de-rostering
+    regression, decisions/0055): the de-rostered reads must call ``list_by_ids``, never
+    the whole-roster ``list_by_school``."""
+
+    def __init__(self, students: list[Student] | None = None) -> None:
+        super().__init__(students)
+        self.calls: list[str] = []
+
+    async def list_by_school(self, school_id: str) -> list[Student]:
+        self.calls.append("list_by_school")
+        return await super().list_by_school(school_id)
+
+    async def list_by_ids(
+        self, school_id: str, student_ids: Sequence[str]
+    ) -> list[Student]:
+        self.calls.append("list_by_ids")
+        return await super().list_by_ids(school_id, student_ids)
+
+
+class RecordingEventRepo(FakeEventRepo):
+    """FakeEventRepo that records list_by_school vs list_by_ids (BP9 de-rostering)."""
+
+    def __init__(self, events: list[Event] | None = None) -> None:
+        super().__init__(events)
+        self.calls: list[str] = []
+
+    async def list_by_school(self, school_id: str) -> list[Event]:
+        self.calls.append("list_by_school")
+        return await super().list_by_school(school_id)
+
+    async def list_by_ids(
+        self, school_id: str, event_ids: Sequence[str]
+    ) -> list[Event]:
+        self.calls.append("list_by_ids")
+        return await super().list_by_ids(school_id, event_ids)
+
+
 class FakeMediaRepo:
     def __init__(self, media: list[Media] | None = None) -> None:
         self._by_id: dict[str, Media] = {m.id: m for m in (media or [])}
@@ -763,6 +1038,54 @@ class FakeMediaRepo:
             for m in self._by_id.values()
             if m.school_id == school_id and m.id in wanted
         ]
+
+    def _match_event(
+        self,
+        m: Media,
+        school_id: str,
+        event_id: str,
+        status: MediaProcessingStatus | None,
+    ) -> bool:
+        return (
+            m.school_id == school_id
+            and m.event_id == event_id
+            and (status is None or m.processing_status is status)
+        )
+
+    async def list_page_by_event(
+        self,
+        school_id: str,
+        event_id: str,
+        *,
+        limit: int,
+        offset: int,
+        status: MediaProcessingStatus | None = None,
+    ) -> list[Media]:
+        rows = [
+            m
+            for m in self._by_id.values()
+            if self._match_event(m, school_id, event_id, status)
+        ]
+        return _page(
+            rows,
+            key=lambda m: m.created_at,
+            descending=False,
+            offset=offset,
+            limit=limit,
+        )
+
+    async def count_page_by_event(
+        self,
+        school_id: str,
+        event_id: str,
+        *,
+        status: MediaProcessingStatus | None = None,
+    ) -> int:
+        return sum(
+            1
+            for m in self._by_id.values()
+            if self._match_event(m, school_id, event_id, status)
+        )
 
     async def status_counts(
         self, school_id: str, event_id: str

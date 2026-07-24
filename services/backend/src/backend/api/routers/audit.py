@@ -14,6 +14,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query
 
 from backend.api.deps import ContainerDep, require_permissions, tenant_of
+from backend.api.pagination import DEFAULT_PAGE_SIZE, LimitQuery, OffsetQuery
 from backend.api.schemas.audit import (
     DownloadLogPageResponse,
     MediaDownloadLogResponse,
@@ -24,10 +25,6 @@ from backend.domain.permissions import Permission
 router = APIRouter(prefix="/v1", tags=["audit"])
 
 AuditViewer = Annotated[User, Depends(require_permissions(Permission.AUDIT_VIEW))]
-
-# School-wide log page size (a module constant — no env var). The FE paginates.
-_DEFAULT_PAGE_SIZE = 50
-_MAX_PAGE_SIZE = 200
 
 
 @router.get("/media/{media_id}/download-log", response_model=MediaDownloadLogResponse)
@@ -44,8 +41,8 @@ async def media_download_log(
 async def download_log(
     container: ContainerDep,
     actor: AuditViewer,
-    limit: Annotated[int, Query(ge=1, le=_MAX_PAGE_SIZE)] = _DEFAULT_PAGE_SIZE,
-    offset: Annotated[int, Query(ge=0)] = 0,
+    limit: LimitQuery = DEFAULT_PAGE_SIZE,
+    offset: OffsetQuery = 0,
     event_id: Annotated[str | None, Query()] = None,
     student_id: Annotated[str | None, Query()] = None,
 ) -> DownloadLogPageResponse:

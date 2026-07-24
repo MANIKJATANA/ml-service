@@ -2,7 +2,7 @@
 
 import { ChevronDown, ChevronsUpDown, ChevronUp } from "lucide-react";
 
-import type { SortDir } from "@/lib/hooks/use-sort";
+import type { SortDir } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
 
 import { TableHead } from "./table";

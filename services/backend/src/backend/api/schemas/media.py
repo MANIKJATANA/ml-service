@@ -19,9 +19,11 @@ from backend.domain.models import (
     MediaType,
 )
 from backend.services.event_service import EventStatusView
+from backend.services.pagination import Page
 
 __all__ = [
     "EventStatusResponse",
+    "MediaListPageResponse",
     "MediaResponse",
     "RegisterMediaRequest",
     "UploadUrlResponse",
@@ -59,6 +61,24 @@ class MediaResponse(BaseModel):
             completed_at=media.completed_at,
             created_at=media.created_at,
             updated_at=media.updated_at,
+        )
+
+
+class MediaListPageResponse(BaseModel):
+    """One page of an event's media (BP9) + the unpaginated total for the given filter."""
+
+    items: list[MediaResponse]
+    total: int
+    limit: int
+    offset: int
+
+    @classmethod
+    def from_page(cls, page: Page[Media]) -> MediaListPageResponse:
+        return cls(
+            items=[MediaResponse.from_media(m) for m in page.items],
+            total=page.total,
+            limit=page.limit,
+            offset=page.offset,
         )
 
 

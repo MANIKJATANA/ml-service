@@ -199,7 +199,7 @@ def test_bulk_import_creates_and_reports_per_row() -> None:
         if r["status"] != "created":
             assert r["temp_password"] is None and r["student_id"] is None
     # The whole class landed in the caller's school (list has the pre-seed + Alice = 2).
-    assert len(client.get("/v1/students", headers=_auth(token)).json()) == 2
+    assert client.get("/v1/students", headers=_auth(token)).json()["total"] == 2
 
 
 def test_bulk_import_empty_list_is_422() -> None:
@@ -240,7 +240,9 @@ def test_list_and_get_and_cross_tenant_404() -> None:
     sid = created["student"]["id"]
 
     listed = client.get("/v1/students", headers=_auth(token))
-    assert listed.status_code == 200 and [s["id"] for s in listed.json()] == [sid]
+    assert listed.status_code == 200 and [s["id"] for s in listed.json()["items"]] == [
+        sid
+    ]
 
     got = client.get(f"/v1/students/{sid}", headers=_auth(token))
     assert got.status_code == 200 and got.json()["id"] == sid

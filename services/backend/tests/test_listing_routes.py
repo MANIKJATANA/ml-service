@@ -85,7 +85,9 @@ def test_events_list_carries_counts() -> None:
     client = _build()
     resp = client.get("/v1/events", headers=_auth(_token(client, "sa")))
     assert resp.status_code == 200, resp.text
-    row = next(r for r in resp.json() if r["id"] == "e1")
+    page = resp.json()
+    assert page["total"] == 1
+    row = next(r for r in page["items"] if r["id"] == "e1")
     assert row["media_count"] == 2
     assert row["matched_students"] == 1  # only st1 matched
     assert row["needs_review"] == 1
@@ -95,7 +97,7 @@ def test_students_list_carries_counts() -> None:
     client = _build()
     resp = client.get("/v1/students", headers=_auth(_token(client, "sa")))
     assert resp.status_code == 200, resp.text
-    row = next(r for r in resp.json() if r["id"] == "st1")
+    row = next(r for r in resp.json()["items"] if r["id"] == "st1")
     assert row["appearance_count"] == 2  # in m1 + m2
     assert row["event_count"] == 1
     assert row["email"] == "student@example.com"  # F3 additive still present
@@ -105,7 +107,7 @@ def test_schools_list_carries_rollup() -> None:
     client = _build()
     resp = client.get("/v1/schools", headers=_auth(_token(client, "pa")))
     assert resp.status_code == 200, resp.text
-    row = next(r for r in resp.json() if r["id"] == "s1")
+    row = next(r for r in resp.json()["items"] if r["id"] == "s1")
     assert row["max_teachers"] == 10
     assert row["rollup"] == {"admins": 1, "teachers": 1, "students": 1, "events": 1}
 
@@ -121,9 +123,10 @@ def test_school_admin_roster() -> None:
     client = _build()
     resp = client.get("/v1/schools/s1/admins", headers=_auth(_token(client, "pa")))
     assert resp.status_code == 200, resp.text
-    emails = {u["email"] for u in resp.json()}
+    items = resp.json()["items"]
+    emails = {u["email"] for u in items}
     assert emails == {"sa@x.io"}  # only the school_admin, not the teacher
-    assert "created_at" in resp.json()[0]  # BP2 additive field
+    assert "created_at" in items[0]  # BP2 additive field
 
 
 def test_schools_and_roster_are_platform_only() -> None:

@@ -11,15 +11,17 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Query, status
 
 from backend.api.deps import ContainerDep, require_permissions, tenant_of
+from backend.api.pagination import DEFAULT_PAGE_SIZE, LimitQuery, OffsetQuery
 from backend.api.schemas.media import (
+    MediaListPageResponse,
     MediaResponse,
     RegisterMediaRequest,
     UploadUrlResponse,
 )
-from backend.domain.models import User
+from backend.domain.models import MediaProcessingStatus, User
 from backend.domain.permissions import Permission
 
 router = APIRouter(prefix="/v1", tags=["media"])
@@ -62,14 +64,24 @@ async def register_media(
     return MediaResponse.from_media(media)
 
 
-@router.get("/events/{event_id}/media", response_model=list[MediaResponse])
+@router.get("/events/{event_id}/media", response_model=MediaListPageResponse)
 async def list_event_media(
-    event_id: str, container: ContainerDep, actor: StatusViewer
-) -> list[MediaResponse]:
-    media = await container.media_service().list_event_media(
-        school_id=tenant_of(actor), event_id=event_id
+    event_id: str,
+    container: ContainerDep,
+    actor: StatusViewer,
+    limit: LimitQuery = DEFAULT_PAGE_SIZE,
+    offset: OffsetQuery = 0,
+    status: Annotated[MediaProcessingStatus | None, Query()] = None,
+) -> MediaListPageResponse:
+    """One page of an event's media (BP9) — pagination + an optional status filter."""
+    page = await container.media_service().list_event_media_page(
+        school_id=tenant_of(actor),
+        event_id=event_id,
+        limit=limit,
+        offset=offset,
+        status=status,
     )
-    return [MediaResponse.from_media(m) for m in media]
+    return MediaListPageResponse.from_page(page)
 
 
 @router.get("/media/{media_id}", response_model=MediaResponse)

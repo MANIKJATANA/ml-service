@@ -98,7 +98,9 @@ def test_register_media_records_pending_and_lists() -> None:
     mid = body["id"]
 
     listed = client.get(f"/v1/events/{eid}/media", headers=_auth(token))
-    assert listed.status_code == 200 and [m["id"] for m in listed.json()] == [mid]
+    assert listed.status_code == 200 and [m["id"] for m in listed.json()["items"]] == [
+        mid
+    ]
 
     got = client.get(f"/v1/media/{mid}", headers=_auth(token))
     assert got.status_code == 200 and got.json()["id"] == mid

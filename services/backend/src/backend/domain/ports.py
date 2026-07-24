@@ -24,6 +24,7 @@ from backend.domain.models import (
     EventMatchCounts,
     EventProcessingStatus,
     EventRollup,
+    EventSort,
     EventStatus,
     MatchCorrection,
     MatchVerdict,
@@ -34,10 +35,13 @@ from backend.domain.models import (
     RateLimitResult,
     Role,
     School,
+    SchoolSort,
     SignedUpload,
     Student,
     StudentAppearanceCounts,
+    StudentSort,
     User,
+    UserSort,
     UserStatus,
 )
 from backend.domain.permissions import Permission
@@ -48,6 +52,24 @@ class SchoolRepository(Protocol):
     async def create(self, *, name: str, max_teachers: int) -> School: ...
     async def get(self, school_id: str) -> School | None: ...
     async def list_all(self) -> list[School]: ...
+    async def list_page(
+        self,
+        *,
+        limit: int,
+        offset: int,
+        q: str | None = None,
+        sort: SchoolSort = SchoolSort.NAME,
+        descending: bool = False,
+    ) -> list[School]:
+        """One page of the platform schools list (BP9). Row-native ``sort`` only; the rollup
+        count sorts (students/events/teachers/admins) take the id-scan path (``list_ids``)."""
+        ...
+    async def count_page(self, *, q: str | None = None) -> int: ...
+    async def list_ids(self, *, q: str | None = None) -> list[str]: ...
+    async def list_by_ids(self, school_ids: Sequence[str]) -> list[School]:
+        """Bulk-load schools by id (BP9 count-sort page hydration). Platform-wide (no
+        tenant); malformed ids are dropped. Order not guaranteed."""
+        ...
 
 
 class UserRepository(Protocol):
@@ -70,6 +92,23 @@ class UserRepository(Protocol):
     async def list_by_school_and_role(
         self, school_id: str, role: Role
     ) -> list[User]: ...
+    async def list_page_by_role(
+        self,
+        school_id: str,
+        role: Role,
+        *,
+        limit: int,
+        offset: int,
+        q: str | None = None,
+        sort: UserSort = UserSort.CREATED_AT,
+        descending: bool = True,
+    ) -> list[User]:
+        """One page of a school's users of one role — staff (teacher) + admin rosters (BP9).
+        Searched on email (users have no name column) + sorted in SQL. No count sorts."""
+        ...
+    async def count_page_by_role(
+        self, school_id: str, role: Role, *, q: str | None = None
+    ) -> int: ...
     async def role_counts_by_school(self) -> dict[str, dict[Role, int]]: ...
     async def delete(self, user_id: str) -> None: ...
 
@@ -91,6 +130,47 @@ class StudentRepository(Protocol):
         self, school_id: str, user_id: str
     ) -> Student | None: ...
     async def list_by_school(self, school_id: str) -> list[Student]: ...
+    async def list_page(
+        self,
+        school_id: str,
+        *,
+        limit: int,
+        offset: int,
+        q: str | None = None,
+        sort: StudentSort = StudentSort.NAME,
+        descending: bool = False,
+        status: EnrollmentStatus | None = None,
+    ) -> list[Student]:
+        """One page of the students list (BP9), searched/filtered/sorted in SQL. Only
+        row-native ``sort`` members reach here; count-column sorts take the id-scan path
+        (``list_ids``)."""
+        ...
+    async def count_page(
+        self,
+        school_id: str,
+        *,
+        q: str | None = None,
+        status: EnrollmentStatus | None = None,
+    ) -> int:
+        """Total students matching the same ``q``/``status`` filter (the page's ``total``)."""
+        ...
+    async def list_ids(
+        self,
+        school_id: str,
+        *,
+        q: str | None = None,
+        status: EnrollmentStatus | None = None,
+    ) -> list[str]:
+        """All matching student ids (id-only, no join) — the count-sort path fetches these,
+        sorts them by a school-wide count dict in-Python, then hydrates one page via
+        ``list_by_ids`` (BP9). Bounded by the tenant slice; never loads full rows."""
+        ...
+    async def list_by_ids(
+        self, school_id: str, student_ids: Sequence[str]
+    ) -> list[Student]:
+        """Bulk-load students by id within one tenant (BP9 galleries + count-sort). Order
+        is not guaranteed; callers that need the input order re-order in-Python."""
+        ...
     async def enrollment_counts(
         self, school_id: str
     ) -> dict[EnrollmentStatus, int]: ...
@@ -123,6 +203,37 @@ class EventRepository(Protocol):
     ) -> Event: ...
     async def get(self, school_id: str, event_id: str) -> Event | None: ...
     async def list_by_school(self, school_id: str) -> list[Event]: ...
+    async def list_page(
+        self,
+        school_id: str,
+        *,
+        limit: int,
+        offset: int,
+        q: str | None = None,
+        sort: EventSort = EventSort.EVENT_DATE,
+        descending: bool = True,
+        status: EventStatus | None = None,
+    ) -> list[Event]:
+        """One page of the events list (BP9). Row-native ``sort`` only; count sorts →
+        ``list_ids`` (see ``StudentRepository.list_page``)."""
+        ...
+    async def count_page(
+        self,
+        school_id: str,
+        *,
+        q: str | None = None,
+        status: EventStatus | None = None,
+    ) -> int: ...
+    async def list_ids(
+        self,
+        school_id: str,
+        *,
+        q: str | None = None,
+        status: EventStatus | None = None,
+    ) -> list[str]: ...
+    async def list_by_ids(
+        self, school_id: str, event_ids: Sequence[str]
+    ) -> list[Event]: ...
     async def status_counts(self, school_id: str) -> EventRollup: ...
     async def count_not_started_with_media(self, school_id: str) -> int: ...
     async def count_distributed(self, school_id: str) -> int: ...
@@ -159,6 +270,25 @@ class MediaRepository(Protocol):
     ) -> Media: ...
     async def get(self, school_id: str, media_id: str) -> Media | None: ...
     async def list_by_event(self, school_id: str, event_id: str) -> list[Media]: ...
+    async def list_page_by_event(
+        self,
+        school_id: str,
+        event_id: str,
+        *,
+        limit: int,
+        offset: int,
+        status: MediaProcessingStatus | None = None,
+    ) -> list[Media]:
+        """One page of an event's media (BP9), newest-upload-agnostic ``created_at`` order
+        with an optional status filter. Media has no text/count sort — just pagination."""
+        ...
+    async def count_page_by_event(
+        self,
+        school_id: str,
+        event_id: str,
+        *,
+        status: MediaProcessingStatus | None = None,
+    ) -> int: ...
     async def list_by_ids(
         self, school_id: str, media_ids: Sequence[str]
     ) -> list[Media]: ...

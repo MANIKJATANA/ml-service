@@ -2,15 +2,29 @@
 
 from __future__ import annotations
 
-from sqlalchemy import func, select
+import uuid
+
+from sqlalchemy import ColumnElement, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from backend.adapters.repositories._common import opt_uuid, req_uuid, violated_constraint
+from backend.adapters.repositories._common import (
+    LIKE_ESCAPE,
+    ilike_term,
+    opt_uuid,
+    req_uuid,
+    violated_constraint,
+)
 from backend.db.models import User as UserRow
 from backend.domain.emails import normalize_email
 from backend.domain.errors import ConflictError, NotFoundError
-from backend.domain.models import Role, User, UserStatus
+from backend.domain.models import Role, User, UserSort, UserStatus
+
+# Row-native sort columns (BP9). Users have no name column, so email is the only text sort.
+_SORT_COLS = {
+    UserSort.EMAIL: UserRow.email,
+    UserSort.CREATED_AT: UserRow.created_at,
+}
 
 
 def _to_user(row: UserRow) -> User:
@@ -130,6 +144,62 @@ class PostgresUserRepository:
                 .order_by(UserRow.created_at, UserRow.id)  # stable when ties
             )
             return [_to_user(r) for r in result.scalars().all()]
+
+    def _filtered_role(
+        self, key: uuid.UUID, role: Role, q: str | None
+    ) -> list[ColumnElement[bool]]:
+        """The shared WHERE clauses for the paginated role rosters (BP9)."""
+        conds: list[ColumnElement[bool]] = [
+            UserRow.school_id == key,
+            UserRow.role == role.value,
+        ]
+        if q:
+            conds.append(UserRow.email.ilike(ilike_term(q), escape=LIKE_ESCAPE))
+        return conds
+
+    async def list_page_by_role(
+        self,
+        school_id: str,
+        role: Role,
+        *,
+        limit: int,
+        offset: int,
+        q: str | None = None,
+        sort: UserSort = UserSort.CREATED_AT,
+        descending: bool = True,
+    ) -> list[User]:
+        key = opt_uuid(school_id)
+        if key is None:
+            return []
+        col = _SORT_COLS.get(sort, UserRow.created_at)
+        order = (
+            (col.desc(), UserRow.id.desc())
+            if descending
+            else (col.asc(), UserRow.id.asc())
+        )
+        async with self._sessionmaker() as session:
+            result = await session.execute(
+                select(UserRow)
+                .where(*self._filtered_role(key, role, q))
+                .order_by(*order)
+                .offset(offset)
+                .limit(limit)
+            )
+            return [_to_user(r) for r in result.scalars().all()]
+
+    async def count_page_by_role(
+        self, school_id: str, role: Role, *, q: str | None = None
+    ) -> int:
+        key = opt_uuid(school_id)
+        if key is None:
+            return 0
+        async with self._sessionmaker() as session:
+            result = await session.execute(
+                select(func.count())
+                .select_from(UserRow)
+                .where(*self._filtered_role(key, role, q))
+            )
+            return int(result.scalar_one())
 
     async def role_counts_by_school(self) -> dict[str, dict[Role, int]]:
         """Users grouped by (school, role) across all schools (BP2 platform rollup).

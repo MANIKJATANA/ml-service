@@ -238,6 +238,22 @@ export interface DownloadLogPageResponse {
   offset: number;
 }
 
+/** One page of any server-paginated list (BP9, decisions/0055): the page's rows + the
+ *  unpaginated `total` for the current filter, plus the echoed `limit`/`offset`. */
+export interface ListPage<T> {
+  items: T[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export type SortDir = "asc" | "desc";
+export type StudentListPageResponse = ListPage<StudentListItem>;
+export type EventListPageResponse = ListPage<EventListItem>;
+export type UserListPageResponse = ListPage<UserResponse>;
+export type SchoolListPageResponse = ListPage<SchoolWithRollup>;
+export type MediaListPageResponse = ListPage<MediaResponse>;
+
 /**
  * The admin command-center rollup (BP1, decisions/0038). Every count is read live from
  * the backend's own rows (and the ML `matches` seam) — there is no stored aggregate.

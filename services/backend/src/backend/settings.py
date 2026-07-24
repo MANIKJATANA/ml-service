@@ -62,6 +62,12 @@ class Settings(BaseSettings):
     # TTL of the short-lived signed download URLs the galleries mint on demand.
     download_url_ttl_s: int = 3600  # 1 hour
 
+    # --- list pagination (BP9, decisions/0055) ---------------------------
+    # Server-side pagination on every list/gallery endpoint. default = the page size the FE
+    # requests; max = the hard ceiling the Query(le=) enforces (a bigger ?limit= 422s).
+    default_page_size: int = 50
+    max_page_size: int = 200
+
     # --- notifications (BP4, decisions/0041) -----------------------------
     # Outbound channels the "Notify students" action fans out to, comma-separated (like
     # cors_origins). Resolved per-name via NOTIFICATION_CHANNEL_REGISTRY and wrapped in a

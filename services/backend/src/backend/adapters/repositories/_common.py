@@ -25,6 +25,22 @@ def req_uuid(value: str, *, field: str) -> uuid.UUID:
         raise ValidationError(f"invalid {field}: {value!r}") from exc
 
 
+# The LIKE escape character the list-search adapters pass to ``Column.ilike(..., escape=)``.
+LIKE_ESCAPE = "\\"
+
+
+def ilike_term(q: str) -> str:
+    """A case-insensitive substring ILIKE pattern for a user search string (BP9).
+
+    Escapes the LIKE metacharacters (``\\``, ``%``, ``_``) so a literal ``%`` or ``_`` in the
+    query matches literally rather than as a wildcard — used with ``.ilike(term,
+    escape=LIKE_ESCAPE)``. Leading/trailing whitespace is stripped."""
+    escaped = (
+        q.strip().replace(LIKE_ESCAPE, LIKE_ESCAPE * 2).replace("%", r"\%").replace("_", r"\_")
+    )
+    return f"%{escaped}%"
+
+
 def violated_constraint(exc: IntegrityError) -> str | None:
     """The DB constraint name behind an IntegrityError, if the driver exposes it.
 

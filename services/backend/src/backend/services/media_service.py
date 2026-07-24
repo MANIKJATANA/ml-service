@@ -14,8 +14,16 @@ from __future__ import annotations
 import uuid
 
 from backend.domain.errors import NotFoundError, ValidationError
-from backend.domain.models import Event, EventStatus, Media, MediaType, SignedUpload
+from backend.domain.models import (
+    Event,
+    EventStatus,
+    Media,
+    MediaProcessingStatus,
+    MediaType,
+    SignedUpload,
+)
 from backend.domain.ports import EventRepository, MediaRepository, ObjectStore
+from backend.services.pagination import Page
 
 
 class MediaService:
@@ -81,6 +89,26 @@ class MediaService:
         # 404 for a missing/foreign event (rather than a bare empty list).
         await self._require_event(school_id=school_id, event_id=event_id)
         return await self._media.list_by_event(school_id, event_id)
+
+    async def list_event_media_page(
+        self,
+        *,
+        school_id: str,
+        event_id: str,
+        limit: int,
+        offset: int,
+        status: MediaProcessingStatus | None = None,
+    ) -> Page[Media]:
+        """One page of an event's media (BP9) — pagination + an optional status filter
+        (no text/count sort). 404 for a missing/foreign event."""
+        await self._require_event(school_id=school_id, event_id=event_id)
+        items = await self._media.list_page_by_event(
+            school_id, event_id, limit=limit, offset=offset, status=status
+        )
+        total = await self._media.count_page_by_event(
+            school_id, event_id, status=status
+        )
+        return Page(items=items, total=total, limit=limit, offset=offset)
 
     # ---- internals ------------------------------------------------------
 

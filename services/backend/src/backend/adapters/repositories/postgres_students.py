@@ -8,14 +8,35 @@ carry the student's login ``email`` on the read model (decisions/0033).
 
 from __future__ import annotations
 
-from sqlalchemy import func, select
+import uuid
+from collections.abc import Sequence
+
+from sqlalchemy import ColumnElement, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from backend.adapters.repositories._common import opt_uuid, req_uuid
+from backend.adapters.repositories._common import (
+    LIKE_ESCAPE,
+    ilike_term,
+    opt_uuid,
+    req_uuid,
+)
 from backend.db.models import Student as StudentRow
 from backend.db.models import User as UserRow
 from backend.domain.errors import NotFoundError
-from backend.domain.models import EnrollmentFailureReason, EnrollmentStatus, Student
+from backend.domain.models import (
+    EnrollmentFailureReason,
+    EnrollmentStatus,
+    Student,
+    StudentSort,
+)
+
+# Row-native sort columns (BP9). Count-column sorts (appearance/event) never reach the
+# adapter — the service takes the id-scan path for those — so a stray one falls back to
+# ``created_at`` defensively.
+_SORT_COLS = {
+    StudentSort.NAME: StudentRow.name,
+    StudentSort.CREATED_AT: StudentRow.created_at,
+}
 
 
 def _to_student(row: StudentRow, email: str) -> Student:
@@ -111,6 +132,109 @@ class PostgresStudentRepository:
                 select(StudentRow, UserRow.email)
                 .join(UserRow, StudentRow.user_id == UserRow.id)
                 .where(StudentRow.school_id == sid)
+                .order_by(StudentRow.created_at, StudentRow.id)  # stable on ties
+            )
+            return [_to_student(r[0], r[1]) for r in result.all()]
+
+    def _filtered(
+        self, sid: uuid.UUID, q: str | None, status: EnrollmentStatus | None
+    ) -> list[ColumnElement[bool]]:
+        """The shared WHERE clauses for the paginated students reads (BP9)."""
+        conds: list[ColumnElement[bool]] = [StudentRow.school_id == sid]
+        if status is not None:
+            conds.append(StudentRow.enrollment_status == status.value)
+        if q:
+            term = ilike_term(q)
+            conds.append(
+                or_(
+                    StudentRow.name.ilike(term, escape=LIKE_ESCAPE),
+                    UserRow.email.ilike(term, escape=LIKE_ESCAPE),
+                )
+            )
+        return conds
+
+    async def list_page(
+        self,
+        school_id: str,
+        *,
+        limit: int,
+        offset: int,
+        q: str | None = None,
+        sort: StudentSort = StudentSort.NAME,
+        descending: bool = False,
+        status: EnrollmentStatus | None = None,
+    ) -> list[Student]:
+        sid = opt_uuid(school_id)
+        if sid is None:
+            return []
+        col = _SORT_COLS.get(sort, StudentRow.created_at)
+        order = (
+            (col.desc(), StudentRow.id.desc())
+            if descending
+            else (col.asc(), StudentRow.id.asc())
+        )
+        async with self._sessionmaker() as session:
+            result = await session.execute(
+                select(StudentRow, UserRow.email)
+                .join(UserRow, StudentRow.user_id == UserRow.id)
+                .where(*self._filtered(sid, q, status))
+                .order_by(*order)
+                .offset(offset)
+                .limit(limit)
+            )
+            return [_to_student(r[0], r[1]) for r in result.all()]
+
+    async def count_page(
+        self,
+        school_id: str,
+        *,
+        q: str | None = None,
+        status: EnrollmentStatus | None = None,
+    ) -> int:
+        sid = opt_uuid(school_id)
+        if sid is None:
+            return 0
+        async with self._sessionmaker() as session:
+            result = await session.execute(
+                select(func.count())
+                .select_from(StudentRow)
+                .join(UserRow, StudentRow.user_id == UserRow.id)
+                .where(*self._filtered(sid, q, status))
+            )
+            return int(result.scalar_one())
+
+    async def list_ids(
+        self,
+        school_id: str,
+        *,
+        q: str | None = None,
+        status: EnrollmentStatus | None = None,
+    ) -> list[str]:
+        sid = opt_uuid(school_id)
+        if sid is None:
+            return []
+        async with self._sessionmaker() as session:
+            result = await session.execute(
+                select(StudentRow.id)
+                .join(UserRow, StudentRow.user_id == UserRow.id)
+                .where(*self._filtered(sid, q, status))
+            )
+            return [str(r) for r in result.scalars().all()]
+
+    async def list_by_ids(
+        self, school_id: str, student_ids: Sequence[str]
+    ) -> list[Student]:
+        sid = opt_uuid(school_id)
+        if sid is None:
+            return []
+        ids = [pid for pid in (opt_uuid(s) for s in student_ids) if pid is not None]
+        if not ids:
+            return []
+        async with self._sessionmaker() as session:
+            result = await session.execute(
+                select(StudentRow, UserRow.email)
+                .join(UserRow, StudentRow.user_id == UserRow.id)
+                .where(StudentRow.school_id == sid, StudentRow.id.in_(ids))
                 .order_by(StudentRow.created_at, StudentRow.id)  # stable on ties
             )
             return [_to_student(r[0], r[1]) for r in result.all()]

@@ -16,9 +16,17 @@ from backend.domain.errors import (
     NotFoundError,
     ValidationError,
 )
-from backend.domain.models import Role, School, SchoolStatus, User, UserStatus
+from backend.domain.models import (
+    Role,
+    School,
+    SchoolStatus,
+    User,
+    UserSort,
+    UserStatus,
+)
 from backend.domain.ports import PasswordHasher, SchoolRepository, UserRepository
 from backend.services.credentials import generate_temp_password
+from backend.services.pagination import Page
 
 _MAX_NAME_LEN = 200
 
@@ -91,6 +99,30 @@ class OnboardingService:
 
     async def list_staff(self, *, school_id: str) -> list[User]:
         return await self._users.list_by_school_and_role(school_id, Role.TEACHER)
+
+    async def list_staff_page(
+        self,
+        *,
+        school_id: str,
+        limit: int,
+        offset: int,
+        q: str | None = None,
+        sort: UserSort = UserSort.CREATED_AT,
+        descending: bool = True,
+    ) -> Page[User]:
+        """One page of a school's teacher roster (BP9). Searched on email + sorted
+        server-side (users have no name/count columns)."""
+        users = await self._users.list_page_by_role(
+            school_id,
+            Role.TEACHER,
+            limit=limit,
+            offset=offset,
+            q=q,
+            sort=sort,
+            descending=descending,
+        )
+        total = await self._users.count_page_by_role(school_id, Role.TEACHER, q=q)
+        return Page(items=users, total=total, limit=limit, offset=offset)
 
     # ---- staff lifecycle (BP7c) ----------------------------------------
 

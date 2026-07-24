@@ -2,7 +2,7 @@
 
 import { CalendarDays, Plus } from "lucide-react";
 import Link from "next/link";
-import { type FormEvent, useMemo, useState } from "react";
+import { type FormEvent, useState } from "react";
 
 import { type ChipItem, FilterChips } from "@/components/gallery/filter-chips";
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,7 @@ import { Dialog, DialogClose, DialogContent, DialogTrigger } from "@/components/
 import { EmptyState } from "@/components/ui/empty-state";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { LoadMore } from "@/components/ui/load-more";
 import { PageHeader } from "@/components/ui/page-header";
 import { SearchInput } from "@/components/ui/search-input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -21,22 +22,26 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/ui/toast";
 import { createEvent } from "@/lib/api/endpoints";
 import { isApiError } from "@/lib/api/errors";
-import type { EventListItem, EventStatus } from "@/lib/api/types";
+import type { EventStatus, SortDir } from "@/lib/api/types";
 import {
   EVENT_STATUS_LABEL,
   EVENT_STATUS_TONE,
   PROCESSING_LABEL,
   PROCESSING_TONE,
 } from "@/lib/events/status";
+import { useDashboard } from "@/lib/hooks/use-dashboard";
+import { useDebouncedValue } from "@/lib/hooks/use-debounced-value";
 import { useEvents } from "@/lib/hooks/use-events";
-import { useSort } from "@/lib/hooks/use-sort";
+import { useListSort } from "@/lib/hooks/use-sort";
 import { formatDate } from "@/lib/utils";
 
-const SORT: Record<string, (e: EventListItem) => string | number> = {
-  name: (e) => e.name.toLowerCase(),
-  date: (e) => e.event_date ?? "",
-  photos: (e) => e.media_count,
-  matched: (e) => e.matched_students,
+// Default direction when a column is first selected (BP9): names A→Z, dates newest-first,
+// counts most-first. Clicking an active column toggles.
+const SORT_DEFAULT_DIR: Record<string, SortDir> = {
+  name: "asc",
+  event_date: "desc",
+  media_count: "desc",
+  matched_students: "desc",
 };
 
 function CreateEventDialog({ onCreated }: { onCreated: () => void }) {
@@ -125,28 +130,24 @@ function CreateEventDialog({ onCreated }: { onCreated: () => void }) {
 }
 
 export default function EventsPage() {
-  const { events, isLoading, error, mutate } = useEvents();
-  const [query, setQuery] = useState("");
+  const [rawQuery, setRawQuery] = useState("");
+  const query = useDebouncedValue(rawQuery.trim(), 300);
   const [filter, setFilter] = useState<"all" | EventStatus>("all");
+  const { sort, dir, onSort } = useListSort("event_date", SORT_DEFAULT_DIR);
 
-  const chips: ChipItem[] = useMemo(() => {
-    const all = events ?? [];
-    return [
-      { id: "all", label: "All", count: all.length },
-      { id: "active", label: "Active", count: all.filter((e) => e.status === "active").length },
-      { id: "archived", label: "Archived", count: all.filter((e) => e.status === "archived").length },
-    ];
-  }, [events]);
+  const { dashboard } = useDashboard();
+  const { items, total, isLoading, isLoadingMore, error, reachedEnd, loadMore, mutate } =
+    useEvents({ q: query || undefined, sort, dir, status: filter });
 
-  const filtered = useMemo(() => {
-    let rows = events ?? [];
-    if (filter !== "all") rows = rows.filter((e) => e.status === filter);
-    const q = query.trim().toLowerCase();
-    if (q) rows = rows.filter((e) => e.name.toLowerCase().includes(q));
-    return rows;
-  }, [events, filter, query]);
+  const counts = dashboard?.events;
+  const chips: ChipItem[] = [
+    { id: "all", label: "All", count: counts?.total },
+    { id: "active", label: "Active", count: counts?.active },
+    { id: "archived", label: "Archived", count: counts?.archived },
+  ];
 
-  const { sorted, sortKey, sortDir, toggle } = useSort(filtered, SORT, "date", "desc");
+  const isInitialLoading = isLoading && items.length === 0;
+  const isFiltering = filter !== "all" || query.length > 0;
 
   return (
     <div className="flex flex-col gap-6">
@@ -156,7 +157,7 @@ export default function EventsPage() {
         actions={<CreateEventDialog onCreated={() => mutate()} />}
       />
 
-      {isLoading ? (
+      {isInitialLoading ? (
         <Card className="flex flex-col gap-2 p-4">
           {[0, 1, 2].map((i) => (
             <Skeleton key={i} className="h-11 w-full" />
@@ -173,7 +174,7 @@ export default function EventsPage() {
             </Button>
           }
         />
-      ) : !events || events.length === 0 ? (
+      ) : total === 0 && !isFiltering ? (
         <EmptyState
           icon={<CalendarDays className="size-8" aria-hidden="true" />}
           title="No events yet"
@@ -189,66 +190,75 @@ export default function EventsPage() {
               onSelect={(id) => setFilter(id as "all" | EventStatus)}
               ariaLabel="Filter by event status"
             />
-            <SearchInput value={query} onChange={setQuery} placeholder="Search events…" />
+            <SearchInput value={rawQuery} onChange={setRawQuery} placeholder="Search events…" />
           </div>
-          {sorted.length === 0 ? (
+          {total === 0 ? (
             <EmptyState title="No matching events" description="Try a different search or filter." />
           ) : (
-            <Card className="overflow-hidden">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <SortableHead label="Name" sortKey="name" activeKey={sortKey} dir={sortDir} onSort={toggle} />
-                    <SortableHead label="Date" sortKey="date" activeKey={sortKey} dir={sortDir} onSort={toggle} />
-                    <SortableHead label="Photos" sortKey="photos" activeKey={sortKey} dir={sortDir} onSort={toggle} />
-                    <SortableHead label="Matched" sortKey="matched" activeKey={sortKey} dir={sortDir} onSort={toggle} />
-                    <TableHead>Processing</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {sorted.map((event) => (
-                    <TableRow key={event.id} className="transition-colors hover:bg-surface">
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <Link
-                            href={`/events/${event.id}`}
-                            className="rounded font-medium text-accent-hover hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                          >
-                            {event.name}
-                          </Link>
-                          {event.status === "archived" ? (
-                            <StatusPill tone={EVENT_STATUS_TONE.archived}>
-                              {EVENT_STATUS_LABEL.archived}
-                            </StatusPill>
-                          ) : null}
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-ink-secondary">
-                        {event.event_date ? formatDate(event.event_date) : "—"}
-                      </TableCell>
-                      <TableCell className="tabular-nums text-ink-secondary">
-                        {event.media_count}
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <span className="tabular-nums text-ink-secondary">
-                            {event.matched_students}
-                          </span>
-                          {event.needs_review > 0 ? (
-                            <StatusPill tone="warning">{event.needs_review} to review</StatusPill>
-                          ) : null}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <StatusPill tone={PROCESSING_TONE[event.processing_status]}>
-                          {PROCESSING_LABEL[event.processing_status]}
-                        </StatusPill>
-                      </TableCell>
+            <>
+              <Card className="overflow-hidden">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <SortableHead label="Name" sortKey="name" activeKey={sort} dir={dir} onSort={onSort} />
+                      <SortableHead label="Date" sortKey="event_date" activeKey={sort} dir={dir} onSort={onSort} />
+                      <SortableHead label="Photos" sortKey="media_count" activeKey={sort} dir={dir} onSort={onSort} />
+                      <SortableHead label="Matched" sortKey="matched_students" activeKey={sort} dir={dir} onSort={onSort} />
+                      <TableHead>Processing</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </Card>
+                  </TableHeader>
+                  <TableBody>
+                    {items.map((event) => (
+                      <TableRow key={event.id} className="transition-colors hover:bg-surface">
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            <Link
+                              href={`/events/${event.id}`}
+                              className="rounded font-medium text-accent-hover hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            >
+                              {event.name}
+                            </Link>
+                            {event.status === "archived" ? (
+                              <StatusPill tone={EVENT_STATUS_TONE.archived}>
+                                {EVENT_STATUS_LABEL.archived}
+                              </StatusPill>
+                            ) : null}
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-ink-secondary">
+                          {event.event_date ? formatDate(event.event_date) : "—"}
+                        </TableCell>
+                        <TableCell className="tabular-nums text-ink-secondary">
+                          {event.media_count}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            <span className="tabular-nums text-ink-secondary">
+                              {event.matched_students}
+                            </span>
+                            {event.needs_review > 0 ? (
+                              <StatusPill tone="warning">{event.needs_review} to review</StatusPill>
+                            ) : null}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <StatusPill tone={PROCESSING_TONE[event.processing_status]}>
+                            {PROCESSING_LABEL[event.processing_status]}
+                          </StatusPill>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </Card>
+              <LoadMore
+                shown={items.length}
+                total={total}
+                reachedEnd={reachedEnd}
+                loading={isLoadingMore}
+                onLoadMore={loadMore}
+              />
+            </>
           )}
         </div>
       )}

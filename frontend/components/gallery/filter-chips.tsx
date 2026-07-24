@@ -7,7 +7,9 @@ import { cn } from "@/lib/utils";
 export interface ChipItem {
   id: string;
   label: string;
-  count: number;
+  /** Optional badge count — omitted (BP9) when the full set isn't loaded (server-paginated
+   *  lists source counts from the dashboard rollup, not the in-memory rows). */
+  count?: number;
 }
 
 /**
@@ -65,7 +67,11 @@ export function FilterChips({
             )}
           >
             {item.label}
-            <span className="text-tabular tabular-nums text-ink-secondary">{item.count}</span>
+            {item.count !== undefined ? (
+              <span className="text-tabular tabular-nums text-ink-secondary">
+                {item.count}
+              </span>
+            ) : null}
           </button>
         );
       })}

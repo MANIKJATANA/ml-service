@@ -12,6 +12,7 @@ import { useToast } from "@/components/ui/toast";
 import { addMissedStudent, setMatchVerdict, undoCorrection } from "@/lib/api/endpoints";
 import { isApiError } from "@/lib/api/errors";
 import type { MediaAppearanceResponse } from "@/lib/api/types";
+import { useDebouncedValue } from "@/lib/hooks/use-debounced-value";
 import { useStudents } from "@/lib/hooks/use-students";
 import { cn } from "@/lib/utils";
 
@@ -123,21 +124,19 @@ function AddStudents({
   onChanged: () => Promise<unknown>;
 }) {
   const { toast } = useToast();
-  const { students } = useStudents();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
 
+  // Server-searched (BP9): the roster no longer loads in full — typing queries the students
+  // list endpoint. We exclude whoever's already in the photo from the returned page.
+  const debouncedQuery = useDebouncedValue(query.trim(), 250);
+  const { items } = useStudents({ q: debouncedQuery || undefined });
   const options = useMemo(() => {
     const presentSet = new Set(present);
-    return (students ?? []).filter((s) => !presentSet.has(s.id));
-  }, [students, present]);
-
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return q ? options.filter((s) => s.name.toLowerCase().includes(q)) : options;
-  }, [options, query]);
+    return items.filter((s) => !presentSet.has(s.id));
+  }, [items, present]);
 
   function toggle(id: string) {
     setSelected((prev) => {
@@ -210,12 +209,10 @@ function AddStudents({
           <ul className="max-h-48 overflow-y-auto rounded-button border border-hairline">
             {options.length === 0 ? (
               <li className="px-2 py-2 text-body-sm text-ink-muted">
-                Everyone&apos;s already in this photo.
+                {debouncedQuery ? "No students found." : "Search to add a student."}
               </li>
-            ) : filtered.length === 0 ? (
-              <li className="px-2 py-2 text-body-sm text-ink-muted">No students found.</li>
             ) : (
-              filtered.map((s) => (
+              options.map((s) => (
                 <li key={s.id}>
                   <label className="flex cursor-pointer items-center gap-2 px-2 py-1.5 hover:bg-surface-2">
                     <input

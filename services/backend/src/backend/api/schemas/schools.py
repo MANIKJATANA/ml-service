@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 
 from backend.domain.models import School, SchoolStatus
 from backend.services.listing_service import SchoolListing
+from backend.services.pagination import Page
 
 
 class CreateSchoolRequest(BaseModel):
@@ -58,4 +59,22 @@ class SchoolWithRollupResponse(SchoolResponse):
                 students=listing.rollup.students,
                 events=listing.rollup.events,
             ),
+        )
+
+
+class SchoolListPageResponse(BaseModel):
+    """One page of the platform schools list (BP9) + the unpaginated total."""
+
+    items: list[SchoolWithRollupResponse]
+    total: int
+    limit: int
+    offset: int
+
+    @classmethod
+    def from_page(cls, page: Page[SchoolListing]) -> SchoolListPageResponse:
+        return cls(
+            items=[SchoolWithRollupResponse.from_listing(x) for x in page.items],
+            total=page.total,
+            limit=page.limit,
+            offset=page.offset,
         )

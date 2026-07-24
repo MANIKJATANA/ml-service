@@ -42,6 +42,7 @@ from backend.domain.models import (
     MediaProcessingStatus,
     MediaType,
     Role,
+    StudentSort,
     UserStatus,
 )
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -844,3 +845,123 @@ async def test_student_get_by_user_id_is_tenant_scoped(
     # A foreign school never resolves the profile; a garbage id is None (not an error).
     assert await students.get_by_user_id("other-not-uuid", login.id) is None
     assert await students.get_by_user_id(school.id, str(_MISSING_UUID)) is None
+
+
+# ---- BP9: paginated list SQL (decisions/0055) -----------------------------
+
+
+async def test_student_list_page_search_sort_filter_pagination(
+    sm: async_sessionmaker[AsyncSession],
+) -> None:
+    schools = PostgresSchoolRepository(sm)
+    users = PostgresUserRepository(sm)
+    students = PostgresStudentRepository(sm)
+    a = await schools.create(name="A", max_teachers=50)
+    b = await schools.create(name="B", max_teachers=50)
+
+    async def add(
+        school_id: str, *, email: str, name: str,
+        status: EnrollmentStatus = EnrollmentStatus.PENDING,
+    ) -> None:
+        login = await users.create(
+            school_id=school_id, email=email, password_hash="h", role=Role.STUDENT
+        )
+        s = await students.create(
+            school_id=school_id, user_id=login.id, name=name, reference_photo_path="p"
+        )
+        if status is not EnrollmentStatus.PENDING:
+            await students.set_enrollment(s.id, status=status)
+
+    await add(a.id, email="anna@a.io", name="Anna", status=EnrollmentStatus.ENROLLED)
+    await add(a.id, email="bob@a.io", name="Bob")
+    await add(a.id, email="cara@a.io", name="Cara", status=EnrollmentStatus.ENROLLED)
+    await add(a.id, email="dan@a.io", name="Dan", status=EnrollmentStatus.FAILED)
+    await add(a.id, email="eve@a.io", name="Eve", status=EnrollmentStatus.ENROLLED)
+    # Literal-% names to prove the ILIKE metacharacters are escaped in search.
+    await add(a.id, email="pct@a.io", name="50%OFF")
+    await add(a.id, email="club@a.io", name="500 club")
+    await add(b.id, email="x@b.io", name="Alien")  # other school — never appears
+
+    # Tenant-scoped total (7 in A, not B's student).
+    assert await students.count_page(a.id) == 7
+
+    # Default page (name asc): the letter names come out A..E (collation-robust).
+    page = await students.list_page(a.id, limit=50, offset=0)
+    letters = [s.name for s in page if len(s.name) <= 4]
+    assert letters == ["Anna", "Bob", "Cara", "Dan", "Eve"]
+
+    # Search escapes % -> "50%" matches only the literal "50%OFF", not "500 club".
+    pct = await students.list_page(a.id, limit=50, offset=0, q="50%")
+    assert [s.name for s in pct] == ["50%OFF"]
+    assert await students.count_page(a.id, q="50%") == 1
+    assert await students.count_page(a.id, q="500") == 1  # "500 club" only
+
+    # Search hits the joined login email too.
+    by_email = await students.list_page(a.id, limit=50, offset=0, q="bob@")
+    assert [s.name for s in by_email] == ["Bob"]
+
+    # Status filter + its count.
+    enrolled = await students.list_page(
+        a.id, limit=50, offset=0, status=EnrollmentStatus.ENROLLED
+    )
+    assert {s.name for s in enrolled} == {"Anna", "Cara", "Eve"}
+    assert await students.count_page(a.id, status=EnrollmentStatus.ENROLLED) == 3
+
+    # Sort desc + pagination slices the enrolled subset without overlap.
+    p1 = await students.list_page(
+        a.id, limit=2, offset=0, sort=StudentSort.NAME, descending=True,
+        status=EnrollmentStatus.ENROLLED,
+    )
+    p2 = await students.list_page(
+        a.id, limit=2, offset=2, sort=StudentSort.NAME, descending=True,
+        status=EnrollmentStatus.ENROLLED,
+    )
+    assert [s.name for s in p1] == ["Eve", "Cara"]
+    assert [s.name for s in p2] == ["Anna"]
+
+    # list_ids returns exactly the filtered ids (the count-sort path consumes these).
+    ids = await students.list_ids(a.id, status=EnrollmentStatus.ENROLLED)
+    assert len(ids) == 3
+
+    # Malformed tenant id -> empty/zero, never an error.
+    assert await students.list_page("not-a-uuid", limit=10, offset=0) == []
+    assert await students.count_page("not-a-uuid") == 0
+    assert await students.list_ids("not-a-uuid") == []
+
+
+async def test_list_by_ids_is_tenant_scoped(
+    sm: async_sessionmaker[AsyncSession],
+) -> None:
+    schools = PostgresSchoolRepository(sm)
+    users = PostgresUserRepository(sm)
+    students = PostgresStudentRepository(sm)
+    events = PostgresEventRepository(sm)
+    a = await schools.create(name="A", max_teachers=5)
+    b = await schools.create(name="B", max_teachers=5)
+
+    login_a = await users.create(
+        school_id=a.id, email="sa@a.io", password_hash="h", role=Role.STUDENT
+    )
+    login_b = await users.create(
+        school_id=b.id, email="sb@b.io", password_hash="h", role=Role.STUDENT
+    )
+    sa = await students.create(
+        school_id=a.id, user_id=login_a.id, name="A", reference_photo_path="p"
+    )
+    sb = await students.create(
+        school_id=b.id, user_id=login_b.id, name="B", reference_photo_path="p"
+    )
+
+    # A foreign id + a malformed id are dropped; only the in-tenant row comes back.
+    got = await students.list_by_ids(a.id, [sa.id, sb.id, "not-a-uuid", _MISSING_UUID])
+    assert [s.id for s in got] == [sa.id]
+    assert await students.list_by_ids(a.id, []) == []
+
+    ea = await events.create(
+        school_id=a.id, name="EA", description=None, event_date=None, created_by=None
+    )
+    eb = await events.create(
+        school_id=b.id, name="EB", description=None, event_date=None, created_by=None
+    )
+    egot = await events.list_by_ids(a.id, [ea.id, eb.id])
+    assert [e.id for e in egot] == [ea.id]

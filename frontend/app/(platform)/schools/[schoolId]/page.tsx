@@ -13,6 +13,7 @@ import { Dialog, DialogClose, DialogContent, DialogTrigger } from "@/components/
 import { EmptyState } from "@/components/ui/empty-state";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { LoadMore } from "@/components/ui/load-more";
 import { PageHeader } from "@/components/ui/page-header";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatCard } from "@/components/ui/stat-card";
@@ -189,12 +190,14 @@ function AdminRoster({
   schoolId: string;
   onInvited: (invite: Invite) => void;
 }) {
-  const { admins, isLoading, error, mutate } = useSchoolAdmins(schoolId);
+  const { items, total, isLoading, isLoadingMore, error, reachedEnd, loadMore, mutate } =
+    useSchoolAdmins(schoolId, {});
+  const isInitialLoading = isLoading && items.length === 0;
 
   return (
     <section className="flex flex-col gap-3">
       <h2 className="text-headline text-ink">Administrators</h2>
-      {isLoading ? (
+      {isInitialLoading ? (
         <Card className="flex flex-col gap-2 p-4">
           {[0, 1].map((i) => (
             <Skeleton key={i} className="h-10 w-full" />
@@ -211,45 +214,54 @@ function AdminRoster({
             </Button>
           }
         />
-      ) : !admins || admins.length === 0 ? (
+      ) : total === 0 ? (
         <EmptyState title="No administrators yet" description="Add one to let them run this school." />
       ) : (
-        <Card className="overflow-hidden">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Email</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Added</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {admins.map((admin) => {
-                const status = adminStatus(admin);
-                return (
-                  <TableRow key={admin.id}>
-                    <TableCell>{admin.email}</TableCell>
-                    <TableCell>
-                      <StatusPill tone={status.tone}>{status.label}</StatusPill>
-                    </TableCell>
-                    <TableCell className="text-ink-secondary">
-                      {formatDate(admin.created_at)}
-                    </TableCell>
-                    <TableCell>
-                      <AdminActions
-                        schoolId={schoolId}
-                        admin={admin}
-                        onInvited={onInvited}
-                        onChanged={() => mutate()}
-                      />
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
-        </Card>
+        <>
+          <Card className="overflow-hidden">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Email</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Added</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {items.map((admin) => {
+                  const status = adminStatus(admin);
+                  return (
+                    <TableRow key={admin.id}>
+                      <TableCell>{admin.email}</TableCell>
+                      <TableCell>
+                        <StatusPill tone={status.tone}>{status.label}</StatusPill>
+                      </TableCell>
+                      <TableCell className="text-ink-secondary">
+                        {formatDate(admin.created_at)}
+                      </TableCell>
+                      <TableCell>
+                        <AdminActions
+                          schoolId={schoolId}
+                          admin={admin}
+                          onInvited={onInvited}
+                          onChanged={() => mutate()}
+                        />
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </Card>
+          <LoadMore
+            shown={items.length}
+            total={total}
+            reachedEnd={reachedEnd}
+            loading={isLoadingMore}
+            onLoadMore={loadMore}
+          />
+        </>
       )}
     </section>
   );
@@ -300,7 +312,15 @@ export default function SchoolDetailPage() {
             actions={
               <AddAdminDialog
                 schoolId={school.id}
-                onAdded={() => mutateKey(`schools/${school.id}/admins`)}
+                onAdded={() =>
+                  // The roster is now paginated (keys carry a query + page suffix), so
+                  // revalidate every page of it with a key-prefix matcher (BP9).
+                  mutateKey(
+                    (key) =>
+                      typeof key === "string" &&
+                      key.startsWith(`schools/${school.id}/admins`),
+                  )
+                }
                 onInvited={setInvite}
               />
             }

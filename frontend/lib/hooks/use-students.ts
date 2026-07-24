@@ -2,12 +2,13 @@
 
 import useSWR from "swr";
 
-import { getStudent, listStudents } from "@/lib/api/endpoints";
+import { getStudent, getStudents } from "@/lib/api/endpoints";
 import type { StudentListItem, StudentResponse } from "@/lib/api/types";
+import { type ListQuery, useInfiniteList } from "@/lib/hooks/use-infinite-list";
 
-export function useStudents() {
-  const { data, error, isLoading, mutate } = useSWR<StudentListItem[]>("students", listStudents);
-  return { students: data, error, isLoading, mutate };
+/** One server page at a time of the students list (BP9): search/sort/filter hit SQL. */
+export function useStudents(query: ListQuery) {
+  return useInfiniteList<StudentListItem>("students", query, getStudents);
 }
 
 export function useStudent(studentId: string) {

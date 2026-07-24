@@ -66,7 +66,7 @@ def test_platform_admin_creates_lists_and_fetches_schools() -> None:
 
     listed = client.get("/v1/schools", headers=_auth(token))
     assert listed.status_code == 200
-    assert [s["id"] for s in listed.json()] == [school_id]
+    assert [s["id"] for s in listed.json()["items"]] == [school_id]
 
     got = client.get(f"/v1/schools/{school_id}", headers=_auth(token))
     assert got.status_code == 200 and got.json()["id"] == school_id
@@ -149,7 +149,7 @@ def test_school_admin_creates_and_lists_teachers_in_own_school() -> None:
 
     listed = client.get("/v1/staff", headers=_auth(token))
     assert listed.status_code == 200
-    rows = listed.json()
+    rows = listed.json()["items"]
     assert [u["email"] for u in rows] == ["teacher@s1.io"]
     # The list is UserResponse[] — the one-time temp password never appears here.
     assert all("temp_password" not in u for u in rows)

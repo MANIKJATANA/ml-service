@@ -9,6 +9,12 @@
 > contracts); guardian/notification/audit appear only as product/distribution/trust value, never compliance.
 >
 > _Snapshot: 2026-07-13. Build track name: "from feature-complete to product-complete."_
+>
+> _**Round 2 (2026-07-25):** a scale + per-role review (`02-product-review.md`) reopens the backlog with
+> the **BP9–BP17** track, which lives in its own file — **`04-improvement-roadmap-round-2.md`** (the Round-2
+> sibling of this one). BP1–BP8 remain complete; BP9+ tackles the *lived experience at real-school scale*
+> (100+ events, hundreds of students) that Round 1's 3–20-row screens were never tested for. Sequencing is
+> again the product specialist's call (owner-delegated)._
 
 ---
 
@@ -213,6 +219,19 @@ convention. Order = my recommended build order.
 
 ---
 
+## 3b. Round 2 — the experience at scale → see `04`
+
+The **BP9–BP17** track — the scale + per-role improvements surfaced by `02-product-review.md` — lives in its
+own file, **[`04-improvement-roadmap-round-2.md`](04-improvement-roadmap-round-2.md)**, the Round-2 sibling
+of this Round-1 (BP1–BP8) roadmap. That file holds the thesis, the effort×impact map, the build order, and
+all eight phase specs.
+
+- **Next up:** **BP9** — scale-ready lists & galleries (the low-risk substrate).
+- **Deprioritised to the back** (owner calls, 2026-07-25): **BP12** (distribution reach), **BP15**
+  (accuracy at scale), and **BP16** (lifecycle & retention) — the M-effort/high-urgency phases land first.
+
+---
+
 ## 4. Out of scope (owned by legal/contracts)
 
 Consent capture, parental consent, and compliance machinery (COPPA/GDPR/DPDP) are handled **out-of-band by the legal
@@ -224,7 +243,8 @@ compliance controls.
 
 ## 5. How to use this file
 
-- **Pick the next phase** off the top of §3 (BP2 follows the landed BP1).
+- **Pick the next phase:** §3's BP1–BP8 are all ✅ (Round 1, complete). The **Round-2 (BP9+)** track lives
+  in **`04-improvement-roadmap-round-2.md`** — **BP9** is next.
 - **Before building**, re-read the phase's **source lens** in `01` (the acceptance target) and its **current-state**
   rows in `00` (what exists), then lock the phase design in a `decisions/` doc (repo convention).
 - **Keep `00` honest:** when a capability ships, move it from "dark/absent" to "exposed" in `00`'s capability map,

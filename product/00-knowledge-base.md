@@ -15,6 +15,12 @@
 >
 > _Snapshot: 2026-07-13 · All three services v1 feature-complete + hardened. Consent/legal is handled out-of-band
 > by the legal team via school contracts and is intentionally out of this product analysis' scope._
+>
+> _**Round 2 (2026-07-25):** `02-product-review.md` is now written — a per-role + scale review that reopens
+> the backlog with the **BP9–BP17** track in its own file, **`04-improvement-roadmap-round-2.md`** (the
+> Round-2 sibling of `03`). BP1–BP8 stay complete; BP9+ targets the lived experience at real-school scale
+> (100+ events, hundreds of students) — led by scale-ready lists/galleries + thumbnails, bulk photo
+> enrollment, and class/term structure (distribution, accuracy + lifecycle deprioritised to the back)._
 
 ---
 
@@ -93,7 +99,9 @@ Notes:
 - **No parent/guardian persona exists.** Product-relevant (a parent is the real recipient/engager for a young
   child, and the natural target for "photos ready" notifications) — but **consent/legal is out of scope here**
   (handled by legal via contracts), so guardian is treated as an *optional distribution/experience* consideration,
-  not a compliance requirement.
+  not a compliance requirement. **(Round 2, 2026-07-25 — owner decision:** the parent simply **uses the
+  student account** — its email is theirs — so there is **no separate guardian role**; the delivery signal
+  reaches them there. See `02` §3.5.)
 
 ---
 
@@ -308,11 +316,15 @@ timeline UI stays deferred.)* **Trust/accuracy (still deferred):** threshold-tun
 are a backend overlay only), reference-photo quality gating. *(CSV bulk student import **shipped** in BP7d,
 decisions/0047.)* **Onboarding/business:** self-serve school signup, plans/tiers/billing, per-school analytics.
 **Ops/scale:** OTel tracing, image
-thumbnails/derivatives, batch signed-URL minting. *(A **failed-photo state + retry** shipped in BP8a, decisions/0049; an
+thumbnails/derivatives (**→ BP17**), batch signed-URL minting. *(A **failed-photo state + retry** shipped in BP8a, decisions/0049; an
 **access/download audit** in BP8b, decisions/0050; **rate limiting + security headers** in BP8c, decisions/0051;
 **multi-replica enrollment** (FAISS write lock Option B / Redis) in BP8d, decisions/0052; **complete student erasure**
 (the reference-photo object + ML matches/detections are now purged on delete) in BP8e, decisions/0053. **BP8 + the whole
-BP1–BP8 roadmap are complete.** Deferred: event hard-delete + time-based retention — a future track.)* **Model:** re-enrollment cadence for growing children,
+BP1–BP8 roadmap are complete (Round 1).** **Round 2 (2026-07-25, `02-product-review.md`)** reopens the
+backlog with the **BP9–BP17** track in its own file, **`04-improvement-roadmap-round-2.md`** — led by
+scale-ready lists/galleries + **image thumbnails** (BP17), bulk photo enrollment, and class/term structure
+(distribution, accuracy + lifecycle deprioritised to the back; the parent uses the student account, so
+distribution needs no guardian model). Deferred event hard-delete + time-based retention are folded into **BP16**.)* **Model:** re-enrollment cadence for growing children,
 unknown-face handling. **Out of scope (owned by legal/contracts):** consent capture, parental consent, compliance
 (COPPA/GDPR/DPDP). **UI polish:** dark-mode toggle.
 

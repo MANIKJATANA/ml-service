@@ -20,6 +20,7 @@ import type {
   MyNotificationsResponse,
   NotificationRosterResponse,
   NotifyResultResponse,
+  PhotoSize,
   ProvisionedStudentResponse,
   ProvisionedUserResponse,
   SchoolListPageResponse,
@@ -249,7 +250,10 @@ export function setStudentReferencePhoto(
 ): Promise<StudentResponse> {
   return bffFetch<StudentResponse>(
     `/api/v1/students/${encodeURIComponent(studentId)}/reference-photo`,
-    { method: "PUT", body: JSON.stringify({ reference_photo_path: referencePhotoPath }) },
+    {
+      method: "PUT",
+      body: JSON.stringify({ reference_photo_path: referencePhotoPath }),
+    },
   );
 }
 
@@ -353,7 +357,8 @@ export function eventMediaUploadUrl(eventId: string): Promise<UploadUrlResponse>
   );
 }
 
-/** Register an already-uploaded object as a media row (records only; no enqueue). */
+/** Register an already-uploaded object as a media row (records only; no enqueue). BP17: for
+ *  an image the backend generates the display thumbnail from `storagePath` on register. */
 export function registerMedia(
   eventId: string,
   storagePath: string,
@@ -465,8 +470,28 @@ export function reportNotMe(mediaId: string): Promise<void> {
 /** Mint a short-lived signed URL for one media's bytes (entitlement-gated: staff any
  *  in-school, a student only media they appear in, else 404). Used for BOTH viewing and
  *  downloading, so it records nothing — `recordDownload` audits the actual download. */
-export function downloadMedia(mediaId: string): Promise<DownloadResponse> {
-  return bffFetch<DownloadResponse>(`/api/v1/media/${encodeURIComponent(mediaId)}/download`);
+export function downloadMedia(
+  mediaId: string,
+  size: PhotoSize = "full",
+): Promise<DownloadResponse> {
+  // BP17: `thumb` asks for a downscaled image (tiles/avatars); `full` (default) is the
+  // original used by the lightbox + the download save.
+  const q = size === "thumb" ? "?size=thumb" : "";
+  return bffFetch<DownloadResponse>(
+    `/api/v1/media/${encodeURIComponent(mediaId)}/download${q}`,
+  );
+}
+
+/** A signed URL for a student's reference photo — the staff avatar (BP17). Thumbnail by
+ *  default; 404 if the student is photoless. */
+export function studentReferencePhoto(
+  studentId: string,
+  size: PhotoSize = "thumb",
+): Promise<DownloadResponse> {
+  const q = size === "full" ? "?size=full" : "";
+  return bffFetch<DownloadResponse>(
+    `/api/v1/students/${encodeURIComponent(studentId)}/reference-photo${q}`,
+  );
 }
 
 /** Record one actual media download in the audit (BP8b) — fired only when the user saves a

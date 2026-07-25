@@ -26,7 +26,12 @@ function PhotoArea({ eventId }: { eventId: string | null }) {
   const { toast } = useToast();
   const mediaIds = useMemo(() => (media ?? []).map((m) => m.media_id), [media]);
   const items = useMemo(
-    () => (media ?? []).map((m) => ({ id: m.media_id, mediaType: m.media_type })),
+    () =>
+      (media ?? []).map((m) => ({
+        id: m.media_id,
+        mediaType: m.media_type,
+        hasThumbnail: m.has_thumbnail,
+      })),
     [media],
   );
   const { busy, done, total, onDownloadAll } = useDownloadAll(mediaIds);

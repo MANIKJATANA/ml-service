@@ -58,6 +58,7 @@ from backend.domain.ports import (
     ObjectStore,
     SchoolRepository,
     StudentRepository,
+    Thumbnailer,
     UserRepository,
 )
 from backend.domain.tokens import TokenClaims, TokenPair, TokenType
@@ -164,6 +165,7 @@ def make_student(
     name: str = "Bart Simpson",
     email: str = "student@example.com",
     reference_photo_path: str | None = "reference-photos/school-1/photo.jpg",
+    reference_photo_thumbnail_path: str | None = None,
     enrollment_status: EnrollmentStatus = EnrollmentStatus.PENDING,
     enrollment_failure_reason: EnrollmentFailureReason | None = None,
 ) -> Student:
@@ -174,6 +176,7 @@ def make_student(
         name=name,
         email=email,
         reference_photo_path=reference_photo_path,
+        reference_photo_thumbnail_path=reference_photo_thumbnail_path,
         enrollment_status=enrollment_status,
         enrollment_failure_reason=enrollment_failure_reason,
         created_at=_NOW,
@@ -223,6 +226,7 @@ def make_media(
     media_type: MediaType = MediaType.IMAGE,
     processing_status: MediaProcessingStatus = MediaProcessingStatus.PENDING,
     completed_at: datetime | None = None,
+    thumbnail_path: str | None = None,
 ) -> Media:
     return Media(
         id=id,
@@ -232,6 +236,7 @@ def make_media(
         media_type=media_type,
         processing_status=processing_status,
         completed_at=completed_at,
+        thumbnail_path=thumbnail_path,
         created_at=_NOW,
         updated_at=_NOW,
     )
@@ -543,6 +548,7 @@ class FakeStudentRepo:
         user_id: str,
         name: str,
         reference_photo_path: str | None = None,
+        reference_photo_thumbnail_path: str | None = None,
     ) -> Student:
         if self.fail_create:
             raise RuntimeError("simulated students-insert failure")
@@ -554,6 +560,7 @@ class FakeStudentRepo:
             name=name,
             email=self._email_of(user_id),
             reference_photo_path=reference_photo_path,
+            reference_photo_thumbnail_path=reference_photo_thumbnail_path,
             enrollment_status=EnrollmentStatus.PENDING,
         )
         self._by_id[student.id] = student
@@ -667,12 +674,18 @@ class FakeStudentRepo:
         )
 
     async def set_reference_photo(
-        self, student_id: str, *, reference_photo_path: str
+        self,
+        student_id: str,
+        *,
+        reference_photo_path: str,
+        reference_photo_thumbnail_path: str | None = None,
     ) -> None:
         if student_id not in self._by_id:
             raise NotFoundError(student_id)
         self._by_id[student_id] = replace(
-            self._by_id[student_id], reference_photo_path=reference_photo_path
+            self._by_id[student_id],
+            reference_photo_path=reference_photo_path,
+            reference_photo_thumbnail_path=reference_photo_thumbnail_path,
         )
 
     def remove_by_user(self, user_id: str) -> None:
@@ -687,10 +700,19 @@ class FakeObjectStore:
     deletes. ``fail_deletes`` makes ``delete`` raise ``UpstreamError`` (to exercise the
     BP8e retry/best-effort path)."""
 
-    def __init__(self, *, fail_deletes: bool = False) -> None:
+    def __init__(
+        self, *, fail_deletes: bool = False, fail_downloads: bool = False
+    ) -> None:
         self.deleted: list[str] = []
         self.delete_attempts = 0
         self._fail_deletes = fail_deletes
+        self._fail_downloads = fail_downloads
+        # BP17: the last object path a download URL was minted for — tests assert that the
+        # thumbnail variant selects the stored thumb path (and full-res otherwise).
+        self.last_download_path: str | None = None
+        # BP17: objects the backend wrote via upload_bytes (path -> bytes) — tests assert a
+        # thumbnail was generated + stored under the tenant/event prefix.
+        self.uploaded: dict[str, bytes] = {}
 
     async def create_signed_upload_url(self, object_path: str) -> SignedUpload:
         return SignedUpload(
@@ -702,6 +724,7 @@ class FakeObjectStore:
     async def create_signed_download_url(
         self, object_path: str, *, expires_in_s: int
     ) -> str:
+        self.last_download_path = object_path
         return f"https://downloads.test/{object_path}?ttl={expires_in_s}"
 
     async def delete(self, object_path: str) -> None:
@@ -709,6 +732,32 @@ class FakeObjectStore:
         if self._fail_deletes:
             raise UpstreamError(f"fake delete failed for {object_path}")
         self.deleted.append(object_path)
+
+    async def download_bytes(self, object_path: str) -> bytes:
+        # BP17: the backend reads a just-uploaded original to thumbnail it. Return
+        # deterministic bytes (the content is irrelevant — the FakeThumbnailer ignores it);
+        # ``fail_downloads`` exercises the best-effort path (generation → None).
+        if self._fail_downloads:
+            raise UpstreamError(f"fake download failed for {object_path}")
+        return f"bytes:{object_path}".encode()
+
+    async def upload_bytes(
+        self, object_path: str, data: bytes, *, content_type: str
+    ) -> None:
+        self.uploaded[object_path] = data
+
+
+class FakeThumbnailer:
+    """Thumbnailer double (BP17): returns fixed bytes, or ``None`` when ``produces`` is False
+    (to exercise the best-effort 'no thumbnail generated' path)."""
+
+    def __init__(self, *, produces: bool = True) -> None:
+        self._produces = produces
+        self.calls = 0
+
+    async def make_thumbnail(self, data: bytes) -> bytes | None:
+        self.calls += 1
+        return b"thumb-bytes" if self._produces else None
 
 
 class FakeMlClient:
@@ -1004,6 +1053,7 @@ class FakeMediaRepo:
         event_id: str,
         storage_path: str,
         media_type: MediaType,
+        thumbnail_path: str | None = None,
     ) -> Media:
         self._seq += 1
         media = make_media(
@@ -1012,6 +1062,7 @@ class FakeMediaRepo:
             event_id=event_id,
             storage_path=storage_path,
             media_type=media_type,
+            thumbnail_path=thumbnail_path,
         )
         self._by_id[media.id] = media
         return media
@@ -1395,6 +1446,7 @@ class SeededContainer(Container):
         students: StudentRepository | None = None,
         object_store: ObjectStore | None = None,
         ml_client: MlEnrollmentClient | None = None,
+        thumbnailer: Thumbnailer | None = None,
         events: EventRepository | None = None,
         media: MediaRepository | None = None,
         event_job_producer: EventJobProducer | None = None,
@@ -1411,6 +1463,7 @@ class SeededContainer(Container):
         self._seed_students: StudentRepository = students or FakeStudentRepo()
         self._seed_object_store: ObjectStore = object_store or FakeObjectStore()
         self._seed_ml_client: MlEnrollmentClient = ml_client or FakeMlClient()
+        self._seed_thumbnailer: Thumbnailer = thumbnailer or FakeThumbnailer()
         self._seed_events: EventRepository = events or FakeEventRepo()
         self._seed_media: MediaRepository = media or FakeMediaRepo()
         self._seed_event_job_producer: EventJobProducer = (
@@ -1452,6 +1505,9 @@ class SeededContainer(Container):
 
     def object_store(self) -> ObjectStore:
         return self._seed_object_store
+
+    def thumbnailer(self) -> Thumbnailer:
+        return self._seed_thumbnailer
 
     def ml_enrollment_client(self) -> MlEnrollmentClient:
         return self._seed_ml_client

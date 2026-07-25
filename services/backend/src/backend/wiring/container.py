@@ -36,6 +36,7 @@ from backend.domain.ports import (
     PermissionResolver,
     SchoolRepository,
     StudentRepository,
+    Thumbnailer,
     TokenService,
     UserRepository,
 )
@@ -76,6 +77,7 @@ class Container:
         self._notifier: NotificationChannel | None = None
         self._event_job_producer: EventJobProducer | None = None
         self._object_store: ObjectStore | None = None
+        self._thumbnailer: Thumbnailer | None = None
         self._ml_enrollment_client: MlEnrollmentClient | None = None
         self._password_hasher: PasswordHasher | None = None
         self._token_service: TokenService | None = None
@@ -263,6 +265,19 @@ class Container:
                         self._object_store = cls(self._s.object_store_dir)
         return self._object_store
 
+    def thumbnailer(self) -> Thumbnailer:
+        if self._thumbnailer is None:
+            with self._lock:
+                if self._thumbnailer is None:
+                    cls = registry.resolve(
+                        registry.THUMBNAILER_REGISTRY, self._s.thumbnailer_impl
+                    )
+                    self._thumbnailer = cls(
+                        max_edge=self._s.image_thumbnail_max_edge,
+                        quality=self._s.image_thumbnail_quality,
+                    )
+        return self._thumbnailer
+
     def ml_enrollment_client(self) -> MlEnrollmentClient:
         if self._ml_enrollment_client is None:
             with self._lock:
@@ -353,7 +368,9 @@ class Container:
                         self.password_hasher(),
                         self.object_store(),
                         self.ml_enrollment_client(),
+                        self.thumbnailer(),
                         reference_photo_prefix=self._s.reference_photo_prefix,
+                        download_url_ttl_s=self._s.download_url_ttl_s,
                     )
         return self._student_service
 
@@ -376,6 +393,7 @@ class Container:
                         self.media_repo(),
                         self.event_repo(),
                         self.object_store(),
+                        self.thumbnailer(),
                         event_media_prefix=self._s.event_media_prefix,
                     )
         return self._media_service

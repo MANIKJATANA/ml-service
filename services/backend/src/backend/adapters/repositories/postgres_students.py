@@ -55,6 +55,7 @@ def _to_student(row: StudentRow, email: str) -> Student:
             if row.enrollment_failure_reason is not None
             else None
         ),
+        reference_photo_thumbnail_path=row.reference_photo_thumbnail_path,
     )
 
 
@@ -71,6 +72,7 @@ class PostgresStudentRepository:
         user_id: str,
         name: str,
         reference_photo_path: str | None = None,
+        reference_photo_thumbnail_path: str | None = None,
     ) -> Student:
         sid = req_uuid(school_id, field="school_id")
         uid = req_uuid(user_id, field="user_id")
@@ -80,6 +82,7 @@ class PostgresStudentRepository:
                 user_id=uid,
                 name=name,
                 reference_photo_path=reference_photo_path,
+                reference_photo_thumbnail_path=reference_photo_thumbnail_path,
             )
             session.add(row)
             await session.flush()
@@ -294,7 +297,11 @@ class PostgresStudentRepository:
             )
 
     async def set_reference_photo(
-        self, student_id: str, *, reference_photo_path: str
+        self,
+        student_id: str,
+        *,
+        reference_photo_path: str,
+        reference_photo_thumbnail_path: str | None = None,
     ) -> None:
         key = req_uuid(student_id, field="student_id")
         async with self._sessionmaker() as session, session.begin():
@@ -302,4 +309,7 @@ class PostgresStudentRepository:
             if row is None:
                 raise NotFoundError(f"student not found: {student_id}")
             # ORM mutation -> flush on commit; also trips updated_at's onupdate (BP7d-2).
+            # BP17: the display-only thumbnail is replaced in lockstep (may be None if the
+            # backend couldn't generate one — the download then falls back to full-res).
             row.reference_photo_path = reference_photo_path
+            row.reference_photo_thumbnail_path = reference_photo_thumbnail_path

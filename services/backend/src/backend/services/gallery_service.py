@@ -264,7 +264,12 @@ class GalleryService:
     # ---- download ------------------------------------------------------
 
     async def download_url(
-        self, *, school_id: str, media_id: str, restrict_to_student_id: str | None
+        self,
+        *,
+        school_id: str,
+        media_id: str,
+        restrict_to_student_id: str | None,
+        thumbnail: bool = False,
     ) -> SignedDownload:
         """A short-lived signed URL to fetch one media (decisions/0028 + BP5).
 
@@ -278,8 +283,16 @@ class GalleryService:
         an ``added`` correction), else 404 — a rejected match blocks the download."""
         media = await self._require_media(school_id, media_id)
         await self._require_downloadable(school_id, media_id, restrict_to_student_id)
+        # BP17: a thumbnail request serves the stored downscaled sibling when present (a
+        # much smaller object); it falls back to the full-res object for pre-BP17 media +
+        # video (which has no thumbnail). The entitlement gate above already ran.
+        path = (
+            media.thumbnail_path
+            if thumbnail and media.thumbnail_path
+            else media.storage_path
+        )
         url = await self._object_store.create_signed_download_url(
-            media.storage_path, expires_in_s=self._ttl
+            path, expires_in_s=self._ttl
         )
         return SignedDownload(download_url=url, expires_in_s=self._ttl)
 

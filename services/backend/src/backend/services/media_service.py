@@ -22,8 +22,14 @@ from backend.domain.models import (
     MediaType,
     SignedUpload,
 )
-from backend.domain.ports import EventRepository, MediaRepository, ObjectStore
+from backend.domain.ports import (
+    EventRepository,
+    MediaRepository,
+    ObjectStore,
+    Thumbnailer,
+)
 from backend.services.pagination import Page
+from backend.services.thumbnails import generate_thumbnail
 
 
 class MediaService:
@@ -32,12 +38,14 @@ class MediaService:
         media: MediaRepository,
         events: EventRepository,
         object_store: ObjectStore,
+        thumbnailer: Thumbnailer,
         *,
         event_media_prefix: str,
     ) -> None:
         self._media = media
         self._events = events
         self._object_store = object_store
+        self._thumbnailer = thumbnailer
         self._prefix = event_media_prefix.strip("/")
 
     # ---- upload URL -----------------------------------------------------
@@ -48,7 +56,8 @@ class MediaService:
     async def create_upload_url(
         self, *, school_id: str, event_id: str
     ) -> SignedUpload:
-        # Verify the event is the caller's + active before minting a key under it.
+        # Verify the event is the caller's + active before minting a key under it. The FE
+        # uploads only the original; the backend generates the BP17 thumbnail on register.
         await self._require_active_event(school_id=school_id, event_id=event_id)
         object_path = f"{self._event_prefix(school_id, event_id)}{uuid.uuid4()}"
         return await self._object_store.create_signed_upload_url(object_path)
@@ -67,14 +76,24 @@ class MediaService:
 
         # Path guard: only a key this event was handed an upload URL for. Stops a caller
         # registering another tenant's / an arbitrary object path.
-        if not storage_path.startswith(self._event_prefix(school_id, event_id)):
+        prefix = self._event_prefix(school_id, event_id)
+        if not storage_path.startswith(prefix):
             raise ValidationError("storage_path is outside this event's prefix")
+
+        # BP17: for an image, the backend downloads the just-uploaded original, compresses it,
+        # and stores a thumbnail sibling (best-effort → None). Video keeps a browser poster.
+        thumbnail_path: str | None = None
+        if media_type is MediaType.IMAGE:
+            thumbnail_path = await generate_thumbnail(
+                self._object_store, self._thumbnailer, storage_path
+            )
 
         return await self._media.create(
             school_id=school_id,
             event_id=event_id,
             storage_path=storage_path,
             media_type=media_type,
+            thumbnail_path=thumbnail_path,
         )
 
     # ---- reads ----------------------------------------------------------

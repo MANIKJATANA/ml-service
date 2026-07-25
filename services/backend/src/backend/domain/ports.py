@@ -124,6 +124,7 @@ class StudentRepository(Protocol):
         user_id: str,
         name: str,
         reference_photo_path: str | None = None,
+        reference_photo_thumbnail_path: str | None = None,
     ) -> Student: ...
     async def get(self, school_id: str, student_id: str) -> Student | None: ...
     async def get_by_user_id(
@@ -183,7 +184,11 @@ class StudentRepository(Protocol):
         failure_reason: EnrollmentFailureReason | None = None,
     ) -> None: ...
     async def set_reference_photo(
-        self, student_id: str, *, reference_photo_path: str
+        self,
+        student_id: str,
+        *,
+        reference_photo_path: str,
+        reference_photo_thumbnail_path: str | None = None,
     ) -> None: ...
 
 
@@ -267,6 +272,7 @@ class MediaRepository(Protocol):
         event_id: str,
         storage_path: str,
         media_type: MediaType,
+        thumbnail_path: str | None = None,
     ) -> Media: ...
     async def get(self, school_id: str, media_id: str) -> Media | None: ...
     async def list_by_event(self, school_id: str, event_id: str) -> list[Media]: ...
@@ -309,11 +315,13 @@ class EventJobProducer(Protocol):
 
 
 class ObjectStore(Protocol):
-    """Mints direct-to-storage signed URLs; the bytes never transit the backend.
+    """Mints direct-to-storage signed URLs; the *original* bytes never transit the backend.
 
     Upload: the frontend uploads to the signed URL and later submits the object path
     (decisions/0026). Download: the backend mints a short-lived read URL for an entitled
-    caller (decisions/0028). Raises ``UpstreamError`` when the store is unreachable."""
+    caller (decisions/0028). The BP17 thumbnail path (``download_bytes``/``upload_bytes``,
+    decisions/0056) is the one exception — the backend reads a just-uploaded image and writes
+    its downscaled sibling. Raises ``UpstreamError`` when the store is unreachable."""
 
     async def create_signed_upload_url(self, object_path: str) -> SignedUpload: ...
     async def create_signed_download_url(
@@ -323,6 +331,29 @@ class ObjectStore(Protocol):
         """Delete one stored object (BP8e erasure, decisions/0053). Idempotent — a missing
         object is not an error. Raises ``UpstreamError`` when the store is unreachable, so
         the caller can retry (a failed delete leaves an orphaned object, never a bad row)."""
+        ...
+
+    async def download_bytes(self, object_path: str) -> bytes:
+        """Read one stored object's bytes (BP17 thumbnail generation, decisions/0056). Raises
+        ``UpstreamError`` when the store is unreachable or the object is missing."""
+        ...
+
+    async def upload_bytes(
+        self, object_path: str, data: bytes, *, content_type: str
+    ) -> None:
+        """Write bytes to one object key, overwriting (BP17 thumbnail, decisions/0056). Raises
+        ``UpstreamError`` when the store is unreachable."""
+        ...
+
+
+class Thumbnailer(Protocol):
+    """Downscales an image to a small preview (BP17, decisions/0056). The one place image
+    bytes are decoded in the backend — kept behind this port so ``domain``/``services`` stay
+    free of image libraries (the concrete Pillow adapter is the only importer)."""
+
+    async def make_thumbnail(self, data: bytes) -> bytes | None:
+        """Return a small JPEG of ``data``, or ``None`` if it can't be produced (a non-image,
+        a decode/encode error) — best-effort, so a bad image never fails the upload."""
         ...
 
 

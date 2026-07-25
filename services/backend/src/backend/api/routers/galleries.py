@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 
 from backend.api.deps import (
     ContainerDep,
@@ -27,7 +27,7 @@ from backend.api.schemas.gallery import (
     MediaAppearanceResponse,
     StudentInEventResponse,
 )
-from backend.domain.models import User
+from backend.domain.models import MediaVariant, User
 from backend.domain.permissions import Permission
 
 router = APIRouter(prefix="/v1", tags=["galleries"])
@@ -106,14 +106,19 @@ async def media_appearances(
 
 @router.get("/media/{media_id}/download", response_model=DownloadResponse)
 async def download_media(
-    media_id: str, container: ContainerDep, scope: GalleryDownloadScope
+    media_id: str,
+    container: ContainerDep,
+    scope: GalleryDownloadScope,
+    size: Annotated[MediaVariant, Query()] = MediaVariant.FULL,
 ) -> DownloadResponse:
     # Mints the signed URL used for BOTH viewing and downloading — records nothing. The
-    # actual download is audited via the POST below (BP8b, decisions/0050).
+    # actual download is audited via the POST below (BP8b, decisions/0050). `size=thumb`
+    # (BP17) downscales an image for tile previews; the default `full` is unchanged.
     signed = await container.gallery_service().download_url(
         school_id=scope.school_id,
         media_id=media_id,
         restrict_to_student_id=scope.restrict_to_student_id,
+        thumbnail=(size is MediaVariant.THUMB),
     )
     return DownloadResponse.from_signed(signed)
 

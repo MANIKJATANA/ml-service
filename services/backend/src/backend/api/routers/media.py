@@ -37,10 +37,8 @@ async def create_upload_url(
     signed = await container.media_service().create_upload_url(
         school_id=tenant_of(actor), event_id=event_id
     )
-    return UploadUrlResponse(
-        upload_url=signed.upload_url,
-        object_path=signed.object_path,
-        max_upload_mb=container.settings.max_upload_mb,
+    return UploadUrlResponse.from_signed(
+        signed, max_upload_mb=container.settings.max_upload_mb
     )
 
 

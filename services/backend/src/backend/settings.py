@@ -58,6 +58,13 @@ class Settings(BaseSettings):
     max_upload_mb: int = 30  # advertised to the FE; enforced client-side in v1
     object_store_dir: str = "/var/lib/backend/objects"  # local_fs dev target
 
+    # --- image thumbnails (BP17, decisions/0056) -------------------------
+    # The backend downscales each uploaded image to a small JPEG preview (tiles + avatars);
+    # the lightbox/download stay full-res. Pillow lives behind the Thumbnailer adapter.
+    thumbnailer_impl: str = "pillow"
+    image_thumbnail_max_edge: int = 512  # longest-edge cap (px)
+    image_thumbnail_quality: int = 70  # JPEG quality (1-95)
+
     # --- galleries / download (decisions/0028) ---------------------------
     # TTL of the short-lived signed download URLs the galleries mint on demand.
     download_url_ttl_s: int = 3600  # 1 hour

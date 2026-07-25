@@ -12,7 +12,12 @@ from datetime import datetime
 
 from pydantic import BaseModel, EmailStr, Field
 
-from backend.domain.models import EnrollmentFailureReason, EnrollmentStatus, Student
+from backend.domain.models import (
+    EnrollmentFailureReason,
+    EnrollmentStatus,
+    SignedUpload,
+    Student,
+)
 from backend.services.listing_service import StudentListing
 from backend.services.pagination import Page
 from backend.services.student_service import BulkStudentResult, ProvisionedStudent
@@ -29,7 +34,8 @@ class CreateStudentRequest(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     email: EmailStr
     # The bucket-relative object path returned by POST /v1/students/upload-url; null to
-    # create a photoless (pending) student.
+    # create a photoless (pending) student. BP17: the backend generates the display thumbnail
+    # from this object — the caller never supplies a thumbnail path.
     reference_photo_path: str | None = Field(default=None, min_length=1, max_length=1024)
 
 
@@ -53,9 +59,20 @@ class BulkImportRequest(BaseModel):
 
 
 class UploadUrlResponse(BaseModel):
+    """A minted upload target. The FE PUTs the original to ``upload_url`` and submits the
+    ``object_path`` on register/create; the backend generates the BP17 thumbnail itself."""
+
     upload_url: str
     object_path: str
     max_upload_mb: int
+
+    @classmethod
+    def from_signed(cls, signed: SignedUpload, *, max_upload_mb: int) -> UploadUrlResponse:
+        return cls(
+            upload_url=signed.upload_url,
+            object_path=signed.object_path,
+            max_upload_mb=max_upload_mb,
+        )
 
 
 class StudentResponse(BaseModel):
@@ -64,6 +81,9 @@ class StudentResponse(BaseModel):
     name: str
     email: str  # the student's login email (decisions/0033)
     reference_photo_path: str | None  # null for a photoless (bulk-imported) student (BP7d)
+    # BP17: the backend-generated display thumbnail (null when photoless / video / generation
+    # failed). The FE requests ?size=thumb only when this is set, else the full-res photo.
+    reference_photo_thumbnail_path: str | None = None
     enrollment_status: EnrollmentStatus
     # Why enrollment failed, when it did (BP7b); null otherwise. The FE maps it to a
     # specific explanation + fix.
@@ -79,6 +99,7 @@ class StudentResponse(BaseModel):
             name=student.name,
             email=student.email,
             reference_photo_path=student.reference_photo_path,
+            reference_photo_thumbnail_path=student.reference_photo_thumbnail_path,
             enrollment_status=student.enrollment_status,
             enrollment_failure_reason=student.enrollment_failure_reason,
             created_at=student.created_at,

@@ -282,6 +282,59 @@ async def test_media_create_list_and_counts(
     assert counts[MediaProcessingStatus.PENDING] == 2
 
 
+async def test_media_and_student_thumbnail_paths_round_trip(
+    sm: async_sessionmaker[AsyncSession],
+) -> None:
+    # BP17: the backend-generated thumbnail path persists (media) + is nullable (a video / a
+    # pre-BP17 photo with no thumb round-trips as NULL), and the student reference-photo
+    # thumbnail sibling round-trips through create + set_reference_photo. (Paths use the
+    # shipped ``thumb-{name}.jpg`` convention the backend actually writes.)
+    schools = PostgresSchoolRepository(sm)
+    events = PostgresEventRepository(sm)
+    users = PostgresUserRepository(sm)
+    media = PostgresMediaRepository(sm)
+    students = PostgresStudentRepository(sm)
+    a = await schools.create(name="A", max_teachers=5)
+    ev = await events.create(
+        school_id=a.id, name="E", description=None, event_date=None, created_by=None
+    )
+
+    with_thumb = await media.create(
+        school_id=a.id, event_id=ev.id, storage_path="events/a/e/p.jpg",
+        media_type=MediaType.IMAGE, thumbnail_path="events/a/e/thumb-p.jpg",
+    )
+    no_thumb = await media.create(
+        school_id=a.id, event_id=ev.id, storage_path="events/a/e/clip.mp4",
+        media_type=MediaType.VIDEO,  # thumbnail_path defaults to None
+    )
+    got = await media.get(a.id, with_thumb.id)
+    assert got is not None and got.thumbnail_path == "events/a/e/thumb-p.jpg"
+    got_none = await media.get(a.id, no_thumb.id)
+    assert got_none is not None and got_none.thumbnail_path is None
+
+    login = await users.create(
+        school_id=a.id, email="s@a.io", password_hash="h", role=Role.STUDENT
+    )
+    s = await students.create(
+        school_id=a.id, user_id=login.id, name="S",
+        reference_photo_path="reference-photos/a/p.jpg",
+        reference_photo_thumbnail_path="reference-photos/a/thumb-p.jpg",
+    )
+    fetched = await students.get(a.id, s.id)
+    assert fetched is not None
+    assert fetched.reference_photo_thumbnail_path == "reference-photos/a/thumb-p.jpg"
+
+    # Replacing the photo swaps the thumbnail sibling in lockstep (BP7d-2 + BP17).
+    await students.set_reference_photo(
+        s.id, reference_photo_path="reference-photos/a/new.jpg",
+        reference_photo_thumbnail_path="reference-photos/a/thumb-new.jpg",
+    )
+    updated = await students.get(a.id, s.id)
+    assert updated is not None
+    assert updated.reference_photo_path == "reference-photos/a/new.jpg"
+    assert updated.reference_photo_thumbnail_path == "reference-photos/a/thumb-new.jpg"
+
+
 async def test_media_list_by_ids_is_tenant_scoped_and_defensive(
     sm: async_sessionmaker[AsyncSession],
 ) -> None:

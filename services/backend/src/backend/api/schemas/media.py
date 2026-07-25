@@ -33,7 +33,9 @@ __all__ = [
 class RegisterMediaRequest(BaseModel):
     """Register an already-uploaded object (records it; processing is event-level, 0027)."""
 
-    # The bucket-relative object path returned by POST .../media/upload-url.
+    # The bucket-relative object path returned by POST .../media/upload-url. BP17: for an
+    # image the backend generates the display thumbnail from this object — the caller never
+    # supplies a thumbnail path.
     storage_path: str = Field(min_length=1, max_length=1024)
     media_type: MediaType
 
@@ -43,6 +45,9 @@ class MediaResponse(BaseModel):
     school_id: str
     event_id: str
     storage_path: str
+    # BP17: the backend-generated display thumbnail (null for video / pre-BP17 / a failed
+    # generation). The FE requests ?size=thumb only when this is set, else the full-res object.
+    thumbnail_path: str | None = None
     media_type: MediaType
     processing_status: MediaProcessingStatus
     completed_at: datetime | None
@@ -56,6 +61,7 @@ class MediaResponse(BaseModel):
             school_id=media.school_id,
             event_id=media.event_id,
             storage_path=media.storage_path,
+            thumbnail_path=media.thumbnail_path,
             media_type=media.media_type,
             processing_status=media.processing_status,
             completed_at=media.completed_at,

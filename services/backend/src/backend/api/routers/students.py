@@ -21,6 +21,7 @@ from backend.api.pagination import (
     SearchQuery,
     is_descending,
 )
+from backend.api.schemas.gallery import DownloadResponse
 from backend.api.schemas.students import (
     BulkImportRequest,
     BulkImportResponse,
@@ -31,7 +32,13 @@ from backend.api.schemas.students import (
     StudentResponse,
     UploadUrlResponse,
 )
-from backend.domain.models import EnrollmentStatus, SortDir, StudentSort, User
+from backend.domain.models import (
+    EnrollmentStatus,
+    MediaVariant,
+    SortDir,
+    StudentSort,
+    User,
+)
 from backend.domain.permissions import Permission
 
 router = APIRouter(prefix="/v1/students", tags=["students"])
@@ -47,10 +54,8 @@ async def create_upload_url(
     signed = await container.student_service().create_upload_url(
         school_id=tenant_of(actor)
     )
-    return UploadUrlResponse(
-        upload_url=signed.upload_url,
-        object_path=signed.object_path,
-        max_upload_mb=container.settings.max_upload_mb,
+    return UploadUrlResponse.from_signed(
+        signed, max_upload_mb=container.settings.max_upload_mb
     )
 
 
@@ -117,6 +122,24 @@ async def get_student(
         school_id=tenant_of(actor), student_id=student_id
     )
     return StudentResponse.from_student(student)
+
+
+@router.get("/{student_id}/reference-photo", response_model=DownloadResponse)
+async def student_reference_photo(
+    student_id: str,
+    container: ContainerDep,
+    actor: StudentManager,
+    size: Annotated[MediaVariant, Query()] = MediaVariant.THUMB,
+) -> DownloadResponse:
+    """A short-lived signed URL for a student's reference photo — the staff-list/detail
+    avatar (BP17). Thumbnail by default; `?size=full` for a crisper detail header. 404 if
+    the student is photoless or belongs to another school."""
+    signed = await container.student_service().reference_photo_url(
+        school_id=tenant_of(actor),
+        student_id=student_id,
+        thumbnail=(size is MediaVariant.THUMB),
+    )
+    return DownloadResponse.from_signed(signed)
 
 
 @router.post("/{student_id}/enroll", response_model=StudentResponse)

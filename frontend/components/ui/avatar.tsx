@@ -1,5 +1,3 @@
-import Image from "next/image";
-
 import { cn } from "@/lib/utils";
 
 function initials(name: string): string {
@@ -9,8 +7,10 @@ function initials(name: string): string {
   return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
 }
 
-/** A student avatar: the reference-photo thumbnail when available, else initials.
- *  `photoUrl` is wired for when a reference-photo URL endpoint lands (decisions/0033). */
+/** A student avatar: the reference-photo thumbnail when available (BP17), else initials.
+ *  A plain <img> (not next/image) — the signed Supabase object URL isn't in next.config's
+ *  remotePatterns; the CSP already allows the Supabase host for img-src, and the image is
+ *  pre-sized (a small stored thumbnail). */
 export function StudentAvatar({
   name,
   photoUrl,
@@ -28,7 +28,8 @@ export function StudentAvatar({
       )}
     >
       {photoUrl ? (
-        <Image src={photoUrl} alt="" width={36} height={36} className="size-full object-cover" />
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={photoUrl} alt="" width={36} height={36} className="size-full object-cover" />
       ) : (
         <span aria-hidden="true">{initials(name)}</span>
       )}

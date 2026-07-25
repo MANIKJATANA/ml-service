@@ -46,6 +46,9 @@ export interface StudentResponse {
   name: string;
   email: string;
   reference_photo_path: string | null; // BP7d: null for a photoless (bulk-imported) student
+  // BP17: a backend-generated display thumbnail (null when photoless / generation failed).
+  // The avatar requests ?size=thumb only when set, else the full-res photo.
+  reference_photo_thumbnail_path: string | null;
   enrollment_status: EnrollmentStatus;
   enrollment_failure_reason: EnrollmentFailureReason | null; // BP7b: set when failed
   created_at: string;
@@ -89,7 +92,8 @@ export interface StudentListItem extends StudentResponse {
   event_count: number;
 }
 
-/** A short-lived direct-to-Supabase upload target (the token is inside `upload_url`). */
+/** A short-lived direct-to-Supabase upload target (the token is inside `upload_url`). The FE
+ *  PUTs the original and submits `object_path`; the backend generates the BP17 thumbnail. */
 export interface UploadUrlResponse {
   upload_url: string;
   object_path: string;
@@ -136,6 +140,9 @@ export interface MediaResponse {
   school_id: string;
   event_id: string;
   storage_path: string;
+  // BP17: a backend-generated display thumbnail (null for video / pre-BP17 / a failed
+  // generation). The FE requests ?size=thumb only when set, else the full-res object.
+  thumbnail_path: string | null;
   media_type: MediaType;
   processing_status: MediaProcessingStatus;
   completed_at: string | null;
@@ -158,6 +165,9 @@ export interface GalleryMediaResponse {
   media_id: string;
   event_id: string;
   media_type: MediaType;
+  // BP17: whether a display thumbnail exists — the tile requests ?size=thumb only when true
+  // (null for video / pre-BP17 → the tile uses the full-res object).
+  has_thumbnail: boolean;
 }
 
 /** A student who appears in an event + how many of its photos they're in (0028). */
@@ -248,6 +258,9 @@ export interface ListPage<T> {
 }
 
 export type SortDir = "asc" | "desc";
+/** Which rendition of an image to request (BP17): a small thumbnail for tiles/avatars, or
+ *  the full-res original for the lightbox/download. */
+export type PhotoSize = "thumb" | "full";
 export type StudentListPageResponse = ListPage<StudentListItem>;
 export type EventListPageResponse = ListPage<EventListItem>;
 export type UserListPageResponse = ListPage<UserResponse>;

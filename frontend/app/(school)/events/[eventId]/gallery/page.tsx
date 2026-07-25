@@ -53,7 +53,11 @@ function AllPhotos({ eventId }: { eventId: string }) {
   }
   return (
     <PhotoGrid
-      items={items.map((m) => ({ id: m.id, mediaType: m.media_type }))}
+      items={items.map((m) => ({
+        id: m.id,
+        mediaType: m.media_type,
+        hasThumbnail: m.thumbnail_path !== null,
+      }))}
       canManageAppearances
       onLoadMore={loadMore}
       hasMore={!reachedEnd}
@@ -72,7 +76,11 @@ function EventStudentPhotos({ eventId, studentId }: { eventId: string; studentId
   }
   return (
     <PhotoGrid
-      items={media.map((m) => ({ id: m.media_id, mediaType: m.media_type }))}
+      items={media.map((m) => ({
+        id: m.media_id,
+        mediaType: m.media_type,
+        hasThumbnail: m.has_thumbnail,
+      }))}
       canManageAppearances
     />
   );
@@ -157,6 +165,7 @@ function NeedsReview({ eventId }: { eventId: string }) {
             <SignedImage
               mediaId={r.media_id}
               kind={r.media_type}
+              size="thumb"
               alt=""
               loading="square"
               className="aspect-square w-full"

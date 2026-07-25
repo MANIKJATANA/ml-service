@@ -19,12 +19,14 @@ from backend.domain.models import (
     User,
 )
 from backend.services.student_service import StudentService
+from backend.services.thumbnails import thumb_key
 from backend_fakes import (
     FakeHasher,
     FakeMlClient,
     FakeObjectStore,
     FakeSchoolRepo,
     FakeStudentRepo,
+    FakeThumbnailer,
     FakeUserRepo,
     make_school,
 )
@@ -39,6 +41,7 @@ def _svc(
     users: list[User] | None = None,
     ml_client: FakeMlClient | None = None,
     object_store: FakeObjectStore | None = None,
+    thumbnailer: FakeThumbnailer | None = None,
 ) -> tuple[StudentService, FakeStudentRepo, FakeUserRepo, FakeMlClient]:
     srepo = FakeSchoolRepo(schools or [make_school(id=_S1, max_teachers=5)])
     urepo = FakeUserRepo(users or [])
@@ -53,6 +56,7 @@ def _svc(
         FakeHasher(),
         object_store or FakeObjectStore(),
         ml,
+        thumbnailer or FakeThumbnailer(),
         reference_photo_prefix="reference-photos",
     )
     return svc, strepo, urepo, ml
@@ -69,6 +73,8 @@ async def _create(svc: StudentService, **kwargs: object) -> Student:
 
 async def test_create_upload_url_is_under_tenant_prefix() -> None:
     svc, _, _, _ = _svc()
+    # BP17: a single upload target (the FE uploads only the original; the backend generates
+    # the thumbnail on create/replace).
     signed = await svc.create_upload_url(school_id=_S1)
     assert signed.object_path.startswith("reference-photos/s1/")
     assert signed.upload_url  # a target the FE can upload to
@@ -141,6 +147,85 @@ async def test_path_outside_tenant_prefix_rejected_before_any_write() -> None:
     assert await urepo.get_by_email("x@x.io") is None
     assert not await strepo.list_by_school(_S1)
     assert ml.enroll_calls == []
+
+
+async def test_create_generates_thumbnail_and_enrolls_the_full() -> None:
+    # BP17: the backend downloads the uploaded original, compresses it, stores a thumbnail
+    # sibling (a `thumb-{name}.jpg` key under the same prefix), AND enrolls the FULL photo.
+    store = FakeObjectStore()
+    svc, _, _, ml = _svc(object_store=store)
+    student = await _create(
+        svc, school_id=_S1, name="Bart", email="b@x.io", reference_photo_path=_PATH,
+    )
+    assert student.reference_photo_thumbnail_path == thumb_key(_PATH)
+    assert thumb_key(_PATH) in store.uploaded  # the thumbnail object was written
+    assert thumb_key(_PATH).startswith("reference-photos/s1/thumb-")  # under the prefix
+    assert ml.enroll_calls == [(_S1, student.id, [_PATH])]  # enrolled the full, not the thumb
+
+
+async def test_create_no_thumbnail_when_generation_fails() -> None:
+    # Best-effort: if the compressor can't produce a thumbnail, the student is still created
+    # (thumbnail_path=None → display falls back to full-res); the enroll still runs.
+    svc, _, _, ml = _svc(thumbnailer=FakeThumbnailer(produces=False))
+    student = await _create(
+        svc, school_id=_S1, name="Bart", email="b@x.io", reference_photo_path=_PATH,
+    )
+    assert student.reference_photo_thumbnail_path is None
+    assert ml.enroll_calls == [(_S1, student.id, [_PATH])]
+
+
+async def test_set_reference_photo_generates_new_thumbnail() -> None:
+    # BP7d-2 + BP17: replacing the photo regenerates the thumbnail for the new original.
+    svc, _, _, _ = _svc()
+    prov = await svc.create_student(
+        school_id=_S1, name="Bart", email="b@x.io", reference_photo_path=_PATH,
+    )
+    new_path = "reference-photos/s1/new.jpg"
+    updated = await svc.set_reference_photo(
+        school_id=_S1, student_id=prov.student.id, reference_photo_path=new_path,
+    )
+    assert updated.reference_photo_path == new_path
+    assert updated.reference_photo_thumbnail_path == thumb_key(new_path)
+
+
+async def test_replace_reference_photo_deletes_old_objects() -> None:
+    # BP17 + BP8e: replacing a photo best-effort-deletes the OLD original + OLD (generated)
+    # thumbnail (a swapped photo is truly gone), leaving the new objects.
+    store = FakeObjectStore()
+    svc, _, _, _ = _svc(object_store=store)
+    prov = await svc.create_student(
+        school_id=_S1, name="Bart", email="b@x.io", reference_photo_path=_PATH,
+    )
+    await svc.set_reference_photo(
+        school_id=_S1, student_id=prov.student.id,
+        reference_photo_path="reference-photos/s1/new.jpg",
+    )
+    assert set(store.deleted) == {_PATH, thumb_key(_PATH)}
+
+
+async def test_replace_with_same_path_deletes_nothing() -> None:
+    # Idempotent guard: re-submitting the same path (→ the same generated thumb key) must NOT
+    # delete the just-set objects.
+    store = FakeObjectStore()
+    svc, _, _, _ = _svc(object_store=store)
+    prov = await svc.create_student(
+        school_id=_S1, name="Bart", email="b@x.io", reference_photo_path=_PATH,
+    )
+    await svc.set_reference_photo(
+        school_id=_S1, student_id=prov.student.id, reference_photo_path=_PATH,
+    )
+    assert store.deleted == []
+
+
+async def test_add_photo_to_photoless_deletes_nothing() -> None:
+    # A photoless (bulk-imported) student has no old objects to orphan.
+    store = FakeObjectStore()
+    svc, _, _, _ = _svc(object_store=store)
+    prov = await svc.create_student(school_id=_S1, name="No Photo", email="np@x.io")
+    await svc.set_reference_photo(
+        school_id=_S1, student_id=prov.student.id, reference_photo_path=_PATH,
+    )
+    assert store.deleted == []
 
 
 async def test_create_for_missing_school_rejected() -> None:
@@ -524,7 +609,8 @@ async def test_delete_erases_reference_photo_object() -> None:
         svc, school_id=_S1, name="E", email="e@x.io", reference_photo_path=_PATH,
     )
     await svc.delete_student(school_id=_S1, student_id=student.id)
-    assert store.deleted == [_PATH]  # the storage object was removed
+    # BP17: both the original + the backend-generated thumbnail object are removed.
+    assert store.deleted == [_PATH, thumb_key(_PATH)]
     assert await urepo.get(student.user_id) is None  # + the login gone
 
 
@@ -537,7 +623,8 @@ async def test_delete_storage_failure_retries_then_best_effort() -> None:
         svc, school_id=_S1, name="R", email="r@x.io", reference_photo_path=_PATH,
     )
     await svc.delete_student(school_id=_S1, student_id=student.id)  # does NOT raise
-    assert store.delete_attempts == 3  # bounded retry
+    # BP17: two objects (original + thumbnail), each retried the bounded 3× → 6 attempts.
+    assert store.delete_attempts == 6
     assert await urepo.get(student.user_id) is None  # student still fully deleted
     assert await strepo.get(_S1, student.id) is None
 

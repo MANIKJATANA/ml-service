@@ -26,6 +26,9 @@ dependencies = [
     "redis>=5",
     # Phase 7 (decisions/0029): Prometheus HTTP metrics at GET /metrics.
     "prometheus-client>=0.20",
+    # BP17 (decisions/0056): backend-generated image thumbnails. Pillow has cross-platform
+    # wheels (unlike insightface); it lives ONLY in the imaging adapter (layering-safe).
+    "pillow>=10.4",
 ]
 
 [build-system]

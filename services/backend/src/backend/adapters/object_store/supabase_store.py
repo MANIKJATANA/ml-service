@@ -39,6 +39,39 @@ class SupabaseObjectStore:
     async def delete(self, object_path: str) -> None:
         await anyio.to_thread.run_sync(self._delete_sync, object_path)
 
+    async def download_bytes(self, object_path: str) -> bytes:
+        return await anyio.to_thread.run_sync(self._download_bytes_sync, object_path)
+
+    async def upload_bytes(
+        self, object_path: str, data: bytes, *, content_type: str
+    ) -> None:
+        await anyio.to_thread.run_sync(
+            self._upload_bytes_sync, object_path, data, content_type
+        )
+
+    def _download_bytes_sync(self, object_path: str) -> bytes:
+        path = object_path.lstrip("/")
+        try:
+            return self._client.storage.from_(self._bucket).download(path)
+        except Exception as exc:  # storage3 raises on missing/transport/permission errors
+            raise UpstreamError(
+                f"supabase download failed for {path!r}: {exc}"
+            ) from exc
+
+    def _upload_bytes_sync(
+        self, object_path: str, data: bytes, content_type: str
+    ) -> None:
+        path = object_path.lstrip("/")
+        try:
+            # upsert so a re-run (e.g. a photo replace) overwrites rather than 409s.
+            self._client.storage.from_(self._bucket).upload(
+                path, data, {"content-type": content_type, "upsert": "true"}
+            )
+        except Exception as exc:  # storage3 raises on transport/permission errors
+            raise UpstreamError(
+                f"supabase upload failed for {path!r}: {exc}"
+            ) from exc
+
     def _delete_sync(self, object_path: str) -> None:
         path = object_path.lstrip("/")
         try:

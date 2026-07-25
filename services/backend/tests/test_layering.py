@@ -24,6 +24,7 @@ FORBIDDEN = {
     "passlib",
     "jwt",
     "argon2",
+    "PIL",  # BP17: image decoding stays in the Pillow adapter, never domain/services
 }
 
 # Internal edge packages a pure layer may never reach (decisions/0022).

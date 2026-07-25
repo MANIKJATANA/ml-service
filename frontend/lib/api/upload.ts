@@ -8,7 +8,8 @@ const FALLBACK_MAX_MB = 30;
  * Upload a student reference photo straight to Supabase (decisions/0033): mint a signed
  * target via the BFF, validate type/size client-side, then PUT the bytes DIRECTLY to the
  * signed URL (never through the BFF/backend). Returns the object path to submit with
- * `createStudent`.
+ * `createStudent` / `setStudentReferencePhoto`. BP17: the backend generates the display
+ * thumbnail from this object on create — the frontend uploads only the original.
  */
 export async function uploadReferencePhoto(
   file: File,
@@ -24,9 +25,9 @@ export async function uploadReferencePhoto(
 /**
  * Upload one event photo or video (decisions/0034, BP6/0043): mint a per-event signed
  * target, PUT the bytes straight to Supabase, then register the object as a `media` row
- * carrying its detected type. Returns the created media. Registering enqueues nothing —
- * processing is the separate event-level "Process" action; the ML pipeline handles video
- * frame-sampling once processed.
+ * carrying its detected type. Returns the created media. BP17: for an image the backend
+ * generates the display thumbnail on register (video keeps its browser poster). Registering
+ * enqueues nothing — processing is the separate event-level "Process" action.
  */
 export async function uploadEventMedia(
   eventId: string,
@@ -38,8 +39,8 @@ export async function uploadEventMedia(
   assertSize(file, max_upload_mb);
   await putToSignedUrl(upload_url, file, onProgress);
   // If register fails after the PUT, the object is orphaned in the bucket (no media row).
-  // Accepted for v1 — the upload item is marked failed and a storage lifecycle policy
-  // reaps unreferenced objects; the FE can't delete via an upload-only signed URL.
+  // Accepted for v1 — the upload item is marked failed and a storage lifecycle policy reaps
+  // unreferenced objects; the FE can't delete via an upload-only signed URL.
   return registerMedia(eventId, object_path, mediaType);
 }
 

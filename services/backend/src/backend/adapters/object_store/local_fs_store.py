@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from pathlib import PurePosixPath
 
+from backend.domain.errors import UpstreamError
 from backend.domain.models import SignedUpload
 
 
@@ -37,4 +38,19 @@ class LocalFsObjectStore:
     async def delete(self, object_path: str) -> None:
         # Dev stub: uploads aren't real here (no bytes are ever written), so there's
         # nothing to remove — a no-op. Real deletes use the supabase impl (BP8e).
+        return None
+
+    async def download_bytes(self, object_path: str) -> bytes:
+        # Dev stub: no real bytes were ever uploaded here, so there's nothing to read.
+        # Raising makes BP17 thumbnail generation a best-effort no-op locally (the service
+        # catches it → thumbnail_path=None → display falls back to full-res). Real reads use
+        # the supabase impl (decisions/0056).
+        raise UpstreamError(
+            "local_fs dev stub stores no bytes; thumbnails need the supabase impl"
+        )
+
+    async def upload_bytes(
+        self, object_path: str, data: bytes, *, content_type: str
+    ) -> None:
+        # Dev stub: no-op (mirrors the no-op upload/delete). Real writes use the supabase impl.
         return None

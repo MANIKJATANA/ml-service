@@ -106,6 +106,7 @@ export function Lightbox({
               mediaId={mediaId}
               kind={mediaType}
               asPlayer
+              size="full"
               alt={`${mediaType === "video" ? "Video" : "Photo"} ${index + 1} of ${mediaIds.length}`}
               onDark
               imgClassName="max-h-full max-w-full rounded-card object-contain"

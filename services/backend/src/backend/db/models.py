@@ -137,6 +137,11 @@ class Student(Base):
     name: Mapped[str] = mapped_column(String, nullable=False)
     # Nullable (BP7d): a bulk-imported student starts photoless (pending) until one is set.
     reference_photo_path: Mapped[str | None] = mapped_column(String, nullable=True)
+    # BP17: a stored downscaled sibling of the reference photo (display-only avatar). Null
+    # for a photoless student + pre-BP17 rows; ML enrollment reads reference_photo_path.
+    reference_photo_thumbnail_path: Mapped[str | None] = mapped_column(
+        String, nullable=True
+    )
     enrollment_status: Mapped[str] = mapped_column(
         String, nullable=False, server_default=text("'pending'")
     )
@@ -262,6 +267,9 @@ class Media(Base):
         nullable=False,
     )
     storage_path: Mapped[str] = mapped_column(String, nullable=False)
+    # BP17: a stored downscaled sibling of storage_path (display-only tile preview). Null for
+    # pre-BP17 media + all video; the ML worker reads storage_path (the full-res).
+    thumbnail_path: Mapped[str | None] = mapped_column(String, nullable=True)
     media_type: Mapped[str] = mapped_column(String, nullable=False)
     processing_status: Mapped[str] = mapped_column(
         String, nullable=False, server_default=text("'pending'")

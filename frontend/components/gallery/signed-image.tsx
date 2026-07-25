@@ -4,7 +4,7 @@ import { ImageOff } from "lucide-react";
 import { useRef, useState } from "react";
 
 import { Spinner } from "@/components/ui/spinner";
-import type { MediaType } from "@/lib/api/types";
+import type { MediaType, PhotoSize } from "@/lib/api/types";
 import { useMediaDownload } from "@/lib/hooks/use-media-download";
 import { cn } from "@/lib/utils";
 
@@ -24,6 +24,10 @@ interface SignedImageProps {
   /** For a video: `true` = a full <video controls> player (lightbox / detail page);
    *  `false` (default) = a muted, non-interactive first-frame poster for grid tiles. */
   asPlayer?: boolean;
+  /** "thumb" (BP17) requests a downscaled image for tiles/avatars; "full" (default) is the
+   *  original for the lightbox/detail. Ignored for video (always full — the browser paints
+   *  the first-frame poster off the full URL). */
+  size?: PhotoSize;
 }
 
 /**
@@ -44,8 +48,15 @@ export function SignedImage({
   fallbackText = "Couldn't load this media.",
   kind = "image",
   asPlayer = false,
+  size = "full",
 }: SignedImageProps) {
-  const { download, error, mutate } = useMediaDownload(mediaId, enabled);
+  // Video ignores `size` — it always mints the full URL (one cache key) and paints the
+  // browser first-frame poster off it (BP6/BP17).
+  const { download, error, mutate } = useMediaDownload(
+    mediaId,
+    enabled,
+    kind === "video" ? "full" : size,
+  );
   const [failed, setFailed] = useState(false);
   const retries = useRef(0);
 

@@ -7,11 +7,13 @@ import { PhotoTile } from "@/components/gallery/photo-tile";
 import type { MediaType } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
 
-/** One media in a grid: its id + type (image vs video). Callers normalise
- *  MediaResponse/GalleryMediaResponse into these before passing them in (BP6). */
+/** One media in a grid: its id, type (image vs video), and whether a display thumbnail
+ *  exists (BP17). Callers normalise MediaResponse/GalleryMediaResponse into these before
+ *  passing them in (BP6). */
 export interface GalleryItem {
   id: string;
   mediaType: MediaType;
+  hasThumbnail: boolean;
 }
 
 // How many tiles to mount initially + grow per scroll step (BP9) — bounds the DOM/mount
@@ -102,6 +104,7 @@ export function PhotoGrid({
             key={item.id}
             mediaId={item.id}
             mediaType={item.mediaType}
+            hasThumbnail={item.hasThumbnail}
             index={i}
             onOpen={setOpenIndex}
             variant={variant}

@@ -14,6 +14,10 @@ interface PhotoTileProps {
   onOpen: (index: number) => void;
   /** The media's type — a video renders a first-frame poster + a play badge (BP6). */
   mediaType?: MediaType;
+  /** BP17: whether a display thumbnail exists — the tile requests the small ?size=thumb only
+   *  when true, else the full-res object (a pre-BP17 image still renders). Video ignores it
+   *  (it always uses the full object as its poster). */
+  hasThumbnail?: boolean;
   /** "grid" = uniform square crop (staff galleries); "masonry" = natural aspect ratio,
    *  borderless, with a hover-to-download affordance (the student surface, BP3). */
   variant?: "grid" | "masonry";
@@ -39,17 +43,21 @@ export function PhotoTile({
   index,
   onOpen,
   mediaType = "image",
+  hasThumbnail = false,
   variant = "grid",
 }: PhotoTileProps) {
-  return variant === "masonry" ? (
-    <MasonryTile mediaId={mediaId} index={index} onOpen={onOpen} mediaType={mediaType} />
-  ) : (
-    <GridTile mediaId={mediaId} index={index} onOpen={onOpen} mediaType={mediaType} />
-  );
+  const props = { mediaId, index, onOpen, mediaType, hasThumbnail };
+  return variant === "masonry" ? <MasonryTile {...props} /> : <GridTile {...props} />;
 }
 
 /** Staff galleries: uniform square crop, bordered — dense and scannable (unchanged). */
-function GridTile({ mediaId, index, onOpen, mediaType }: Omit<PhotoTileProps, "variant">) {
+function GridTile({
+  mediaId,
+  index,
+  onOpen,
+  mediaType,
+  hasThumbnail,
+}: Omit<PhotoTileProps, "variant">) {
   const { ref, inView } = useInView<HTMLButtonElement>();
   const isVideo = mediaType === "video";
   return (
@@ -64,6 +72,7 @@ function GridTile({ mediaId, index, onOpen, mediaType }: Omit<PhotoTileProps, "v
         mediaId={mediaId}
         kind={mediaType}
         enabled={inView}
+        size={hasThumbnail ? "thumb" : "full"}
         alt=""
         loading="square"
         className="aspect-square w-full"
@@ -78,7 +87,13 @@ function GridTile({ mediaId, index, onOpen, mediaType }: Omit<PhotoTileProps, "v
 /** Student surface: the photo is the hero — natural aspect ratio in a masonry column, a
  *  gentle zoom on hover, and a hover-revealed download so a photo can be saved in one tap
  *  without opening the viewer (BP3). */
-function MasonryTile({ mediaId, index, onOpen, mediaType }: Omit<PhotoTileProps, "variant">) {
+function MasonryTile({
+  mediaId,
+  index,
+  onOpen,
+  mediaType,
+  hasThumbnail,
+}: Omit<PhotoTileProps, "variant">) {
   const { ref, inView } = useInView<HTMLDivElement>();
   const { download } = useMediaDownload(mediaId, inView);
   const { downloading, onDownload } = useDownloadToDisk(mediaId, download);
@@ -96,6 +111,7 @@ function MasonryTile({ mediaId, index, onOpen, mediaType }: Omit<PhotoTileProps,
           mediaId={mediaId}
           kind={mediaType}
           enabled={inView}
+          size={hasThumbnail ? "thumb" : "full"}
           alt=""
           loading="block"
           className="aspect-[3/4] rounded-2xl"

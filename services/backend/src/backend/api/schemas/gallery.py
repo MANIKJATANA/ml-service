@@ -33,6 +33,9 @@ class GalleryMediaResponse(BaseModel):
     media_id: str
     event_id: str
     media_type: MediaType
+    # BP17: whether a display thumbnail exists — the tile requests ?size=thumb only when set
+    # (null for video / pre-BP17 / a failed generation → the tile uses the full-res object).
+    has_thumbnail: bool = False
 
     @classmethod
     def from_media(cls, media: Media) -> GalleryMediaResponse:
@@ -40,6 +43,7 @@ class GalleryMediaResponse(BaseModel):
             media_id=media.id,
             event_id=media.event_id,
             media_type=media.media_type,
+            has_thumbnail=media.thumbnail_path is not None,
         )
 
 

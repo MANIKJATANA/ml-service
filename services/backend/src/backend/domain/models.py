@@ -84,6 +84,16 @@ class MediaProcessingStatus(StrEnum):
     FAILED = "failed"  # ML couldn't process it (corrupt/undecodable/error) — retryable
 
 
+class MediaVariant(StrEnum):
+    """Which rendition of an image a caller wants (BP17, image thumbnails). ``thumb`` asks
+    for the stored downscaled sibling (the backend-generated copy made at register/create);
+    ``full`` is the original. ``thumb`` falls back to full-res when no thumbnail is stored
+    (pre-BP17 rows + video)."""
+
+    THUMB = "thumb"
+    FULL = "full"
+
+
 class SortDir(StrEnum):
     """List sort direction (BP9, decisions/0055)."""
 
@@ -188,6 +198,9 @@ class Student:
     # Why enrollment failed, when it did (BP7b) — else None. Populated from the ML
     # per-photo result / the transport failure; cleared on a successful (re-)enroll.
     enrollment_failure_reason: EnrollmentFailureReason | None = None
+    # BP17: a stored downscaled sibling of reference_photo_path for the staff avatar (None
+    # for a photoless student + pre-BP17 rows). ML enrollment reads reference_photo_path.
+    reference_photo_thumbnail_path: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -290,6 +303,10 @@ class Media:
     completed_at: datetime | None
     created_at: datetime
     updated_at: datetime
+    # BP17: a stored downscaled sibling of storage_path for gallery-tile previews. Null for
+    # pre-BP17 media and — by FE convention, not a backend invariant — video (which keeps a
+    # browser poster). The ML pipeline always reads storage_path (the full-res).
+    thumbnail_path: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

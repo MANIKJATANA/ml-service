@@ -102,9 +102,12 @@ def test_event_student_media_returns_metadata_only() -> None:
     resp = client.get("/v1/events/e1/students/st1/media", headers=_auth(token))
     assert resp.status_code == 200, resp.text
     body = resp.json()
-    assert body == [{"media_id": "m1", "event_id": "e1", "media_type": "image"}]
-    # Gallery lists are metadata-only — the internal storage path must never leak (0028).
-    assert "storage_path" not in body[0]
+    # BP17: the gallery item carries has_thumbnail (whether a display thumbnail exists) — but
+    # never the internal storage/thumbnail *paths* (metadata-only, 0028).
+    assert body == [
+        {"media_id": "m1", "event_id": "e1", "media_type": "image", "has_thumbnail": False}
+    ]
+    assert "storage_path" not in body[0] and "thumbnail_path" not in body[0]
 
 
 def test_student_events_and_media() -> None:

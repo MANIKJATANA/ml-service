@@ -26,6 +26,7 @@ import { isApiError } from "@/lib/api/errors";
 import type { EnrollmentFailureReason, StudentResponse } from "@/lib/api/types";
 import { uploadReferencePhoto } from "@/lib/api/upload";
 import { useStudentEvents, useStudentMedia } from "@/lib/hooks/use-galleries";
+import { useStudentReferencePhoto } from "@/lib/hooks/use-student-reference-photo";
 import { useStudent } from "@/lib/hooks/use-students";
 import { ENROLL_FAILURE_HELP, ENROLL_LABEL, ENROLL_TONE } from "@/lib/students/enrollment";
 import { formatDate } from "@/lib/utils";
@@ -86,7 +87,8 @@ function ReferencePhotoDialog({
     }
     setSubmitting(true);
     try {
-      // Memoize the uploaded path so a failed backend PUT doesn't re-upload on retry.
+      // Upload the photo, then set it (the backend generates the BP17 thumbnail + re-enrolls).
+      // Memoize the path so a failed backend PUT doesn't re-upload on retry.
       let objectPath = uploadedPath;
       if (!objectPath) {
         setProgress(0);
@@ -166,7 +168,11 @@ function StudentEventPhotos({ studentId, eventId }: { studentId: string; eventId
   }
   return (
     <PhotoGrid
-      items={media.map((m) => ({ id: m.media_id, mediaType: m.media_type }))}
+      items={media.map((m) => ({
+        id: m.media_id,
+        mediaType: m.media_type,
+        hasThumbnail: m.has_thumbnail,
+      }))}
       canManageAppearances
     />
   );
@@ -208,6 +214,13 @@ export default function StudentDetailPage() {
   const router = useRouter();
   const { toast } = useToast();
   const { student, isLoading, error, mutate } = useStudent(studentId);
+  // BP17: the header avatar's reference-photo thumbnail (full size for the larger avatar),
+  // gated on a non-null path so a photoless student skips the fetch. Falls back to initials.
+  const { photoUrl } = useStudentReferencePhoto(
+    studentId,
+    student?.reference_photo_path != null,
+    "full",
+  );
 
   const [reenrolling, setReenrolling] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -323,7 +336,11 @@ export default function StudentDetailPage() {
           <Card className="p-6">
             <div className="flex flex-col gap-6">
               <div className="flex items-center gap-4">
-                <StudentAvatar name={student.name} className="size-12 text-body" />
+                <StudentAvatar
+                  name={student.name}
+                  photoUrl={photoUrl}
+                  className="size-12 text-body"
+                />
                 <div className="flex flex-col gap-0.5">
                   <span className="text-headline text-ink">{student.name}</span>
                   <span className="text-body-sm text-ink-secondary">{student.email}</span>

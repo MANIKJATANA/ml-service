@@ -43,6 +43,7 @@ def _to_media(row: MediaRow) -> Media:
         completed_at=row.completed_at,
         created_at=row.created_at,
         updated_at=row.updated_at,
+        thumbnail_path=row.thumbnail_path,
     )
 
 
@@ -59,6 +60,7 @@ class PostgresMediaRepository:
         event_id: str,
         storage_path: str,
         media_type: MediaType,
+        thumbnail_path: str | None = None,
     ) -> Media:
         sid = req_uuid(school_id, field="school_id")
         eid = req_uuid(event_id, field="event_id")
@@ -68,6 +70,7 @@ class PostgresMediaRepository:
                 event_id=eid,
                 storage_path=storage_path,
                 media_type=media_type.value,
+                thumbnail_path=thumbnail_path,
             )
             session.add(row)
             await session.flush()

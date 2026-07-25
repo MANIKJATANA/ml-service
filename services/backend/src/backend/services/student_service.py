@@ -25,6 +25,7 @@ from backend.domain.models import (
     Role,
     School,
     SchoolStatus,
+    SignedDownload,
     SignedUpload,
     Student,
 )
@@ -34,9 +35,11 @@ from backend.domain.ports import (
     PasswordHasher,
     SchoolRepository,
     StudentRepository,
+    Thumbnailer,
     UserRepository,
 )
 from backend.services.credentials import generate_temp_password
+from backend.services.thumbnails import generate_thumbnail
 
 _MAX_NAME_LEN = 200
 # BP8e: bounded retry for the erasure storage-object delete before falling back to
@@ -82,8 +85,10 @@ class StudentService:
         hasher: PasswordHasher,
         object_store: ObjectStore,
         ml_client: MlEnrollmentClient,
+        thumbnailer: Thumbnailer,
         *,
         reference_photo_prefix: str,
+        download_url_ttl_s: int = 3600,
     ) -> None:
         self._students = students
         self._users = users
@@ -91,7 +96,9 @@ class StudentService:
         self._hasher = hasher
         self._object_store = object_store
         self._ml = ml_client
+        self._thumbnailer = thumbnailer
         self._prefix = reference_photo_prefix.strip("/")
+        self._download_ttl = download_url_ttl_s
 
     # ---- reference-photo upload URL ------------------------------------
 
@@ -99,11 +106,11 @@ class StudentService:
         return f"{self._prefix}/{school_id}/"
 
     async def create_upload_url(self, *, school_id: str) -> SignedUpload:
-        """Mint a signed upload target under the caller's tenant prefix.
+        """Mint one upload target under the caller's tenant prefix (BP17: the FE uploads only
+        the original; the backend generates the thumbnail on create/replace).
 
-        The object key embeds the token's `school_id`, so a caller can only ever
-        upload within their own tenant's prefix.
-        """
+        The object key embeds the token's `school_id`, so a caller can only ever upload within
+        their own tenant's prefix."""
         object_path = f"{self._tenant_prefix(school_id)}{uuid.uuid4()}"
         return await self._object_store.create_signed_upload_url(object_path)
 
@@ -119,17 +126,23 @@ class StudentService:
     ) -> ProvisionedStudent:
         """Create a student (+ login with a server-generated temp password, BP7d) and, if
         a reference photo was given, enroll it. With no photo the student is created
-        ``pending`` (a bulk-style single create); a photo can be added later to enroll."""
+        ``pending`` (a bulk-style single create); a photo can be added later to enroll.
+        For a photo, the backend generates the BP17 display thumbnail (best-effort)."""
         clean_name = _clean_name(name)
         await self._require_active_school(school_id)
+        thumbnail_path: str | None = None
         if reference_photo_path is not None:
             self._require_tenant_photo_path(school_id, reference_photo_path)
+            thumbnail_path = await generate_thumbnail(
+                self._object_store, self._thumbnailer, reference_photo_path
+            )
 
         prov = await self._provision_student(
             school_id=school_id,
             name=clean_name,
             email=email,
             reference_photo_path=reference_photo_path,
+            reference_photo_thumbnail_path=thumbnail_path,
         )
         if reference_photo_path is None:  # photoless -> stays pending, no ML call
             return prov
@@ -190,19 +203,41 @@ class StudentService:
 
         Gives a photoless (bulk-imported) student a face to enroll, and lets staff swap a
         bad photo to fix a failed enrollment (closing BP7b's loop). Tenant-scoped (a
-        foreign student is 404) with the same upload-path prefix guard as create."""
+        foreign student is 404) with the same upload-path prefix guard as create. The backend
+        generates the BP17 display thumbnail (best-effort) for the new photo."""
         student = await self.get_student(school_id=school_id, student_id=student_id)
         self._require_tenant_photo_path(school_id, reference_photo_path)
+        thumbnail_path = await generate_thumbnail(
+            self._object_store, self._thumbnailer, reference_photo_path
+        )
+        old_path = student.reference_photo_path
+        old_thumb = student.reference_photo_thumbnail_path
         await self._students.set_reference_photo(
-            student_id, reference_photo_path=reference_photo_path
+            student_id,
+            reference_photo_path=reference_photo_path,
+            reference_photo_thumbnail_path=thumbnail_path,
+        )
+        # The row now points at the new object(s); the previous original + thumbnail are
+        # orphaned. Best-effort-delete them (skip when unchanged) so a swapped photo is truly
+        # gone (BP17 + the BP8e "delete means gone" ethos, decisions/0053) — a leak is logged,
+        # never blocks the replace.
+        await self._delete_replaced_objects(
+            old_path=old_path,
+            old_thumb=old_thumb,
+            new_path=reference_photo_path,
+            new_thumb=thumbnail_path,
         )
         status, reason = await self._run_enroll(
             school_id=school_id,
             student_id=student_id,
             reference_photo_path=reference_photo_path,
         )
-        # The read-miss fallback must reflect the just-set path + the fresh status.
-        fallback = replace(student, reference_photo_path=reference_photo_path)
+        # The read-miss fallback must reflect the just-set paths + the fresh status.
+        fallback = replace(
+            student,
+            reference_photo_path=reference_photo_path,
+            reference_photo_thumbnail_path=thumbnail_path,
+        )
         return await self._reload(
             school_id, student_id, fallback=fallback, status=status, reason=reason
         )
@@ -245,6 +280,7 @@ class StudentService:
         name: str,
         email: str,
         reference_photo_path: str | None,
+        reference_photo_thumbnail_path: str | None = None,
     ) -> ProvisionedStudent:
         """The two writes (no shared UoW): create the login first with a server-generated
         temp password (a duplicate email raises ConflictError with nothing else written),
@@ -264,6 +300,7 @@ class StudentService:
                 user_id=user.id,
                 name=name,
                 reference_photo_path=reference_photo_path,
+                reference_photo_thumbnail_path=reference_photo_thumbnail_path,
             )
         except Exception:
             # Compensating action — remove the orphan login. Its own failure must NOT mask
@@ -323,6 +360,27 @@ class StudentService:
             raise NotFoundError(f"student not found: {student_id}")
         return student
 
+    async def reference_photo_url(
+        self, *, school_id: str, student_id: str, thumbnail: bool = True
+    ) -> SignedDownload:
+        """A short-lived signed URL for a student's reference photo — the staff avatar
+        (BP17). Tenant-scoped (a foreign/missing student -> 404 via ``get_student``); 404
+        if the student is photoless. A thumbnail request serves the stored downscaled
+        sibling when present, else falls back to the full-res photo."""
+        student = await self.get_student(school_id=school_id, student_id=student_id)
+        if student.reference_photo_path is None:
+            raise NotFoundError(f"student has no reference photo: {student_id}")
+        # BP17: serve the stored downscaled sibling when present, else the full-res photo.
+        path = (
+            student.reference_photo_thumbnail_path
+            if thumbnail and student.reference_photo_thumbnail_path
+            else student.reference_photo_path
+        )
+        url = await self._object_store.create_signed_download_url(
+            path, expires_in_s=self._download_ttl
+        )
+        return SignedDownload(download_url=url, expires_in_s=self._download_ttl)
+
     async def list_students(self, *, school_id: str) -> list[Student]:
         return await self._students.list_by_school(school_id)
 
@@ -333,17 +391,34 @@ class StudentService:
 
         ML delete FIRST (embeddings + reference-photo URIs + the student's ``matches`` and
         detection audit) — must succeed so we never orphan ML data; an ML outage surfaces as
-        a 502 and the operator retries. Then the reference-photo **object** is removed from
-        storage (best-effort, bounded retry — a leaked object is a storage cost, not a
-        DB/privacy hole). Finally the login row is deleted, cascading the profile +
-        ``notification_reads`` + the student's ``match_corrections`` away; ``download_audit``
-        rows survive with the student/actor NULLed (the PII link is severed, decisions/0050).
+        a 502 and the operator retries. Then the reference-photo **object(s)** are removed
+        from storage — the full-res photo AND the BP17 downscaled thumbnail sibling — each
+        best-effort, bounded retry (a leaked object is a storage cost, not a DB/privacy hole).
+        Finally the login row is deleted, cascading the profile + ``notification_reads`` +
+        the student's ``match_corrections`` away; ``download_audit`` rows survive with the
+        student/actor NULLed (the PII link is severed, decisions/0050).
         """
         student = await self.get_student(school_id=school_id, student_id=student_id)
         await self._ml.delete(school_id=school_id, student_id=student.id)
         if student.reference_photo_path is not None:
             await self._delete_object_best_effort(student.reference_photo_path)
+        if student.reference_photo_thumbnail_path is not None:
+            await self._delete_object_best_effort(student.reference_photo_thumbnail_path)
         await self._users.delete(student.user_id)
+
+    async def _delete_replaced_objects(
+        self,
+        *,
+        old_path: str | None,
+        old_thumb: str | None,
+        new_path: str,
+        new_thumb: str | None,
+    ) -> None:
+        """Best-effort-delete the objects a photo replace orphaned — the old original and old
+        thumbnail — skipping any that didn't change (so we never delete the just-set object)."""
+        for old, new in ((old_path, new_path), (old_thumb, new_thumb)):
+            if old is not None and old != new:
+                await self._delete_object_best_effort(old)
 
     async def _delete_object_best_effort(self, object_path: str) -> None:
         """Delete a storage object with a bounded retry; on repeated failure log a loud,

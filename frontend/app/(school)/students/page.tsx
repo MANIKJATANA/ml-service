@@ -27,10 +27,11 @@ import { useToast } from "@/components/ui/toast";
 import { createStudent } from "@/lib/api/endpoints";
 import { isApiError } from "@/lib/api/errors";
 import { uploadReferencePhoto } from "@/lib/api/upload";
-import type { EnrollmentStatus, SortDir } from "@/lib/api/types";
+import type { EnrollmentStatus, SortDir, StudentListItem } from "@/lib/api/types";
 import { useDashboard } from "@/lib/hooks/use-dashboard";
 import { useDebouncedValue } from "@/lib/hooks/use-debounced-value";
 import { useListSort } from "@/lib/hooks/use-sort";
+import { useStudentReferencePhoto } from "@/lib/hooks/use-student-reference-photo";
 import { useStudents } from "@/lib/hooks/use-students";
 import {
   ENROLL_FAILURE_SHORT,
@@ -80,9 +81,9 @@ function CreateStudentDialog({
     }
     setSubmitting(true);
     try {
-      // Upload the photo straight to Supabase, then create the student with its path.
-      // Memoize the uploaded path so fixing a rejected field (e.g. a duplicate email)
-      // and resubmitting doesn't re-upload the same photo.
+      // Upload the photo straight to Supabase, then create the student with its path (the
+      // backend generates the BP17 thumbnail). Memoize the uploaded path so fixing a rejected
+      // field (e.g. a duplicate email) and resubmitting doesn't re-upload the same photo.
       let objectPath = uploadedPath;
       if (!objectPath) {
         setProgress(0);
@@ -172,6 +173,19 @@ function CreateStudentDialog({
       </DialogContent>
     </Dialog>
   );
+}
+
+/** The student-list avatar (BP17): lazily fetches the reference photo, gated on a non-null
+ *  path so photoless rows skip the fetch (no N pointless 404s); falls back to initials while
+ *  loading / on error / when photoless. Requests the small thumbnail only when one exists,
+ *  else the full-res photo (a pre-BP17 / generation-failed student still shows its face). */
+function StudentRowAvatar({ student }: { student: StudentListItem }) {
+  const { photoUrl } = useStudentReferencePhoto(
+    student.id,
+    student.reference_photo_path !== null,
+    student.reference_photo_thumbnail_path !== null ? "thumb" : "full",
+  );
+  return <StudentAvatar name={student.name} photoUrl={photoUrl} />;
 }
 
 export default function StudentsPage() {
@@ -283,7 +297,7 @@ export default function StudentsPage() {
                             href={`/students/${student.id}`}
                             className="flex items-center gap-3 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                           >
-                            <StudentAvatar name={student.name} />
+                            <StudentRowAvatar student={student} />
                             <span className="font-medium text-ink hover:underline">{student.name}</span>
                           </Link>
                         </TableCell>

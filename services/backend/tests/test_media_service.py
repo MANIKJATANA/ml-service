@@ -16,7 +16,14 @@ from backend.domain.models import (
     MediaType,
 )
 from backend.services.media_service import MediaService
-from backend_fakes import FakeEventRepo, FakeMediaRepo, FakeObjectStore, make_event, make_media
+from backend_fakes import (
+    FakeEventRepo,
+    FakeMediaRepo,
+    FakeObjectStore,
+    FakeThumbnailer,
+    make_event,
+    make_media,
+)
 
 _S1 = "s1"
 _E1 = "e1"
@@ -30,7 +37,9 @@ def _svc(
         events if events is not None else [make_event(id=_E1, school_id=_S1)]
     )
     mrepo = FakeMediaRepo(media or [])
-    svc = MediaService(mrepo, erepo, FakeObjectStore(), event_media_prefix="events")
+    svc = MediaService(
+        mrepo, erepo, FakeObjectStore(), FakeThumbnailer(), event_media_prefix="events"
+    )
     return svc, mrepo
 
 
@@ -39,6 +48,8 @@ def _svc(
 
 async def test_upload_url_is_under_event_prefix() -> None:
     svc, _ = _svc()
+    # BP17: a single upload target (the FE uploads only the original; the backend generates
+    # the thumbnail on register).
     signed = await svc.create_upload_url(school_id=_S1, event_id=_E1)
     assert signed.object_path.startswith("events/s1/e1/")
     assert signed.upload_url

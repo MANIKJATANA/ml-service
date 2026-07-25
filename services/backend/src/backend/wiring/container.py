@@ -35,6 +35,7 @@ from backend.domain.ports import (
     PasswordHasher,
     PermissionResolver,
     SchoolRepository,
+    StudentGroupRepository,
     StudentRepository,
     Thumbnailer,
     TokenService,
@@ -42,6 +43,7 @@ from backend.domain.ports import (
 )
 from backend.services.audit_service import AuditService
 from backend.services.auth_service import AuthService
+from backend.services.class_service import ClassService
 from backend.services.dashboard_service import DashboardService
 from backend.services.event_service import EventService
 from backend.services.gallery_service import GalleryService
@@ -68,6 +70,7 @@ class Container:
         self._school_repo: SchoolRepository | None = None
         self._user_repo: UserRepository | None = None
         self._student_repo: StudentRepository | None = None
+        self._student_group_repo: StudentGroupRepository | None = None
         self._event_repo: EventRepository | None = None
         self._media_repo: MediaRepository | None = None
         self._ml_results_reader: MlResultsReader | None = None
@@ -85,6 +88,7 @@ class Container:
         self._auth_service: AuthService | None = None
         self._onboarding_service: OnboardingService | None = None
         self._student_service: StudentService | None = None
+        self._class_service: ClassService | None = None
         self._event_service: EventService | None = None
         self._media_service: MediaService | None = None
         self._gallery_service: GalleryService | None = None
@@ -142,6 +146,16 @@ class Container:
                     )
                     self._student_repo = cls(self.sessionmaker())
         return self._student_repo
+
+    def student_group_repo(self) -> StudentGroupRepository:
+        if self._student_group_repo is None:
+            with self._lock:
+                if self._student_group_repo is None:
+                    cls = registry.resolve(
+                        registry.STUDENT_GROUP_REPO_REGISTRY, self._s.repository_impl
+                    )
+                    self._student_group_repo = cls(self.sessionmaker())
+        return self._student_group_repo
 
     def event_repo(self) -> EventRepository:
         if self._event_repo is None:
@@ -373,6 +387,16 @@ class Container:
                         download_url_ttl_s=self._s.download_url_ttl_s,
                     )
         return self._student_service
+
+    def class_service(self) -> ClassService:
+        if self._class_service is None:
+            with self._lock:
+                if self._class_service is None:
+                    self._class_service = ClassService(
+                        self.student_group_repo(),
+                        self.student_repo(),
+                    )
+        return self._class_service
 
     def event_service(self) -> EventService:
         if self._event_service is None:

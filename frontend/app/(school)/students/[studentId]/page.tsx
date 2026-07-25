@@ -21,10 +21,16 @@ import { ProgressBar } from "@/components/ui/progress-bar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatusPill } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
-import { deleteStudent, enrollStudent, setStudentReferencePhoto } from "@/lib/api/endpoints";
+import {
+  deleteStudent,
+  enrollStudent,
+  setStudentClass,
+  setStudentReferencePhoto,
+} from "@/lib/api/endpoints";
 import { isApiError } from "@/lib/api/errors";
 import type { EnrollmentFailureReason, StudentResponse } from "@/lib/api/types";
 import { uploadReferencePhoto } from "@/lib/api/upload";
+import { useClasses } from "@/lib/hooks/use-classes";
 import { useStudentEvents, useStudentMedia } from "@/lib/hooks/use-galleries";
 import { useStudentReferencePhoto } from "@/lib/hooks/use-student-reference-photo";
 import { useStudent } from "@/lib/hooks/use-students";
@@ -156,6 +162,54 @@ function ReferencePhotoDialog({
         </form>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** Assign/change/clear the student's class (BP11a). A compact inline select in the profile;
+ *  writes through `setStudentClass` and refreshes the student + the class-count caches. */
+function ClassSelect({
+  studentId,
+  current,
+  onChanged,
+}: {
+  studentId: string;
+  current: string | null;
+  onChanged: (student: StudentResponse) => void;
+}) {
+  const { toast } = useToast();
+  const { classes } = useClasses();
+  const [saving, setSaving] = useState(false);
+
+  async function onChange(value: string) {
+    setSaving(true);
+    try {
+      const updated = await setStudentClass(studentId, value || null);
+      onChanged(updated);
+      void globalMutate("students"); // the list shows a class badge
+      void globalMutate("classes"); // and the classes list shows member counts
+      toast(value ? "Class updated." : "Removed from class.", "success");
+    } catch (err) {
+      toast(isApiError(err) ? err.message : "Something went wrong", "error");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <select
+      aria-label="Class"
+      value={current ?? ""}
+      disabled={saving}
+      onChange={(e) => onChange(e.target.value)}
+      className="h-9 rounded-button border border-hairline bg-canvas px-2.5 text-body-sm text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+    >
+      <option value="">No class</option>
+      {classes.map((c) => (
+        <option key={c.id} value={c.id}>
+          {c.name}
+        </option>
+      ))}
+    </select>
   );
 }
 
@@ -358,6 +412,18 @@ export default function StudentDetailPage() {
                 <div className="flex flex-col gap-1">
                   <dt className="text-body-sm text-ink-muted">Added</dt>
                   <dd className="text-body text-ink">{formatDate(student.created_at)}</dd>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <dt className="text-body-sm text-ink-muted">Class</dt>
+                  <dd>
+                    <ClassSelect
+                      studentId={studentId}
+                      current={student.student_group_id}
+                      onChanged={(updated) => {
+                        void mutate(updated, { revalidate: false });
+                      }}
+                    />
+                  </dd>
                 </div>
               </dl>
             </div>

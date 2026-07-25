@@ -51,8 +51,32 @@ export interface StudentResponse {
   reference_photo_thumbnail_path: string | null;
   enrollment_status: EnrollmentStatus;
   enrollment_failure_reason: EnrollmentFailureReason | null; // BP7b: set when failed
+  // BP11a: the class this student belongs to (null = un-classed); name denormalized for display.
+  student_group_id: string | null;
+  student_group_name: string | null;
   created_at: string;
   updated_at: string;
+}
+
+/** A class / section — the organizing unit for students (BP11a, decisions/0058). */
+export interface ClassResponse {
+  id: string;
+  school_id: string;
+  name: string;
+  grade: string | null;
+  section: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** A classes-list row: the class + how many students are in it. */
+export interface ClassListItem extends ClassResponse {
+  student_count: number;
+}
+
+/** The classes list (unpaginated — bounded per school; also feeds the students filter). */
+export interface ClassListResponse {
+  items: ClassListItem[];
 }
 
 /** A newly created student + its ONE-TIME server-generated temp password (BP7d). */

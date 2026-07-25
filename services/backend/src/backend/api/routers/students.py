@@ -32,6 +32,7 @@ from backend.api.schemas.students import (
     SetReferencePhotoRequest,
     StudentListPageResponse,
     StudentResponse,
+    UpdateStudentRequest,
     UploadUrlResponse,
 )
 from backend.domain.models import (
@@ -128,9 +129,11 @@ async def list_students(
     sort: Annotated[StudentSort, Query()] = StudentSort.NAME,
     dir: Annotated[SortDir, Query()] = SortDir.ASC,
     status: Annotated[EnrollmentStatus | None, Query()] = None,
+    student_group_id: Annotated[str | None, Query(max_length=64)] = None,
 ) -> StudentListPageResponse:
     """One page of the students list (BP9): server search (name/email), sort (incl. the
-    whole-list appearance/event count columns), and enrollment-status filter."""
+    whole-list appearance/event count columns), an enrollment-status filter, and (BP11a) an
+    optional class filter (``student_group_id``)."""
     page = await container.listing_service().list_students_page(
         school_id=tenant_of(actor),
         limit=limit,
@@ -139,6 +142,7 @@ async def list_students(
         sort=sort,
         descending=is_descending(dir),
         status=status,
+        student_group_id=student_group_id,
     )
     return StudentListPageResponse.from_page(page)
 
@@ -149,6 +153,23 @@ async def get_student(
 ) -> StudentResponse:
     student = await container.student_service().get_student(
         school_id=tenant_of(actor), student_id=student_id
+    )
+    return StudentResponse.from_student(student)
+
+
+@router.patch("/{student_id}", response_model=StudentResponse)
+async def update_student(
+    student_id: str,
+    body: UpdateStudentRequest,
+    container: ContainerDep,
+    actor: StudentManager,
+) -> StudentResponse:
+    """Set (or clear) a student's class (BP11a). Tenant from the token; a foreign student or
+    a foreign target class → 404."""
+    student = await container.class_service().set_student_group(
+        school_id=tenant_of(actor),
+        student_id=student_id,
+        group_id=body.student_group_id,
     )
     return StudentResponse.from_student(student)
 

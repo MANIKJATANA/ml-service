@@ -223,12 +223,16 @@ class ListingService:
         sort: StudentSort = StudentSort.NAME,
         descending: bool = False,
         status: EnrollmentStatus | None = None,
+        student_group_id: str | None = None,
     ) -> Page[StudentListing]:
         """One page of the students list (BP9). Count sorts (appearance/event) take the
-        whole-list id-scan path; row-native sorts page directly in SQL."""
+        whole-list id-scan path; row-native sorts page directly in SQL. BP11a:
+        ``student_group_id`` filters to one class (threaded through both paths)."""
         counts = await self._reader.student_appearance_counts(school_id)
         if sort in STUDENT_COUNT_SORTS:
-            ids = await self._students.list_ids(school_id, q=q, status=status)
+            ids = await self._students.list_ids(
+                school_id, q=q, status=status, student_group_id=student_group_id
+            )
             total = len(ids)
 
             def key(sid: str) -> int:
@@ -257,8 +261,11 @@ class ListingService:
                 sort=sort,
                 descending=descending,
                 status=status,
+                student_group_id=student_group_id,
             )
-            total = await self._students.count_page(school_id, q=q, status=status)
+            total = await self._students.count_page(
+                school_id, q=q, status=status, student_group_id=student_group_id
+            )
         items = [_student_listing(s, counts) for s in students]
         return Page(items=items, total=total, limit=limit, offset=offset)
 

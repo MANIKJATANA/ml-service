@@ -94,6 +94,10 @@ class StudentResponse(BaseModel):
     # Why enrollment failed, when it did (BP7b); null otherwise. The FE maps it to a
     # specific explanation + fix.
     enrollment_failure_reason: EnrollmentFailureReason | None = None
+    # BP11a: the class this student belongs to (null = un-classed). ``student_group_name`` is
+    # denormalized for list/detail display; the FE shows a class badge + drives the filter.
+    student_group_id: str | None = None
+    student_group_name: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -108,9 +112,19 @@ class StudentResponse(BaseModel):
             reference_photo_thumbnail_path=student.reference_photo_thumbnail_path,
             enrollment_status=student.enrollment_status,
             enrollment_failure_reason=student.enrollment_failure_reason,
+            student_group_id=student.student_group_id,
+            student_group_name=student.student_group_name,
             created_at=student.created_at,
             updated_at=student.updated_at,
         )
+
+
+class UpdateStudentRequest(BaseModel):
+    """Set (or clear) a student's class (BP11a). ``student_group_id`` is required-but-nullable
+    — send a class id to assign, ``null`` to un-assign (an empty body is a 422, never a silent
+    un-assign). A foreign/unknown class → 404."""
+
+    student_group_id: str | None = Field(max_length=64)
 
 
 class ProvisionedStudentResponse(BaseModel):

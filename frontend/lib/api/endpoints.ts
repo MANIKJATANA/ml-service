@@ -1,6 +1,8 @@
 import { bffFetch } from "./client";
 import type {
   BulkImportResponse,
+  ClassListResponse,
+  ClassResponse,
   DashboardResponse,
   DownloadLogPageResponse,
   DownloadResponse,
@@ -51,6 +53,7 @@ export interface ListParams {
   sort?: string;
   dir?: SortDir;
   status?: string;
+  student_group_id?: string; // BP11a: filter the students list to one class
 }
 
 function listQuery(params: ListParams): string {
@@ -62,6 +65,7 @@ function listQuery(params: ListParams): string {
   if (params.sort) q.set("sort", params.sort);
   if (params.dir) q.set("dir", params.dir);
   if (params.status && params.status !== "all") q.set("status", params.status);
+  if (params.student_group_id) q.set("student_group_id", params.student_group_id);
   return q.toString();
 }
 
@@ -279,6 +283,65 @@ export function setStudentReferencePhoto(
 export function deleteStudent(studentId: string): Promise<void> {
   return bffFetch<void>(`/api/v1/students/${encodeURIComponent(studentId)}`, {
     method: "DELETE",
+  });
+}
+
+// --- Classes (BP11a, decisions/0058) ---
+
+/** Every class in the school + its member count (student:manage reads; feeds the filter). */
+export function getClasses(): Promise<ClassListResponse> {
+  return bffFetch<ClassListResponse>("/api/v1/classes");
+}
+
+/** Create a class (class:manage — school_admin only). */
+export function createClass(
+  name: string,
+  grade: string | null,
+  section: string | null,
+): Promise<ClassResponse> {
+  return bffFetch<ClassResponse>("/api/v1/classes", {
+    method: "POST",
+    body: JSON.stringify({ name, grade, section }),
+  });
+}
+
+/** Rename/edit a class (class:manage). Full replace — omitting `grade`/`section` clears them. */
+export function updateClass(
+  classId: string,
+  patch: { name: string; grade: string | null; section: string | null },
+): Promise<ClassResponse> {
+  return bffFetch<ClassResponse>(`/api/v1/classes/${encodeURIComponent(classId)}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+}
+
+/** Delete a class — its students are un-assigned (SET NULL), never deleted (class:manage). */
+export function deleteClass(classId: string): Promise<void> {
+  return bffFetch<void>(`/api/v1/classes/${encodeURIComponent(classId)}`, {
+    method: "DELETE",
+  });
+}
+
+/** Bulk-add students to a class (student:manage). Returns how many were assigned. */
+export function assignStudentsToClass(
+  classId: string,
+  studentIds: string[],
+): Promise<{ assigned: number }> {
+  return bffFetch<{ assigned: number }>(
+    `/api/v1/classes/${encodeURIComponent(classId)}/members`,
+    { method: "POST", body: JSON.stringify({ student_ids: studentIds }) },
+  );
+}
+
+/** Set (or clear, with `null`) one student's class (student:manage). */
+export function setStudentClass(
+  studentId: string,
+  classId: string | null,
+): Promise<StudentResponse> {
+  return bffFetch<StudentResponse>(`/api/v1/students/${encodeURIComponent(studentId)}`, {
+    method: "PATCH",
+    body: JSON.stringify({ student_group_id: classId }),
   });
 }
 

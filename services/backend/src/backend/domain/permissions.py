@@ -28,6 +28,7 @@ class Permission(StrEnum):
     NOTIFICATION_SEND = "notification:send"  # admin + teacher: announce photos to students
     MATCH_REVIEW = "match:review"  # admin + teacher: confirm/reject/add face matches
     AUDIT_VIEW = "audit:view"  # school_admin: read the download/access audit
+    CLASS_MANAGE = "class:manage"  # school_admin: create/edit/delete classes (BP11a)
 
 
 # Hardcoded v1 policy. A later DbPermissionResolver overlays per-school overrides
@@ -48,6 +49,9 @@ ROLE_PERMISSIONS: dict[Role, frozenset[Permission]] = {
             # BP8b: the access/download audit is admin-only for now. Granting it to
             # teachers later is a one-line addition to the TEACHER set below.
             Permission.AUDIT_VIEW,
+            # BP11a: class (student-group) lifecycle is admin-only, like audit:view. The
+            # day-to-day student↔class assignment rides on student:manage (both roles).
+            Permission.CLASS_MANAGE,
         }
     ),
     Role.TEACHER: frozenset(

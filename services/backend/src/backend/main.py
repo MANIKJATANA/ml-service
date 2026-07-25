@@ -18,6 +18,7 @@ from backend import __version__
 from backend.api.routers import (
     audit,
     auth,
+    classes,
     dashboard,
     events,
     galleries,
@@ -276,6 +277,7 @@ def create_app(rate_limiter: RateLimiter | None = None) -> FastAPI:
     app.include_router(schools.router)
     app.include_router(staff.router)
     app.include_router(students.router)
+    app.include_router(classes.router)
     app.include_router(events.router)
     app.include_router(media.router)
     app.include_router(galleries.router)

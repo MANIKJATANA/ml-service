@@ -30,6 +30,7 @@ import { createStudent, enrollStudent, getStudents } from "@/lib/api/endpoints";
 import { isApiError } from "@/lib/api/errors";
 import { uploadReferencePhoto } from "@/lib/api/upload";
 import type { EnrollmentStatus, SortDir, StudentListItem } from "@/lib/api/types";
+import { useClasses } from "@/lib/hooks/use-classes";
 import { useDashboard } from "@/lib/hooks/use-dashboard";
 import { useDebouncedValue } from "@/lib/hooks/use-debounced-value";
 import { useListSort } from "@/lib/hooks/use-sort";
@@ -295,12 +296,24 @@ export default function StudentsPage() {
   const [rawQuery, setRawQuery] = useState("");
   const query = useDebouncedValue(rawQuery.trim(), 300);
   const [filter, setFilter] = useState<"all" | EnrollmentStatus>("all");
+  const [classFilter, setClassFilter] = useState(""); // "" = all classes (BP11a)
   const { sort, dir, onSort } = useListSort("name", SORT_DEFAULT_DIR);
   const [invite, setInvite] = useState<Invite | null>(null);
 
   const { dashboard, mutate: mutateDashboard } = useDashboard();
+  const { classes } = useClasses();
+  // BP11a: if the selected class was deleted (or every class was), fall back to "all" — derived
+  // (not reconciled via an effect) so the list never gets stuck filtering a class that's gone.
+  const activeClassFilter =
+    classFilter && classes.some((c) => c.id === classFilter) ? classFilter : "";
   const { items, total, isLoading, isLoadingMore, error, reachedEnd, loadMore, mutate } =
-    useStudents({ q: query || undefined, sort, dir, status: filter });
+    useStudents({
+      q: query || undefined,
+      sort,
+      dir,
+      status: filter,
+      student_group_id: activeClassFilter || undefined,
+    });
 
   const counts = dashboard?.students;
   const chips: ChipItem[] = [
@@ -311,7 +324,7 @@ export default function StudentsPage() {
   ];
 
   const isInitialLoading = isLoading && items.length === 0;
-  const isFiltering = filter !== "all" || query.length > 0;
+  const isFiltering = filter !== "all" || query.length > 0 || activeClassFilter !== "";
 
   return (
     <div className="flex flex-col gap-6">
@@ -379,7 +392,24 @@ export default function StudentsPage() {
               onSelect={(id) => setFilter(id as "all" | EnrollmentStatus)}
               ariaLabel="Filter by enrollment status"
             />
-            <SearchInput value={rawQuery} onChange={setRawQuery} placeholder="Search name or email…" />
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              {classes.length > 0 ? (
+                <select
+                  aria-label="Filter by class"
+                  value={activeClassFilter}
+                  onChange={(e) => setClassFilter(e.target.value)}
+                  className="h-10 rounded-button border border-hairline bg-canvas px-3 text-body text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <option value="">All classes</option>
+                  {classes.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+              ) : null}
+              <SearchInput value={rawQuery} onChange={setRawQuery} placeholder="Search name or email…" />
+            </div>
           </div>
           {total === 0 ? (
             <EmptyState title="No matching students" description="Try a different search or filter." />
@@ -416,7 +446,16 @@ export default function StudentsPage() {
                             className="flex items-center gap-3 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                           >
                             <StudentRowAvatar student={student} />
-                            <span className="font-medium text-ink hover:underline">{student.name}</span>
+                            <span className="flex flex-col">
+                              <span className="font-medium text-ink hover:underline">
+                                {student.name}
+                              </span>
+                              {student.student_group_name ? (
+                                <span className="text-body-sm text-ink-muted">
+                                  {student.student_group_name}
+                                </span>
+                              ) : null}
+                            </span>
                           </Link>
                         </TableCell>
                         <TableCell className="text-ink-secondary">{student.email}</TableCell>

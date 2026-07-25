@@ -2,6 +2,7 @@
 
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import {
+  BookOpen,
   Building2,
   CalendarDays,
   GraduationCap,
@@ -53,6 +54,7 @@ const NAV_BY_ROLE: Record<Role, NavItem[]> = {
     { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
     { href: "/staff", label: "Staff", icon: Users },
     { href: "/students", label: "Students", icon: GraduationCap },
+    { href: "/classes", label: "Classes", icon: BookOpen },
     { href: "/events", label: "Events", icon: CalendarDays },
     { href: "/audit", label: "Access log", icon: ScrollText },
   ],

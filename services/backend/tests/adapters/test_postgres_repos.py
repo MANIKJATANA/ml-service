@@ -28,6 +28,9 @@ from backend.adapters.repositories.postgres_notification_reads import (
     PostgresNotificationReadRepository,
 )
 from backend.adapters.repositories.postgres_schools import PostgresSchoolRepository
+from backend.adapters.repositories.postgres_student_groups import (
+    PostgresStudentGroupRepository,
+)
 from backend.adapters.repositories.postgres_students import PostgresStudentRepository
 from backend.adapters.repositories.postgres_users import PostgresUserRepository
 from backend.db.base import Base
@@ -1052,3 +1055,96 @@ async def test_resolve_by_emails_is_case_insensitive_and_tenant_scoped(
     # Empty input + a malformed school id both return nothing (defensive, like the other reads).
     assert await students.resolve_by_emails(a.id, []) == []
     assert await students.resolve_by_emails("not-a-uuid", ["alice@a.io"]) == []
+
+
+async def test_student_group_crud_counts_join_filter_and_cascade(
+    sm: async_sessionmaker[AsyncSession],
+) -> None:
+    # BP11a: the class CRUD + counts, the students LEFT JOIN carrying the class name, the
+    # class filter on the paginated reads, and the ON DELETE SET NULL cascade — end to end.
+    schools = PostgresSchoolRepository(sm)
+    users = PostgresUserRepository(sm)
+    students = PostgresStudentRepository(sm)
+    groups = PostgresStudentGroupRepository(sm)
+    a = await schools.create(name="A", max_teachers=5)
+    b = await schools.create(name="B", max_teachers=5)
+
+    # create + get + list, tenant-scoped
+    c = await groups.create(school_id=a.id, name="Grade 3B", grade="3", section="B")
+    assert c.id and (c.name, c.grade, c.section) == ("Grade 3B", "3", "B")
+    assert await groups.get(a.id, c.id) is not None
+    assert await groups.get(b.id, c.id) is None  # foreign school can't see it
+    assert await groups.get(a.id, "not-a-uuid") is None
+    assert [g.id for g in await groups.list_by_school(a.id)] == [c.id]
+    assert await groups.list_by_school(b.id) == []
+
+    # update replaces fields; a foreign school can't
+    updated = await groups.update(a.id, c.id, name="Grade 4A", grade="4", section="A")
+    assert updated is not None and updated.name == "Grade 4A"
+    assert await groups.update(b.id, c.id, name="x", grade=None, section=None) is None
+
+    # assign two students (one left un-classed) and count
+    logins = [
+        await users.create(
+            school_id=a.id, email=f"s{i}@a.io", password_hash="h", role=Role.STUDENT
+        )
+        for i in range(3)
+    ]
+    p1 = await students.create(school_id=a.id, user_id=logins[0].id, name="P1")
+    p2 = await students.create(school_id=a.id, user_id=logins[1].id, name="P2")
+    await students.create(school_id=a.id, user_id=logins[2].id, name="P3")  # un-classed
+    assert (
+        await students.set_group_bulk(
+            a.id, student_group_id=c.id, student_ids=[p1.id, p2.id]
+        )
+        == 2
+    )
+    assert await groups.student_counts(a.id) == {c.id: 2}
+
+    # the student read carries the class name (LEFT JOIN) + the list filters by class
+    got = await students.get(a.id, p1.id)
+    assert got is not None and got.student_group_id == c.id
+    assert got.student_group_name == "Grade 4A"
+    in_class = await students.list_page(a.id, limit=50, offset=0, student_group_id=c.id)
+    assert {s.id for s in in_class} == {p1.id, p2.id}
+    assert await students.count_page(a.id, student_group_id=c.id) == 2
+    assert set(await students.list_ids(a.id, student_group_id=c.id)) == {p1.id, p2.id}
+
+    # single set_group can clear
+    await students.set_group(p1.id, student_group_id=None)
+    cleared = await students.get(a.id, p1.id)
+    assert cleared is not None and cleared.student_group_id is None
+    assert cleared.student_group_name is None
+
+    # delete the class → the remaining member (p2) is SET NULL, and the class is gone
+    assert await groups.delete(a.id, c.id) is True
+    left = await students.get(a.id, p2.id)
+    assert left is not None and left.student_group_id is None
+    assert await groups.get(a.id, c.id) is None
+    assert await groups.delete(a.id, c.id) is False  # already gone
+
+
+async def test_set_group_bulk_never_moves_a_foreign_student(
+    sm: async_sessionmaker[AsyncSession],
+) -> None:
+    # A class of school A can never pull in a student of school B (tenant-scoped UPDATE).
+    schools = PostgresSchoolRepository(sm)
+    users = PostgresUserRepository(sm)
+    students = PostgresStudentRepository(sm)
+    groups = PostgresStudentGroupRepository(sm)
+    a = await schools.create(name="A", max_teachers=5)
+    b = await schools.create(name="B", max_teachers=5)
+    c = await groups.create(school_id=a.id, name="A-class", grade=None, section=None)
+    login = await users.create(
+        school_id=b.id, email="foreign@b.io", password_hash="h", role=Role.STUDENT
+    )
+    foreign = await students.create(school_id=b.id, user_id=login.id, name="Foreign")
+
+    assert (
+        await students.set_group_bulk(
+            a.id, student_group_id=c.id, student_ids=[foreign.id]
+        )
+        == 0
+    )
+    still = await students.get(b.id, foreign.id)
+    assert still is not None and still.student_group_id is None

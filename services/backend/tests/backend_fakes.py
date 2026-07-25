@@ -40,6 +40,7 @@ from backend.domain.models import (
     SignedUpload,
     Student,
     StudentAppearanceCounts,
+    StudentGroup,
     StudentSort,
     User,
     UserSort,
@@ -57,6 +58,7 @@ from backend.domain.ports import (
     NotificationReadRepository,
     ObjectStore,
     SchoolRepository,
+    StudentGroupRepository,
     StudentRepository,
     Thumbnailer,
     UserRepository,
@@ -168,6 +170,8 @@ def make_student(
     reference_photo_thumbnail_path: str | None = None,
     enrollment_status: EnrollmentStatus = EnrollmentStatus.PENDING,
     enrollment_failure_reason: EnrollmentFailureReason | None = None,
+    student_group_id: str | None = None,
+    student_group_name: str | None = None,
 ) -> Student:
     return Student(
         id=id,
@@ -179,6 +183,27 @@ def make_student(
         reference_photo_thumbnail_path=reference_photo_thumbnail_path,
         enrollment_status=enrollment_status,
         enrollment_failure_reason=enrollment_failure_reason,
+        student_group_id=student_group_id,
+        student_group_name=student_group_name,
+        created_at=_NOW,
+        updated_at=_NOW,
+    )
+
+
+def make_student_group(
+    *,
+    id: str = "class-1",
+    school_id: str = "school-1",
+    name: str = "Grade 3B",
+    grade: str | None = "3",
+    section: str | None = "B",
+) -> StudentGroup:
+    return StudentGroup(
+        id=id,
+        school_id=school_id,
+        name=name,
+        grade=grade,
+        section=section,
         created_at=_NOW,
         updated_at=_NOW,
     )
@@ -537,9 +562,15 @@ class FakeStudentRepo:
         # Resolves a student's login email by user_id — mirrors the repo's users JOIN
         # (0033). Wired to the FakeUserRepo in tests; defaults to a placeholder.
         self._email_of: Callable[[str], str] = lambda _uid: "student@example.com"
+        # Resolves a class name by group_id — mirrors the repo's student_groups LEFT JOIN
+        # (BP11a). Wired to the FakeStudentGroupRepo in tests; defaults to None (un-classed).
+        self._group_name_of: Callable[[str], str | None] = lambda _gid: None
 
     def link_users(self, resolver: Callable[[str], str]) -> None:
         self._email_of = resolver
+
+    def link_groups(self, resolver: Callable[[str], str | None]) -> None:
+        self._group_name_of = resolver
 
     async def create(
         self,
@@ -583,11 +614,17 @@ class FakeStudentRepo:
         return [s for s in self._by_id.values() if s.school_id == school_id]
 
     def _match(
-        self, s: Student, school_id: str, q: str | None, status: EnrollmentStatus | None
+        self,
+        s: Student,
+        school_id: str,
+        q: str | None,
+        status: EnrollmentStatus | None,
+        student_group_id: str | None = None,
     ) -> bool:
         return (
             s.school_id == school_id
             and (status is None or s.enrollment_status is status)
+            and (student_group_id is None or s.student_group_id == student_group_id)
             and _q_match(q, s.name, s.email)
         )
 
@@ -601,8 +638,13 @@ class FakeStudentRepo:
         sort: StudentSort = StudentSort.NAME,
         descending: bool = False,
         status: EnrollmentStatus | None = None,
+        student_group_id: str | None = None,
     ) -> list[Student]:
-        rows = [s for s in self._by_id.values() if self._match(s, school_id, q, status)]
+        rows = [
+            s
+            for s in self._by_id.values()
+            if self._match(s, school_id, q, status, student_group_id)
+        ]
         return _page(
             rows,
             key=_STUDENT_SORT_KEYS.get(sort, _STUDENT_SORT_KEYS[StudentSort.CREATED_AT]),
@@ -617,9 +659,12 @@ class FakeStudentRepo:
         *,
         q: str | None = None,
         status: EnrollmentStatus | None = None,
+        student_group_id: str | None = None,
     ) -> int:
         return sum(
-            1 for s in self._by_id.values() if self._match(s, school_id, q, status)
+            1
+            for s in self._by_id.values()
+            if self._match(s, school_id, q, status, student_group_id)
         )
 
     async def list_ids(
@@ -628,9 +673,12 @@ class FakeStudentRepo:
         *,
         q: str | None = None,
         status: EnrollmentStatus | None = None,
+        student_group_id: str | None = None,
     ) -> list[str]:
         return [
-            s.id for s in self._by_id.values() if self._match(s, school_id, q, status)
+            s.id
+            for s in self._by_id.values()
+            if self._match(s, school_id, q, status, student_group_id)
         ]
 
     async def list_by_ids(
@@ -698,11 +746,140 @@ class FakeStudentRepo:
             reference_photo_thumbnail_path=reference_photo_thumbnail_path,
         )
 
+    async def set_group(
+        self, student_id: str, *, student_group_id: str | None
+    ) -> None:
+        if student_id not in self._by_id:
+            raise NotFoundError(student_id)
+        name = (
+            self._group_name_of(student_group_id)
+            if student_group_id is not None
+            else None
+        )
+        self._by_id[student_id] = replace(
+            self._by_id[student_id],
+            student_group_id=student_group_id,
+            student_group_name=name,
+        )
+
+    async def set_group_bulk(
+        self,
+        school_id: str,
+        *,
+        student_group_id: str,
+        student_ids: Sequence[str],
+    ) -> int:
+        name = self._group_name_of(student_group_id)
+        n = 0
+        for sid in student_ids:
+            s = self._by_id.get(sid)
+            if s is not None and s.school_id == school_id:  # tenant-scoped
+                self._by_id[sid] = replace(
+                    s, student_group_id=student_group_id, student_group_name=name
+                )
+                n += 1
+        return n
+
+    def group_counts(self, school_id: str) -> dict[str, int]:
+        """Sync helper: per-class member count — mirrors the grouped students scan the
+        FakeStudentGroupRepo delegates to (BP11a)."""
+        counts: dict[str, int] = {}
+        for s in self._by_id.values():
+            if s.school_id == school_id and s.student_group_id is not None:
+                counts[s.student_group_id] = counts.get(s.student_group_id, 0) + 1
+        return counts
+
+    def unassign_group(self, group_id: str) -> None:
+        """Cascade hook for FakeStudentGroupRepo.delete (students.student_group_id
+        ON DELETE SET NULL, BP11a): clear the pointer on every member."""
+        for sid, s in list(self._by_id.items()):
+            if s.student_group_id == group_id:
+                self._by_id[sid] = replace(
+                    s, student_group_id=None, student_group_name=None
+                )
+
     def remove_by_user(self, user_id: str) -> None:
         """Cascade hook for FakeUserRepo.delete (students.user_id ON DELETE CASCADE)."""
         for sid, s in list(self._by_id.items()):
             if s.user_id == user_id:
                 del self._by_id[sid]
+
+
+class FakeStudentGroupRepo:
+    """StudentGroupRepository double (BP11a). Tenant-scoped like the real adapter. Optionally
+    linked to a FakeStudentRepo so ``student_counts`` reflects real membership and ``delete``
+    un-assigns members (the SET NULL cascade)."""
+
+    def __init__(self, groups: list[StudentGroup] | None = None) -> None:
+        self._by_id: dict[str, StudentGroup] = {g.id: g for g in (groups or [])}
+        self._seq = 0
+        self._count_of: Callable[[str], dict[str, int]] = lambda _sid: {}
+        self._on_delete: Callable[[str], None] | None = None
+
+    def link_students(
+        self,
+        counter: Callable[[str], dict[str, int]],
+        *,
+        on_delete: Callable[[str], None] | None = None,
+    ) -> None:
+        self._count_of = counter
+        self._on_delete = on_delete
+
+    def name_of(self, group_id: str) -> str | None:
+        """Sync helper: the class name for a group_id (or None) — mirrors the LEFT JOIN."""
+        g = self._by_id.get(group_id)
+        return g.name if g is not None else None
+
+    async def create(
+        self, *, school_id: str, name: str, grade: str | None, section: str | None
+    ) -> StudentGroup:
+        self._seq += 1
+        group = make_student_group(
+            id=f"cls-{self._seq}",
+            school_id=school_id,
+            name=name,
+            grade=grade,
+            section=section,
+        )
+        self._by_id[group.id] = group
+        return group
+
+    async def get(self, school_id: str, group_id: str) -> StudentGroup | None:
+        g = self._by_id.get(group_id)
+        if g is None or g.school_id != school_id:  # tenant-scoped
+            return None
+        return g
+
+    async def list_by_school(self, school_id: str) -> list[StudentGroup]:
+        return [g for g in self._by_id.values() if g.school_id == school_id]
+
+    async def update(
+        self,
+        school_id: str,
+        group_id: str,
+        *,
+        name: str,
+        grade: str | None,
+        section: str | None,
+    ) -> StudentGroup | None:
+        g = await self.get(school_id, group_id)
+        if g is None:
+            return None
+        updated = replace(g, name=name, grade=grade, section=section)
+        self._by_id[group_id] = updated
+        return updated
+
+    async def delete(self, school_id: str, group_id: str) -> bool:
+        g = await self.get(school_id, group_id)
+        if g is None:
+            return False
+        del self._by_id[group_id]
+        if self._on_delete is not None:
+            self._on_delete(group_id)  # SET NULL: un-assign the class's students
+        return True
+
+    async def student_counts(self, school_id: str) -> dict[str, int]:
+        return self._count_of(school_id)
 
 
 class FakeObjectStore:
@@ -1454,6 +1631,7 @@ class SeededContainer(Container):
         schools: SchoolRepository | None = None,
         *,
         students: StudentRepository | None = None,
+        student_groups: StudentGroupRepository | None = None,
         object_store: ObjectStore | None = None,
         ml_client: MlEnrollmentClient | None = None,
         thumbnailer: Thumbnailer | None = None,
@@ -1471,6 +1649,9 @@ class SeededContainer(Container):
         self._seed_users = users
         self._seed_schools: SchoolRepository = schools or FakeSchoolRepo()
         self._seed_students: StudentRepository = students or FakeStudentRepo()
+        self._seed_student_groups: StudentGroupRepository = (
+            student_groups or FakeStudentGroupRepo()
+        )
         self._seed_object_store: ObjectStore = object_store or FakeObjectStore()
         self._seed_ml_client: MlEnrollmentClient = ml_client or FakeMlClient()
         self._seed_thumbnailer: Thumbnailer = thumbnailer or FakeThumbnailer()
@@ -1498,6 +1679,16 @@ class SeededContainer(Container):
         ):
             self._seed_users.link_cascade(self._seed_students.remove_by_user)
             self._seed_students.link_users(self._seed_users.email_of)
+        # Wire the class↔student links (BP11a): the student read carries its class name, the
+        # classes list shows member counts, and deleting a class un-assigns its students.
+        if isinstance(self._seed_students, FakeStudentRepo) and isinstance(
+            self._seed_student_groups, FakeStudentGroupRepo
+        ):
+            self._seed_students.link_groups(self._seed_student_groups.name_of)
+            self._seed_student_groups.link_students(
+                self._seed_students.group_counts,
+                on_delete=self._seed_students.unassign_group,
+            )
         # Let the event repo see media presence (the not_started-with-media alert).
         if isinstance(self._seed_events, FakeEventRepo) and isinstance(
             self._seed_media, FakeMediaRepo
@@ -1512,6 +1703,9 @@ class SeededContainer(Container):
 
     def student_repo(self) -> StudentRepository:
         return self._seed_students
+
+    def student_group_repo(self) -> StudentGroupRepository:
+        return self._seed_student_groups
 
     def object_store(self) -> ObjectStore:
         return self._seed_object_store

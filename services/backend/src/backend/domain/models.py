@@ -201,6 +201,37 @@ class Student:
     # BP17: a stored downscaled sibling of reference_photo_path for the staff avatar (None
     # for a photoless student + pre-BP17 rows). ML enrollment reads reference_photo_path.
     reference_photo_thumbnail_path: str | None = None
+    # BP11a: the class/section this student belongs to (nullable — an un-classed student).
+    # ``student_group_name`` is denormalized onto the read model for list display (like email).
+    student_group_id: str | None = None
+    student_group_name: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class StudentGroup:
+    """A class / section — the organizing unit for students (BP11a, decisions/0058).
+
+    Tenant-owned (``school_id``). ``name`` is the human label (e.g. "Grade 3B"); ``grade``/
+    ``section`` are optional filter labels (e.g. "3", "B"). A student points at one group via
+    ``students.student_group_id`` (nullable) — deleting a group un-assigns its students
+    (SET NULL), never deletes them. Bounded per school (a few dozen)."""
+
+    id: str
+    school_id: str
+    name: str
+    grade: str | None
+    section: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class StudentGroupListing:
+    """A class + its member count for the classes list (BP11a). Composed from a grouped
+    ``students`` count keyed by ``student_group_id`` — the pure services never issue SQL."""
+
+    group: StudentGroup
+    student_count: int
 
 
 @dataclass(frozen=True, slots=True)

@@ -26,6 +26,13 @@ STUDENT_REPO_REGISTRY: dict[str, str] = {
     "postgres": "backend.adapters.repositories.postgres_students:PostgresStudentRepository",
 }
 
+STUDENT_GROUP_REPO_REGISTRY: dict[str, str] = {
+    "postgres": (
+        "backend.adapters.repositories.postgres_student_groups"
+        ":PostgresStudentGroupRepository"
+    ),
+}
+
 EVENT_REPO_REGISTRY: dict[str, str] = {
     "postgres": "backend.adapters.repositories.postgres_events:PostgresEventRepository",
 }

@@ -39,6 +39,7 @@ from backend.domain.models import (
     SignedUpload,
     Student,
     StudentAppearanceCounts,
+    StudentGroup,
     StudentSort,
     User,
     UserSort,
@@ -141,10 +142,11 @@ class StudentRepository(Protocol):
         sort: StudentSort = StudentSort.NAME,
         descending: bool = False,
         status: EnrollmentStatus | None = None,
+        student_group_id: str | None = None,
     ) -> list[Student]:
         """One page of the students list (BP9), searched/filtered/sorted in SQL. Only
         row-native ``sort`` members reach here; count-column sorts take the id-scan path
-        (``list_ids``)."""
+        (``list_ids``). BP11a: ``student_group_id`` filters to one class."""
         ...
     async def count_page(
         self,
@@ -152,8 +154,10 @@ class StudentRepository(Protocol):
         *,
         q: str | None = None,
         status: EnrollmentStatus | None = None,
+        student_group_id: str | None = None,
     ) -> int:
-        """Total students matching the same ``q``/``status`` filter (the page's ``total``)."""
+        """Total students matching the same ``q``/``status``/class filter (the page's
+        ``total``)."""
         ...
     async def list_ids(
         self,
@@ -161,6 +165,7 @@ class StudentRepository(Protocol):
         *,
         q: str | None = None,
         status: EnrollmentStatus | None = None,
+        student_group_id: str | None = None,
     ) -> list[str]:
         """All matching student ids (id-only, no join) — the count-sort path fetches these,
         sorts them by a school-wide count dict in-Python, then hydrates one page via
@@ -197,6 +202,55 @@ class StudentRepository(Protocol):
         reference_photo_path: str,
         reference_photo_thumbnail_path: str | None = None,
     ) -> None: ...
+    async def set_group(
+        self, student_id: str, *, student_group_id: str | None
+    ) -> None:
+        """Assign one student to a class, or clear it with ``None`` (BP11a). The service
+        validates a non-null ``student_group_id`` names a class in the same school first."""
+        ...
+    async def set_group_bulk(
+        self,
+        school_id: str,
+        *,
+        student_group_id: str,
+        student_ids: Sequence[str],
+    ) -> int:
+        """Assign many of one school's students to a class (BP11a); returns the count
+        updated. Tenant-scoped — a foreign id is silently skipped."""
+        ...
+
+
+class StudentGroupRepository(Protocol):
+    """Backend-owned classes/sections (BP11a, decisions/0058). Reads are tenant-scoped: a
+    ``group_id`` from another school resolves to ``None``. Bounded per school (a few dozen),
+    so the list is unpaginated."""
+
+    async def create(
+        self, *, school_id: str, name: str, grade: str | None, section: str | None
+    ) -> StudentGroup: ...
+    async def get(self, school_id: str, group_id: str) -> StudentGroup | None: ...
+    async def list_by_school(self, school_id: str) -> list[StudentGroup]: ...
+    async def update(
+        self,
+        school_id: str,
+        group_id: str,
+        *,
+        name: str,
+        grade: str | None,
+        section: str | None,
+    ) -> StudentGroup | None:
+        """Replace a class's editable fields (name/grade/section). Returns ``None`` if the
+        class is absent/foreign (the service maps that to 404)."""
+        ...
+    async def delete(self, school_id: str, group_id: str) -> bool:
+        """Delete a class (its students are un-assigned via ``ON DELETE SET NULL``). Returns
+        ``False`` if the class is absent/foreign (→ 404)."""
+        ...
+    async def student_counts(self, school_id: str) -> dict[str, int]:
+        """Per-class member count for one school (the classes list). One grouped scan over
+        ``students.student_group_id``; classes with zero members are absent (caller
+        zero-fills)."""
+        ...
 
 
 class EventRepository(Protocol):

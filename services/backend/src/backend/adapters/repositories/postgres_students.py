@@ -3,7 +3,8 @@
 Reads are tenant-scoped: every ``get``/``list`` takes ``school_id`` so a student
 that belongs to another school is invisible (returned as ``None``/absent), enforcing
 tenant isolation at the query layer (decisions/0022). Each read JOINs ``users`` to
-carry the student's login ``email`` on the read model (decisions/0033).
+carry the student's login ``email`` on the read model (decisions/0033) and LEFT JOINs
+``student_groups`` to carry the class name for list display (BP11a, decisions/0058).
 """
 
 from __future__ import annotations
@@ -11,7 +12,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Sequence
 
-from sqlalchemy import ColumnElement, func, or_, select
+from sqlalchemy import ColumnElement, Select, false, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from backend.adapters.repositories._common import (
@@ -21,6 +22,7 @@ from backend.adapters.repositories._common import (
     req_uuid,
 )
 from backend.db.models import Student as StudentRow
+from backend.db.models import StudentGroup as StudentGroupRow
 from backend.db.models import User as UserRow
 from backend.domain.errors import NotFoundError
 from backend.domain.models import (
@@ -39,7 +41,7 @@ _SORT_COLS = {
 }
 
 
-def _to_student(row: StudentRow, email: str) -> Student:
+def _to_student(row: StudentRow, email: str, group_name: str | None = None) -> Student:
     return Student(
         id=str(row.id),
         school_id=str(row.school_id),
@@ -56,6 +58,10 @@ def _to_student(row: StudentRow, email: str) -> Student:
             else None
         ),
         reference_photo_thumbnail_path=row.reference_photo_thumbnail_path,
+        student_group_id=(
+            str(row.student_group_id) if row.student_group_id is not None else None
+        ),
+        student_group_name=group_name,
     )
 
 
@@ -64,6 +70,20 @@ class PostgresStudentRepository:
 
     def __init__(self, sessionmaker: async_sessionmaker[AsyncSession]) -> None:
         self._sessionmaker = sessionmaker
+
+    @staticmethod
+    def _select_with_email_and_class() -> Select[tuple[StudentRow, str, str]]:
+        """The base read: student + login email (INNER) + class name (LEFT, nullable).
+
+        Returned rows are ``(StudentRow, email, group_name)`` — ``group_name`` is ``None``
+        for an un-classed student (the LEFT JOIN miss)."""
+        return (
+            select(StudentRow, UserRow.email, StudentGroupRow.name)
+            .join(UserRow, StudentRow.user_id == UserRow.id)
+            .outerjoin(
+                StudentGroupRow, StudentRow.student_group_id == StudentGroupRow.id
+            )
+        )
 
     async def create(
         self,
@@ -88,7 +108,8 @@ class PostgresStudentRepository:
             await session.flush()
             await session.refresh(row)
             # The login was created (in a prior transaction) before this call; fetch
-            # its email so the returned read model carries it (decisions/0033).
+            # its email so the returned read model carries it (decisions/0033). A fresh
+            # student has no class yet, so group_name defaults to None.
             email = (
                 await session.execute(select(UserRow.email).where(UserRow.id == uid))
             ).scalar_one()
@@ -101,12 +122,12 @@ class PostgresStudentRepository:
             return None  # malformed id -> not found (tenant-safe)
         async with self._sessionmaker() as session:
             result = await session.execute(
-                select(StudentRow, UserRow.email)
-                .join(UserRow, StudentRow.user_id == UserRow.id)
-                .where(StudentRow.id == pid, StudentRow.school_id == sid)
+                self._select_with_email_and_class().where(
+                    StudentRow.id == pid, StudentRow.school_id == sid
+                )
             )
-            pair = result.one_or_none()
-            return _to_student(pair[0], pair[1]) if pair is not None else None
+            row = result.one_or_none()
+            return _to_student(row[0], row[1], row[2]) if row is not None else None
 
     async def get_by_user_id(self, school_id: str, user_id: str) -> Student | None:
         """The student profile linked to a login account (decisions/0028).
@@ -119,12 +140,12 @@ class PostgresStudentRepository:
             return None
         async with self._sessionmaker() as session:
             result = await session.execute(
-                select(StudentRow, UserRow.email)
-                .join(UserRow, StudentRow.user_id == UserRow.id)
-                .where(StudentRow.user_id == uid, StudentRow.school_id == sid)
+                self._select_with_email_and_class().where(
+                    StudentRow.user_id == uid, StudentRow.school_id == sid
+                )
             )
-            pair = result.one_or_none()
-            return _to_student(pair[0], pair[1]) if pair is not None else None
+            row = result.one_or_none()
+            return _to_student(row[0], row[1], row[2]) if row is not None else None
 
     async def list_by_school(self, school_id: str) -> list[Student]:
         sid = opt_uuid(school_id)
@@ -132,20 +153,30 @@ class PostgresStudentRepository:
             return []
         async with self._sessionmaker() as session:
             result = await session.execute(
-                select(StudentRow, UserRow.email)
-                .join(UserRow, StudentRow.user_id == UserRow.id)
+                self._select_with_email_and_class()
                 .where(StudentRow.school_id == sid)
                 .order_by(StudentRow.created_at, StudentRow.id)  # stable on ties
             )
-            return [_to_student(r[0], r[1]) for r in result.all()]
+            return [_to_student(r[0], r[1], r[2]) for r in result.all()]
 
     def _filtered(
-        self, sid: uuid.UUID, q: str | None, status: EnrollmentStatus | None
+        self,
+        sid: uuid.UUID,
+        q: str | None,
+        status: EnrollmentStatus | None,
+        student_group_id: str | None,
     ) -> list[ColumnElement[bool]]:
-        """The shared WHERE clauses for the paginated students reads (BP9)."""
+        """The shared WHERE clauses for the paginated students reads (BP9 + BP11a class
+        filter). A malformed ``student_group_id`` yields no rows (never an ``IS NULL`` that
+        would wrongly match un-classed students)."""
         conds: list[ColumnElement[bool]] = [StudentRow.school_id == sid]
         if status is not None:
             conds.append(StudentRow.enrollment_status == status.value)
+        if student_group_id is not None:
+            gid = opt_uuid(student_group_id)
+            conds.append(
+                StudentRow.student_group_id == gid if gid is not None else false()
+            )
         if q:
             term = ilike_term(q)
             conds.append(
@@ -166,6 +197,7 @@ class PostgresStudentRepository:
         sort: StudentSort = StudentSort.NAME,
         descending: bool = False,
         status: EnrollmentStatus | None = None,
+        student_group_id: str | None = None,
     ) -> list[Student]:
         sid = opt_uuid(school_id)
         if sid is None:
@@ -178,14 +210,13 @@ class PostgresStudentRepository:
         )
         async with self._sessionmaker() as session:
             result = await session.execute(
-                select(StudentRow, UserRow.email)
-                .join(UserRow, StudentRow.user_id == UserRow.id)
-                .where(*self._filtered(sid, q, status))
+                self._select_with_email_and_class()
+                .where(*self._filtered(sid, q, status, student_group_id))
                 .order_by(*order)
                 .offset(offset)
                 .limit(limit)
             )
-            return [_to_student(r[0], r[1]) for r in result.all()]
+            return [_to_student(r[0], r[1], r[2]) for r in result.all()]
 
     async def count_page(
         self,
@@ -193,6 +224,7 @@ class PostgresStudentRepository:
         *,
         q: str | None = None,
         status: EnrollmentStatus | None = None,
+        student_group_id: str | None = None,
     ) -> int:
         sid = opt_uuid(school_id)
         if sid is None:
@@ -202,7 +234,7 @@ class PostgresStudentRepository:
                 select(func.count())
                 .select_from(StudentRow)
                 .join(UserRow, StudentRow.user_id == UserRow.id)
-                .where(*self._filtered(sid, q, status))
+                .where(*self._filtered(sid, q, status, student_group_id))
             )
             return int(result.scalar_one())
 
@@ -212,6 +244,7 @@ class PostgresStudentRepository:
         *,
         q: str | None = None,
         status: EnrollmentStatus | None = None,
+        student_group_id: str | None = None,
     ) -> list[str]:
         sid = opt_uuid(school_id)
         if sid is None:
@@ -220,7 +253,7 @@ class PostgresStudentRepository:
             result = await session.execute(
                 select(StudentRow.id)
                 .join(UserRow, StudentRow.user_id == UserRow.id)
-                .where(*self._filtered(sid, q, status))
+                .where(*self._filtered(sid, q, status, student_group_id))
             )
             return [str(r) for r in result.scalars().all()]
 
@@ -235,12 +268,11 @@ class PostgresStudentRepository:
             return []
         async with self._sessionmaker() as session:
             result = await session.execute(
-                select(StudentRow, UserRow.email)
-                .join(UserRow, StudentRow.user_id == UserRow.id)
+                self._select_with_email_and_class()
                 .where(StudentRow.school_id == sid, StudentRow.id.in_(ids))
                 .order_by(StudentRow.created_at, StudentRow.id)  # stable on ties
             )
-            return [_to_student(r[0], r[1]) for r in result.all()]
+            return [_to_student(r[0], r[1], r[2]) for r in result.all()]
 
     async def resolve_by_emails(
         self, school_id: str, emails: Sequence[str]
@@ -256,18 +288,14 @@ class PostgresStudentRepository:
             return []
         async with self._sessionmaker() as session:
             result = await session.execute(
-                select(StudentRow, UserRow.email)
-                .join(UserRow, StudentRow.user_id == UserRow.id)
-                .where(
+                self._select_with_email_and_class().where(
                     StudentRow.school_id == sid,
                     func.lower(UserRow.email).in_(lowered),
                 )
             )
-            return [_to_student(r[0], r[1]) for r in result.all()]
+            return [_to_student(r[0], r[1], r[2]) for r in result.all()]
 
-    async def enrollment_counts(
-        self, school_id: str
-    ) -> dict[EnrollmentStatus, int]:
+    async def enrollment_counts(self, school_id: str) -> dict[EnrollmentStatus, int]:
         """Students grouped by enrollment status for one school (BP1 dashboard).
 
         One grouped scan of the tenant's slice (``ix_students_school``); every status
@@ -336,3 +364,46 @@ class PostgresStudentRepository:
             # backend couldn't generate one — the download then falls back to full-res).
             row.reference_photo_path = reference_photo_path
             row.reference_photo_thumbnail_path = reference_photo_thumbnail_path
+
+    async def set_group(
+        self, student_id: str, *, student_group_id: str | None
+    ) -> None:
+        """Assign (or clear, with ``None``) one student's class (BP11a). The service
+        validates that a non-null ``student_group_id`` names a class in the same school
+        first, so a malformed non-null id here is a programming error (raised)."""
+        key = req_uuid(student_id, field="student_id")
+        gid = (
+            req_uuid(student_group_id, field="student_group_id")
+            if student_group_id is not None
+            else None
+        )
+        async with self._sessionmaker() as session, session.begin():
+            row = await session.get(StudentRow, key)
+            if row is None:
+                raise NotFoundError(f"student not found: {student_id}")
+            row.student_group_id = gid  # ORM mutation -> trips updated_at's onupdate
+
+    async def set_group_bulk(
+        self,
+        school_id: str,
+        *,
+        student_group_id: str,
+        student_ids: Sequence[str],
+    ) -> int:
+        """Assign many of one school's students to a class in one UPDATE (BP11a). Tenant-
+        scoped: only rows whose ``school_id`` matches are touched (a foreign id is silently
+        skipped). Returns the count updated. The service validates the class first."""
+        sid = opt_uuid(school_id)
+        gid = opt_uuid(student_group_id)
+        if sid is None or gid is None:
+            return 0
+        ids = [pid for pid in (opt_uuid(s) for s in student_ids) if pid is not None]
+        if not ids:
+            return 0
+        async with self._sessionmaker() as session, session.begin():
+            result = await session.execute(
+                update(StudentRow)
+                .where(StudentRow.school_id == sid, StudentRow.id.in_(ids))
+                .values(student_group_id=gid)
+            )
+            return int(result.rowcount or 0)  # type: ignore[attr-defined]

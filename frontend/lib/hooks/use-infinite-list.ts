@@ -13,6 +13,7 @@ export interface ListQuery {
   sort?: string;
   dir?: SortDir;
   status?: string;
+  student_group_id?: string; // BP11a: the students list can filter to one class
 }
 
 export const LIST_PAGE_SIZE = 50;

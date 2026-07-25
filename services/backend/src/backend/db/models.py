@@ -148,6 +148,13 @@ class Student(Base):
     # Why enrollment failed (BP7b) — null unless enrollment_status='failed'. Lockstep
     # with the EnrollmentFailureReason domain enum (widen enum + CHECK together).
     enrollment_failure_reason: Mapped[str | None] = mapped_column(String, nullable=True)
+    # BP11a (migration 0013): the class/section this student belongs to, or NULL (un-classed).
+    # ON DELETE SET NULL — deleting a class un-assigns its students, never deletes them.
+    student_group_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("student_groups.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -161,6 +168,8 @@ class Student(Base):
     __table_args__ = (
         UniqueConstraint("user_id", name="uq_students_user"),
         Index("ix_students_school", "school_id"),
+        # BP11a: filter/group the students list by class within a school.
+        Index("ix_students_school_group", "school_id", "student_group_id", "id"),
         # Lockstep with the EnrollmentStatus domain enum (repos do
         # EnrollmentStatus(row.enrollment_status)); widen enum + CHECK together.
         CheckConstraint(
@@ -173,6 +182,37 @@ class Student(Base):
             name="ck_students_enrollment_failure_reason",
         ),
     )
+
+
+class StudentGroup(Base):
+    """A class / section (BP11a, migration 0013, decisions/0058). Tenant-owned; a student
+    points at one via ``students.student_group_id`` (SET NULL on delete). Bounded per school
+    (a few dozen), so its list read is unpaginated."""
+
+    __tablename__ = "student_groups"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    school_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("schools.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    grade: Mapped[str | None] = mapped_column(String, nullable=True)
+    section: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    __table_args__ = (Index("ix_student_groups_school", "school_id", "name", "id"),)
 
 
 class Event(Base):

@@ -172,6 +172,13 @@ class StudentRepository(Protocol):
         """Bulk-load students by id within one tenant (BP9 galleries + count-sort). Order
         is not guaranteed; callers that need the input order re-order in-Python."""
         ...
+    async def resolve_by_emails(
+        self, school_id: str, emails: Sequence[str]
+    ) -> list[Student]:
+        """Students in this school whose login email matches one of ``emails``
+        (case-insensitive) — BP10 bulk-photo filename→student matching. Tenant-scoped; order
+        not guaranteed. The email set is bounded by the route's per-batch cap."""
+        ...
     async def enrollment_counts(
         self, school_id: str
     ) -> dict[EnrollmentStatus, int]: ...

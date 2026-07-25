@@ -9,8 +9,9 @@ profile, never the linked login's password hash.
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Annotated
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, StringConstraints
 
 from backend.domain.models import (
     EnrollmentFailureReason,
@@ -20,7 +21,12 @@ from backend.domain.models import (
 )
 from backend.services.listing_service import StudentListing
 from backend.services.pagination import Page
-from backend.services.student_service import BulkStudentResult, ProvisionedStudent
+from backend.services.student_service import (
+    BulkStudentResult,
+    ProvisionedStudent,
+    ResolvedPhotoTarget,
+)
+from backend.settings import settings
 
 # The largest batch one CSV import can create in a single request (BP7d).
 _MAX_BULK_ROWS = 500
@@ -154,6 +160,52 @@ class BulkImportResponse(BaseModel):
     @classmethod
     def from_results(cls, results: list[BulkStudentResult]) -> BulkImportResponse:
         return cls(results=[BulkStudentResultResponse.from_result(r) for r in results])
+
+
+# A photo filename the FE sends for bulk-photo matching (BP10). Length-capped (abuse guard);
+# the per-batch count is capped at the configurable ``bulk_photo_max_files`` below (→ 422).
+_PhotoFilename = Annotated[str, StringConstraints(min_length=1, max_length=1024)]
+
+
+class MatchPhotosRequest(BaseModel):
+    """Filenames the FE wants mapped to students for bulk-photo enrollment (BP10). The batch
+    is capped at the configurable ``bulk_photo_max_files`` — an over-size list is a 422.
+
+    The cap is bound at import (mirroring ``api/pagination.py``'s page-size ``Query`` bounds),
+    so it reflects ``BE_BULK_PHOTO_MAX_FILES`` at process start — not a per-request change."""
+
+    filenames: list[_PhotoFilename] = Field(
+        min_length=1, max_length=settings.bulk_photo_max_files
+    )
+
+
+class PhotoMatchResult(BaseModel):
+    """One filename's match (BP10): the student it maps to, or ``matched=false``."""
+
+    filename: str
+    matched: bool
+    student_id: str | None = None
+    student_name: str | None = None
+    enrollment_status: EnrollmentStatus | None = None
+
+    @classmethod
+    def from_target(cls, t: ResolvedPhotoTarget) -> PhotoMatchResult:
+        s = t.student
+        return cls(
+            filename=t.filename,
+            matched=s is not None,
+            student_id=s.id if s is not None else None,
+            student_name=s.name if s is not None else None,
+            enrollment_status=s.enrollment_status if s is not None else None,
+        )
+
+
+class MatchPhotosResponse(BaseModel):
+    results: list[PhotoMatchResult]
+
+    @classmethod
+    def from_targets(cls, targets: list[ResolvedPhotoTarget]) -> MatchPhotosResponse:
+        return cls(results=[PhotoMatchResult.from_target(t) for t in targets])
 
 
 class StudentListItem(StudentResponse):

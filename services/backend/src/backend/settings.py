@@ -65,6 +65,12 @@ class Settings(BaseSettings):
     image_thumbnail_max_edge: int = 512  # longest-edge cap (px)
     image_thumbnail_quality: int = 70  # JPEG quality (1-95)
 
+    # --- bulk photo enrollment (BP10, decisions/0057) --------------------
+    # Max reference photos one bulk-photo upload maps + enrolls per batch. The FE mirrors this
+    # (NEXT_PUBLIC_BULK_PHOTO_MAX_FILES) for the pre-upload UX; this is the authoritative cap —
+    # POST /v1/students/match-photos 422s an over-size batch via the request schema.
+    bulk_photo_max_files: int = 50
+
     # --- galleries / download (decisions/0028) ---------------------------
     # TTL of the short-lived signed download URLs the galleries mint on demand.
     download_url_ttl_s: int = 3600  # 1 hour

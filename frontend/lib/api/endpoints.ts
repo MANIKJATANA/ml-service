@@ -11,6 +11,7 @@ import type {
   EventStatusResponse,
   GalleryMediaResponse,
   LoginResult,
+  MatchPhotosResponse,
   MediaAppearanceResponse,
   MediaDownloadLogResponse,
   MediaListPageResponse,
@@ -234,6 +235,24 @@ export function bulkImportStudents(
     method: "POST",
     body: JSON.stringify({ students: rows }),
   });
+}
+
+/** Map photo filenames to students for bulk enrollment (BP10) — auto-fills the mapping table;
+ *  tenant from the token, the batch size capped server-side (422 over the cap). */
+export function matchPhotos(filenames: string[]): Promise<MatchPhotosResponse> {
+  return bffFetch<MatchPhotosResponse>("/api/v1/students/match-photos", {
+    method: "POST",
+    body: JSON.stringify({ filenames }),
+  });
+}
+
+/** Best-effort cleanup of an orphaned bulk-photo upload (BP10) — an object uploaded but never
+ *  attached to a student. Guarded to the caller's own tenant prefix server-side; idempotent. */
+export function deleteReferencePhotoUpload(objectPath: string): Promise<void> {
+  return bffFetch<void>(
+    `/api/v1/students/reference-photo-upload?path=${encodeURIComponent(objectPath)}`,
+    { method: "DELETE" },
+  );
 }
 
 /** Retry ML enrollment using the stored reference photo (502 if ML is down). */

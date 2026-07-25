@@ -55,7 +55,7 @@ L ≈ net-new across services (+ migration / infra). **Impact:** H/M/L on the pr
 
 ## 4. The phased backlog
 
-### BP9 — Scale-ready lists & galleries · **Effort M · Impact H · FE + query-only BE (indexes = migration)** · 📋 proposed — **recommended next**
+### BP9 — Scale-ready lists & galleries · **Effort M · Impact H · FE + query-only BE (indexes = migration)** · ✅ landed ([decisions/0055](../decisions/0055-product-build-BP9-scale-ready-lists-galleries.md))
 - **Problem (theme D):** every list and gallery **loads everything** and filters/sorts **client-side**; the
   gallery reads **load the whole school roster / event list into Python** and filter in memory (`02` §5).
   Only `/audit/downloads` paginates. At 800 students / 2000-photo events: slow pages, janky scroll,
@@ -70,7 +70,7 @@ L ≈ net-new across services (+ migration / infra). **Impact:** H/M/L on the pr
   photos; gates green. **Why first:** lowest-risk (mostly query-only), fixes felt lag *now* (a photoless CSV
   import already yields 800-row lists), and it's the substrate every later phase's new views ride on.
 
-### BP17 — Image thumbnails & derivatives · **Effort S–M · Impact M–H · BE + FE (+ storage)** · 📋 proposed — **pairs with BP9**
+### BP17 — Image thumbnails & derivatives · **Effort S–M · Impact M–H · BE + FE (+ storage)** · ✅ landed ([decisions/0056](../decisions/0056-product-build-BP17-image-thumbnails.md))
 - **Problem (theme D):** **no thumbnails/derivatives exist** — every list and gallery loads **full-res**
   images (`00` §2, §9). A 2000-photo gallery pulls 2000 full-size files; the students list shows no face at
   all (the `StudentAvatar` primitive already ships a wired-but-unused `photoUrl`). This is the other half of
@@ -86,7 +86,7 @@ L ≈ net-new across services (+ migration / infra). **Impact:** H/M/L on the pr
   scrolls smoothly; the students list shows a face per row (thumbnail-or-full-res fallback); the lightbox +
   download still serve full-res; gates green.
 
-### BP10 — Bulk enrollment (photos at scale) · **Effort M · Impact H · BE + FE · no migration** · 📋 proposed
+### BP10 — Bulk enrollment (photos at scale) · **Effort M · Impact H · BE + FE · no migration** · ✅ landed ([decisions/0057](../decisions/0057-product-build-BP10-bulk-enrollment.md))
 - **Problem (theme A — the switch-on blocker):** CSV import (BP7d) creates students **photoless → pending**;
   the only way to attach a face is BP7d-2's **one-at-a-time** "Add photo". 800 students = 800 manual uploads.
   **The product can't be turned on at scale.** Fails **X4/T8/P5** — the review's highest-severity finding.
@@ -181,7 +181,8 @@ L ≈ net-new across services (+ migration / infra). **Impact:** H/M/L on the pr
 
 ## 5. How to use this file
 
-- **Pick the next phase** off the top of §4 — **BP9** is next.
+- **Pick the next phase** off the top of §4 — **BP9**, **BP17**, and **BP10** have landed; **BP11**
+  (classes/terms — org structure) is next.
 - **Before building**, re-read the phase's **source lens** in `01` (the acceptance target) and its finding
   in `02` (what breaks + severity), then lock the phase design in a `decisions/` doc (repo convention).
 - **Keep `00` honest:** when a capability ships, move it from "dark/absent" to "exposed" in `00`'s

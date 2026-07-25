@@ -643,6 +643,16 @@ class FakeStudentRepo:
             if s.school_id == school_id and s.id in wanted
         ]
 
+    async def resolve_by_emails(
+        self, school_id: str, emails: Sequence[str]
+    ) -> list[Student]:
+        wanted = {e.lower() for e in emails}
+        return [
+            s
+            for s in self._by_id.values()
+            if s.school_id == school_id and s.email.lower() in wanted
+        ]
+
     async def enrollment_counts(
         self, school_id: str
     ) -> dict[EnrollmentStatus, int]:

@@ -1018,3 +1018,37 @@ async def test_list_by_ids_is_tenant_scoped(
     )
     egot = await events.list_by_ids(a.id, [ea.id, eb.id])
     assert [e.id for e in egot] == [ea.id]
+
+
+async def test_resolve_by_emails_is_case_insensitive_and_tenant_scoped(
+    sm: async_sessionmaker[AsyncSession],
+) -> None:
+    # BP10 filename → student: match the login email (case-insensitive), never cross-tenant.
+    schools = PostgresSchoolRepository(sm)
+    users = PostgresUserRepository(sm)
+    students = PostgresStudentRepository(sm)
+    a = await schools.create(name="A", max_teachers=5)
+    b = await schools.create(name="B", max_teachers=5)
+
+    login_a = await users.create(
+        school_id=a.id, email="alice@a.io", password_hash="h", role=Role.STUDENT
+    )
+    login_b = await users.create(
+        school_id=b.id, email="bob@b.io", password_hash="h", role=Role.STUDENT
+    )
+    sa = await students.create(
+        school_id=a.id, user_id=login_a.id, name="Alice", reference_photo_path="p"
+    )
+    await students.create(
+        school_id=b.id, user_id=login_b.id, name="Bob", reference_photo_path="p"
+    )
+
+    # Case-insensitive match; an unknown email is simply absent from the result.
+    got = await students.resolve_by_emails(a.id, ["ALICE@A.io", "nobody@a.io"])
+    assert [s.id for s in got] == [sa.id]
+
+    # Tenant-scoped: school B's email never resolves for school A (no cross-tenant leak).
+    assert await students.resolve_by_emails(a.id, ["bob@b.io"]) == []
+    # Empty input + a malformed school id both return nothing (defensive, like the other reads).
+    assert await students.resolve_by_emails(a.id, []) == []
+    assert await students.resolve_by_emails("not-a-uuid", ["alice@a.io"]) == []

@@ -1,12 +1,13 @@
 "use client";
 
-import { GraduationCap, UserPlus } from "lucide-react";
+import { GraduationCap, RotateCcw, UserPlus } from "lucide-react";
 import Link from "next/link";
 import { type FormEvent, useState } from "react";
 
 import { StudentAvatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Dialog, DialogClose, DialogContent, DialogTrigger } from "@/components/ui/dialog";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Field } from "@/components/ui/field";
@@ -14,6 +15,7 @@ import { FileDropzone } from "@/components/ui/file-dropzone";
 import { type ChipItem, FilterChips } from "@/components/gallery/filter-chips";
 import { type Invite, InviteResultDialog } from "@/components/staff/invite-result-dialog";
 import { BulkImportDialog } from "@/components/students/bulk-import-dialog";
+import { BulkPhotoDialog } from "@/components/students/bulk-photo-dialog";
 import { Input } from "@/components/ui/input";
 import { LoadMore } from "@/components/ui/load-more";
 import { PageHeader } from "@/components/ui/page-header";
@@ -24,7 +26,7 @@ import { SortableHead } from "@/components/ui/sortable-head";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/components/ui/toast";
-import { createStudent } from "@/lib/api/endpoints";
+import { createStudent, enrollStudent, getStudents } from "@/lib/api/endpoints";
 import { isApiError } from "@/lib/api/errors";
 import { uploadReferencePhoto } from "@/lib/api/upload";
 import type { EnrollmentStatus, SortDir, StudentListItem } from "@/lib/api/types";
@@ -188,6 +190,107 @@ function StudentRowAvatar({ student }: { student: StudentListItem }) {
   return <StudentAvatar name={student.name} photoUrl={photoUrl} />;
 }
 
+/** Collect the ids of all `failed` students, paging the list (bounded) — the source for the
+ *  one-click bulk re-enroll (BP10, decisions/0057). */
+async function collectFailedStudentIds(): Promise<string[]> {
+  const ids: string[] = [];
+  const LIMIT = 100;
+  const CAP = 1000; // bound the retry batch
+  let offset = 0;
+  for (;;) {
+    const page = await getStudents({ limit: LIMIT, offset, status: "failed" });
+    ids.push(...page.items.map((s) => s.id));
+    offset += LIMIT;
+    if (page.items.length < LIMIT || offset >= page.total || ids.length >= CAP) break;
+  }
+  return ids.slice(0, CAP);
+}
+
+/** "Retry failed (N)": re-run ML enrollment for every `failed` student (they already have a
+ *  photo — a transient blip like ML-down is fixed on retry) through a small pool. BP10. */
+function RetryFailedButton({
+  failedCount,
+  onDone,
+}: {
+  failedCount: number;
+  onDone: () => void;
+}) {
+  const { toast } = useToast();
+  const [confirming, setConfirming] = useState(false);
+  const [running, setRunning] = useState(false);
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+
+  async function run() {
+    setConfirming(false);
+    setRunning(true);
+    try {
+      const ids = await collectFailedStudentIds();
+      if (ids.length === 0) {
+        // The failures cleared between the dashboard rollup and the click — refresh so the
+        // stale "Retry failed (N)" count that made this button appear corrects itself.
+        toast("No failed enrollments to retry.", "info");
+        onDone();
+        return;
+      }
+      setProgress({ done: 0, total: ids.length });
+      let ok = 0;
+      let done = 0;
+      let idx = 0;
+      const CONCURRENCY = 3;
+      const worker = async () => {
+        while (idx < ids.length) {
+          const id = ids[idx++];
+          try {
+            const s = await enrollStudent(id);
+            if (s.enrollment_status === "enrolled") ok += 1;
+          } catch {
+            // Isolated — one failure (e.g. ML still down) never aborts the batch.
+          }
+          done += 1;
+          setProgress({ done, total: ids.length });
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(CONCURRENCY, ids.length) }, worker));
+      toast(
+        ok > 0
+          ? `Re-enrolled ${ok} of ${ids.length} student${ids.length === 1 ? "" : "s"}.`
+          : "No enrollments succeeded — replace the photos or try again once ML is back.",
+        ok > 0 ? "success" : "info",
+      );
+      onDone();
+    } catch (err) {
+      toast(isApiError(err) ? err.message : "Retry failed. Please try again.", "error");
+    } finally {
+      setRunning(false);
+      setProgress(null);
+    }
+  }
+
+  return (
+    <>
+      <Button variant="secondary" onClick={() => setConfirming(true)} disabled={running}>
+        <RotateCcw className="size-4" aria-hidden="true" />
+        {progress
+          ? `Retrying ${progress.done}/${progress.total}…`
+          : `Retry failed (${failedCount})`}
+      </Button>
+      {/* The button is disabled while running (its label change isn't reliably announced), so
+          announce the start once here; the toast announces the final result. */}
+      <span role="status" aria-live="polite" className="sr-only">
+        {progress ? `Retrying ${progress.total} enrollments…` : ""}
+      </span>
+      <ConfirmDialog
+        open={confirming}
+        onOpenChange={setConfirming}
+        title="Retry failed enrollments?"
+        description={`Re-run ML enrollment for ${failedCount} student${failedCount === 1 ? "" : "s"} using their existing photos. A photo with no clear face won't change on retry — replace it instead.`}
+        confirmLabel="Retry"
+        onConfirm={run}
+      />
+    </>
+  );
+}
+
 export default function StudentsPage() {
   const [rawQuery, setRawQuery] = useState("");
   const query = useDebouncedValue(rawQuery.trim(), 300);
@@ -195,7 +298,7 @@ export default function StudentsPage() {
   const { sort, dir, onSort } = useListSort("name", SORT_DEFAULT_DIR);
   const [invite, setInvite] = useState<Invite | null>(null);
 
-  const { dashboard } = useDashboard();
+  const { dashboard, mutate: mutateDashboard } = useDashboard();
   const { items, total, isLoading, isLoadingMore, error, reachedEnd, loadMore, mutate } =
     useStudents({ q: query || undefined, sort, dir, status: filter });
 
@@ -217,7 +320,22 @@ export default function StudentsPage() {
         description="Enroll students so they receive the photos they appear in."
         actions={
           <div className="flex flex-wrap gap-2">
+            {(counts?.failed ?? 0) > 0 ? (
+              <RetryFailedButton
+                failedCount={counts?.failed ?? 0}
+                onDone={() => {
+                  mutate();
+                  void mutateDashboard();
+                }}
+              />
+            ) : null}
             <BulkImportDialog onImported={() => mutate()} />
+            <BulkPhotoDialog
+              onDone={() => {
+                mutate();
+                void mutateDashboard();
+              }}
+            />
             <CreateStudentDialog onCreated={() => mutate()} onInvited={setInvite} />
           </div>
         }

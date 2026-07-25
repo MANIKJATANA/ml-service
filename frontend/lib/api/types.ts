@@ -75,6 +75,20 @@ export interface BulkImportResponse {
   results: BulkStudentResult[];
 }
 
+/** One filename → student match for the BP10 bulk-photo upload (decisions/0057). `matched`
+ *  false = no student in this school (surfaced, never uploaded); `enrollment_status` lets the
+ *  UI warn "already enrolled → will replace". */
+export interface PhotoMatchResult {
+  filename: string;
+  matched: boolean;
+  student_id: string | null;
+  student_name: string | null;
+  enrollment_status: EnrollmentStatus | null;
+}
+export interface MatchPhotosResponse {
+  results: PhotoMatchResult[];
+}
+
 /** A schools-list/detail row: the school + its rollup (BP2, decisions/0039). */
 export interface SchoolRollup {
   admins: number;

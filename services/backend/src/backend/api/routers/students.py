@@ -26,6 +26,8 @@ from backend.api.schemas.students import (
     BulkImportRequest,
     BulkImportResponse,
     CreateStudentRequest,
+    MatchPhotosRequest,
+    MatchPhotosResponse,
     ProvisionedStudentResponse,
     SetReferencePhotoRequest,
     StudentListPageResponse,
@@ -87,6 +89,33 @@ async def bulk_import_students(
         rows=[(r.name, r.email) for r in body.students],
     )
     return BulkImportResponse.from_results(results)
+
+
+@router.post("/match-photos", response_model=MatchPhotosResponse)
+async def match_photos(
+    body: MatchPhotosRequest, container: ContainerDep, actor: StudentManager
+) -> MatchPhotosResponse:
+    """Map photo filenames to students for bulk enrollment (BP10) — the FE sends just the
+    filenames and gets back which student each maps to (auto-filling an editable table).
+    Pure read; tenant from the token; the batch size is capped by the request schema."""
+    targets = await container.student_service().resolve_photo_targets(
+        school_id=tenant_of(actor), filenames=body.filenames
+    )
+    return MatchPhotosResponse.from_targets(targets)
+
+
+@router.delete("/reference-photo-upload", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_reference_photo_upload(
+    path: Annotated[str, Query(min_length=1, max_length=1024)],
+    container: ContainerDep,
+    actor: StudentManager,
+) -> None:
+    """Delete an orphaned bulk-photo upload (BP10) — an object uploaded but never attached to
+    a student. Guarded to the caller's own tenant prefix (a foreign path is 400); idempotent.
+    Fired best-effort by the FE bulk-photo flow so no orphan is left in storage."""
+    await container.student_service().delete_reference_photo_upload(
+        school_id=tenant_of(actor), object_path=path
+    )
 
 
 @router.get("", response_model=StudentListPageResponse)

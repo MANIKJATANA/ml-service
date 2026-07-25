@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import uuid
 from dataclasses import dataclass, replace
+from pathlib import PurePosixPath
 
 import structlog
 
@@ -69,6 +70,16 @@ class BulkStudentResult:
     student_id: str | None = None
     error: str | None = None
 
+
+@dataclass(frozen=True, slots=True)
+class ResolvedPhotoTarget:
+    """One bulk-photo filename mapped to a student (BP10). ``student`` is the matched student
+    in this school, or ``None`` when the filename names no one (unmatched)."""
+
+    filename: str
+    student: Student | None
+
+
 # The per-photo status the ML reports when it found no face (ml_service
 # PhotoStatus.NO_FACE.value). A cross-service string contract: the backend must not import
 # from ml_service (layering), so the literal is pinned here and its mapping is test-covered
@@ -113,6 +124,66 @@ class StudentService:
         their own tenant's prefix."""
         object_path = f"{self._tenant_prefix(school_id)}{uuid.uuid4()}"
         return await self._object_store.create_signed_upload_url(object_path)
+
+    # ---- bulk photo enrollment (BP10) -----------------------------------
+
+    async def resolve_photo_targets(
+        self, *, school_id: str, filenames: list[str]
+    ) -> list[ResolvedPhotoTarget]:
+        """Map each bulk-photo filename to a student in this school (BP10).
+
+        The stem (basename minus a known image extension) is matched: a UUID stem by
+        ``student_id``, otherwise by login email (case-insensitive). Tenant-scoped — a
+        filename that names no student *in this school* comes back unmatched (never a
+        cross-tenant probe). The per-batch size is capped by the route schema."""
+        parsed: list[tuple[str, bool, str]] = []  # (filename, is_id, match_key)
+        email_keys: set[str] = set()
+        id_keys: set[str] = set()
+        for filename in filenames:
+            stem = _photo_stem(filename)
+            as_id = _as_uuid(stem)
+            if as_id is not None:
+                id_keys.add(as_id)
+                parsed.append((filename, True, as_id))
+            else:
+                key = stem.lower()
+                email_keys.add(key)
+                parsed.append((filename, False, key))
+        by_email: dict[str, Student] = {}
+        if email_keys:
+            for s in await self._students.resolve_by_emails(school_id, list(email_keys)):
+                by_email[s.email.lower()] = s
+        by_id: dict[str, Student] = {}
+        if id_keys:
+            for s in await self._students.list_by_ids(school_id, list(id_keys)):
+                by_id[s.id] = s
+        return [
+            ResolvedPhotoTarget(
+                filename=filename,
+                student=(by_id.get(key) if is_id else by_email.get(key)),
+            )
+            for filename, is_id, key in parsed
+        ]
+
+    async def delete_reference_photo_upload(
+        self, *, school_id: str, object_path: str
+    ) -> None:
+        """Delete an orphaned bulk-photo upload — an object uploaded but never attached to a
+        student (BP10).
+
+        Guarded to the caller's own tenant prefix (a caller can only address a key under
+        ``{prefix}/{school_id}/`` — the space its upload URLs mint), so a foreign/arbitrary
+        path is rejected (400) BEFORE any delete. The delete itself is **best-effort**: the FE
+        fires this fire-and-forget to reap an orphan, so a store blip must never surface as an
+        error — a leaked object is logged and swallowed (the port is idempotent for a missing
+        key; this also tolerates a transient store outage)."""
+        self._require_tenant_photo_path(school_id, object_path)
+        try:
+            await self._object_store.delete(object_path)
+        except Exception:  # noqa: BLE001 — best-effort cleanup; never fail the caller
+            _log.warning(
+                "orphan_upload_cleanup_failed", object_path=object_path, exc_info=True
+            )
 
     # ---- create + enroll ------------------------------------------------
 
@@ -460,6 +531,32 @@ class StudentService:
         return replace(
             fallback, enrollment_status=status, enrollment_failure_reason=reason
         )
+
+
+# Image extensions stripped from a bulk-photo filename to get its match key (BP10). Anything
+# else — including no extension — is matched whole, so an email like "a@b.edu" isn't mangled.
+_IMAGE_EXTS = frozenset(
+    {".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".heic", ".heif", ".tif", ".tiff"}
+)
+
+
+def _photo_stem(filename: str) -> str:
+    """The match key for a bulk-photo filename: the basename minus a known image extension.
+
+    Only a recognised image suffix is stripped (never a bare ``.edu``), so an email-named file
+    (``aisha@greenfield.edu.jpg``) maps to ``aisha@greenfield.edu`` while a file with no/other
+    extension is matched whole."""
+    base = filename.strip().replace("\\", "/").rsplit("/", 1)[-1]
+    p = PurePosixPath(base)
+    return p.stem if p.suffix.lower() in _IMAGE_EXTS else base
+
+
+def _as_uuid(value: str) -> str | None:
+    """The canonical UUID string if ``value`` is a UUID, else ``None`` (an email stem)."""
+    try:
+        return str(uuid.UUID(value))
+    except ValueError:
+        return None
 
 
 def _clean_name(name: str) -> str:

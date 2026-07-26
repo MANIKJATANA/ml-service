@@ -12,6 +12,7 @@ import { Dialog, DialogClose, DialogContent, DialogTrigger } from "@/components/
 import { EmptyState } from "@/components/ui/empty-state";
 import { Field } from "@/components/ui/field";
 import { FileDropzone } from "@/components/ui/file-dropzone";
+import { FocusToggle } from "@/components/delegation/focus-toggle";
 import { type ChipItem, FilterChips } from "@/components/gallery/filter-chips";
 import { type Invite, InviteResultDialog } from "@/components/staff/invite-result-dialog";
 import { BulkImportDialog } from "@/components/students/bulk-import-dialog";
@@ -33,6 +34,8 @@ import type { EnrollmentStatus, SortDir, StudentListItem } from "@/lib/api/types
 import { useClasses } from "@/lib/hooks/use-classes";
 import { useDashboard } from "@/lib/hooks/use-dashboard";
 import { useDebouncedValue } from "@/lib/hooks/use-debounced-value";
+import { useMe } from "@/lib/hooks/use-me";
+import { useMyClasses } from "@/lib/hooks/use-my-classes";
 import { useListSort } from "@/lib/hooks/use-sort";
 import { useStudentReferencePhoto } from "@/lib/hooks/use-student-reference-photo";
 import { useStudents } from "@/lib/hooks/use-students";
@@ -297,11 +300,18 @@ export default function StudentsPage() {
   const query = useDebouncedValue(rawQuery.trim(), 300);
   const [filter, setFilter] = useState<"all" | EnrollmentStatus>("all");
   const [classFilter, setClassFilter] = useState(""); // "" = all classes (BP11a)
+  const [focus, setFocus] = useState(true); // BP11c: default a teacher to their classes
   const { sort, dir, onSort } = useListSort("name", SORT_DEFAULT_DIR);
   const [invite, setInvite] = useState<Invite | null>(null);
 
   const { dashboard, mutate: mutateDashboard } = useDashboard();
   const { classes } = useClasses();
+  const { user } = useMe();
+  const isTeacher = user?.role === "teacher";
+  const { classes: myClasses } = useMyClasses(isTeacher);
+  // BP11c: the focus toggle is only meaningful for a teacher who actually has classes.
+  const canFocus = isTeacher && myClasses.length > 0;
+  const focusOn = canFocus && focus;
   // BP11a: if the selected class was deleted (or every class was), fall back to "all" — derived
   // (not reconciled via an effect) so the list never gets stuck filtering a class that's gone.
   const activeClassFilter =
@@ -313,6 +323,7 @@ export default function StudentsPage() {
       dir,
       status: filter,
       student_group_id: activeClassFilter || undefined,
+      mine: focusOn,
     });
 
   const counts = dashboard?.students;
@@ -324,7 +335,8 @@ export default function StudentsPage() {
   ];
 
   const isInitialLoading = isLoading && items.length === 0;
-  const isFiltering = filter !== "all" || query.length > 0 || activeClassFilter !== "";
+  const isFiltering =
+    filter !== "all" || query.length > 0 || activeClassFilter !== "" || focusOn;
 
   return (
     <div className="flex flex-col gap-6">
@@ -385,14 +397,17 @@ export default function StudentsPage() {
         />
       ) : (
         <div className="flex flex-col gap-4">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <FilterChips
-              items={chips}
-              activeId={filter}
-              onSelect={(id) => setFilter(id as "all" | EnrollmentStatus)}
-              ariaLabel="Filter by enrollment status"
-            />
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          {/* Row 1: the primary status filter on its own line so it isn't crowded. */}
+          <FilterChips
+            items={chips}
+            activeId={filter}
+            onSelect={(id) => setFilter(id as "all" | EnrollmentStatus)}
+            ariaLabel="Filter by enrollment status"
+          />
+          {/* Row 2: the scope toggle + class filter (left) and search (right). */}
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-wrap items-center gap-2">
+              {canFocus ? <FocusToggle value={focus} onChange={setFocus} /> : null}
               {classes.length > 0 ? (
                 <select
                   aria-label="Filter by class"
@@ -408,8 +423,8 @@ export default function StudentsPage() {
                   ))}
                 </select>
               ) : null}
-              <SearchInput value={rawQuery} onChange={setRawQuery} placeholder="Search name or email…" />
             </div>
+            <SearchInput value={rawQuery} onChange={setRawQuery} placeholder="Search name or email…" />
           </div>
           {total === 0 ? (
             <EmptyState title="No matching students" description="Try a different search or filter." />

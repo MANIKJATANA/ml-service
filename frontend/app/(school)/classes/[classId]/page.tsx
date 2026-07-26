@@ -4,7 +4,7 @@ import { UserPlus, X } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useState } from "react";
-import { mutate as globalMutate } from "swr";
+import useSWR, { mutate as globalMutate } from "swr";
 
 import { RoleGate } from "@/components/role-gate";
 import { Breadcrumb } from "@/components/ui/breadcrumb";
@@ -18,10 +18,17 @@ import { SearchInput } from "@/components/ui/search-input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/components/ui/toast";
-import { assignStudentsToClass, setStudentClass } from "@/lib/api/endpoints";
+import {
+  assignStudentsToClass,
+  assignTeachersToClass,
+  getClassTeachers,
+  removeClassTeacher,
+  setStudentClass,
+} from "@/lib/api/endpoints";
 import { isApiError } from "@/lib/api/errors";
 import { useClasses } from "@/lib/hooks/use-classes";
 import { useDebouncedValue } from "@/lib/hooks/use-debounced-value";
+import { useStaff } from "@/lib/hooks/use-staff";
 import { useStudents } from "@/lib/hooks/use-students";
 
 type Picked = { id: string; name: string; email: string };
@@ -161,6 +168,198 @@ function AddStudentsDialog({
   );
 }
 
+type PickedTeacher = { id: string; email: string };
+
+/** Assign teachers to a class (BP11c) — mirrors AddStudentsDialog: an inline searchable list
+ *  (not a portaled popover) of the school's teachers, picks accumulate, then one bulk call. */
+function AssignTeachersDialog({
+  classId,
+  excludeIds,
+  onAssigned,
+}: {
+  classId: string;
+  excludeIds: Set<string>;
+  onAssigned: () => void;
+}) {
+  const { toast } = useToast();
+  const [open, setOpen] = useState(false);
+  const [rawQuery, setRawQuery] = useState("");
+  const query = useDebouncedValue(rawQuery.trim(), 300);
+  const [picked, setPicked] = useState<PickedTeacher[]>([]);
+  const [saving, setSaving] = useState(false);
+  const { items } = useStaff({ q: query || undefined });
+
+  function handleOpenChange(next: boolean) {
+    setOpen(next);
+    if (!next) {
+      setRawQuery("");
+      setPicked([]);
+    }
+  }
+
+  const pickedIds = new Set(picked.map((p) => p.id));
+  const results = items.filter((t) => !excludeIds.has(t.id) && !pickedIds.has(t.id));
+
+  async function onAssign() {
+    if (picked.length === 0) return;
+    setSaving(true);
+    try {
+      await assignTeachersToClass(
+        classId,
+        picked.map((p) => p.id),
+      );
+      toast(
+        `Assigned ${picked.length} teacher${picked.length === 1 ? "" : "s"} to the class.`,
+        "success",
+      );
+      onAssigned();
+      handleOpenChange(false);
+    } catch (err) {
+      toast(isApiError(err) ? err.message : "Something went wrong", "error");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <DialogTrigger asChild>
+        <Button variant="secondary" size="sm">
+          <UserPlus className="size-4" aria-hidden="true" />
+          Assign teachers
+        </Button>
+      </DialogTrigger>
+      <DialogContent
+        title="Assign teachers to class"
+        description="Pick the teachers who manage this class. They'll see its students and events focused first."
+      >
+        <div className="flex flex-col gap-3">
+          <SearchInput
+            value={rawQuery}
+            onChange={setRawQuery}
+            placeholder="Search teacher email…"
+            className="sm:max-w-none"
+          />
+          {picked.length > 0 ? (
+            <ul className="flex flex-wrap gap-1.5" aria-label="Selected teachers">
+              {picked.map((p) => (
+                <li key={p.id}>
+                  <button
+                    type="button"
+                    onClick={() => setPicked((cur) => cur.filter((x) => x.id !== p.id))}
+                    className="inline-flex items-center gap-1 rounded-full border border-hairline bg-surface-2 px-2.5 py-1 text-body-sm text-ink hover:bg-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    aria-label={`Remove ${p.email} from selection`}
+                  >
+                    {p.email}
+                    <X className="size-3.5" aria-hidden="true" />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          <ul className="max-h-64 divide-y divide-hairline overflow-y-auto overscroll-contain rounded-button border border-hairline">
+            {results.length === 0 ? (
+              <li className="px-3 py-3 text-body-sm text-ink-muted">
+                {query ? "No matching teachers." : "Search to find teachers to assign."}
+              </li>
+            ) : (
+              results.map((t) => (
+                <li key={t.id}>
+                  <button
+                    type="button"
+                    onClick={() => setPicked((cur) => [...cur, { id: t.id, email: t.email }])}
+                    className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                  >
+                    <span className="min-w-0 flex-1 truncate text-body-sm text-ink">{t.email}</span>
+                  </button>
+                </li>
+              ))
+            )}
+          </ul>
+          <span role="status" aria-live="polite" className="sr-only">
+            {query ? `${results.length} teacher${results.length === 1 ? "" : "s"} found` : ""}
+          </span>
+          <div className="mt-1 flex justify-end gap-2">
+            <DialogClose asChild>
+              <Button type="button" variant="secondary">
+                Cancel
+              </Button>
+            </DialogClose>
+            <Button onClick={onAssign} loading={saving} disabled={picked.length === 0}>
+              Assign {picked.length > 0 ? picked.length : ""}
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** The teachers who manage this class (BP11c). School-admin only — a card of teacher chips with
+ *  a remove action + the assign dialog. Keyed on the class so an assign/remove refreshes it. */
+function TeachersSection({ classId }: { classId: string }) {
+  const { toast } = useToast();
+  const { data, isLoading, mutate } = useSWR(`class-teachers:${classId}`, () =>
+    getClassTeachers(classId),
+  );
+  const teachers = data ?? [];
+
+  // Also refresh the Staff page's per-teacher "Classes" chips (a different SWR namespace) so a
+  // change here isn't stale if both surfaces are open.
+  function refreshBoth() {
+    void mutate();
+    void globalMutate((k) => typeof k === "string" && k.startsWith("staff-classes:"));
+  }
+
+  async function onRemove(teacherId: string, email: string) {
+    try {
+      await removeClassTeacher(classId, teacherId);
+      toast(`Removed ${email} from the class.`, "success");
+      refreshBoth();
+    } catch (err) {
+      toast(isApiError(err) ? err.message : "Something went wrong", "error");
+    }
+  }
+
+  return (
+    <Card className="flex flex-col gap-3 p-4">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-body font-medium text-ink">Teachers</h2>
+        <AssignTeachersDialog
+          classId={classId}
+          excludeIds={new Set(teachers.map((t) => t.id))}
+          onAssigned={refreshBoth}
+        />
+      </div>
+      {isLoading ? (
+        <Skeleton className="h-8 w-48" />
+      ) : teachers.length === 0 ? (
+        <p className="text-body-sm text-ink-muted">
+          No teachers assigned. Assign teachers so they see this class focused first.
+        </p>
+      ) : (
+        <ul className="flex flex-wrap gap-1.5" aria-label="Assigned teachers">
+          {teachers.map((t) => (
+            <li key={t.id}>
+              <span className="inline-flex items-center gap-1 rounded-full border border-hairline bg-surface-2 px-2.5 py-1 text-body-sm text-ink">
+                {t.email}
+                <button
+                  type="button"
+                  onClick={() => onRemove(t.id, t.email)}
+                  className="rounded-full text-ink-muted hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  aria-label={`Remove ${t.email} from class`}
+                >
+                  <X className="size-3.5" aria-hidden="true" />
+                </button>
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Card>
+  );
+}
+
 function ClassDetailInner({ classId }: { classId: string }) {
   const { toast } = useToast();
   const { classes, isLoading: classesLoading, mutate: mutateClasses } = useClasses();
@@ -229,6 +428,8 @@ function ClassDetailInner({ classId }: { classId: string }) {
               />
             }
           />
+
+          <TeachersSection classId={classId} />
 
           {isLoading && items.length === 0 ? (
             <Card role="status" aria-label="Loading roster" className="flex flex-col gap-2 p-4">

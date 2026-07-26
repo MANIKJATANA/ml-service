@@ -31,6 +31,7 @@ import {
   PROCESSING_TONE,
 } from "@/lib/events/status";
 import { categoryColor } from "@/lib/events/categories";
+import { useClasses } from "@/lib/hooks/use-classes";
 import { useEvent } from "@/lib/hooks/use-events";
 import { useEventCategories } from "@/lib/hooks/use-event-categories";
 import { useEventNotifications } from "@/lib/hooks/use-event-notifications";
@@ -46,12 +47,14 @@ function EditEventDialog({
 }) {
   const { toast } = useToast();
   const { categories } = useEventCategories();
+  const { classes } = useClasses();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState(event.name);
   const [description, setDescription] = useState(event.description ?? "");
   const [eventDate, setEventDate] = useState(event.event_date ?? "");
   const [categoryId, setCategoryId] = useState(event.category_id ?? "");
   const [term, setTerm] = useState(event.term ?? "");
+  const [classId, setClassId] = useState(event.student_group_id ?? "");
   const [submitting, setSubmitting] = useState(false);
 
   function handleOpenChange(next: boolean) {
@@ -63,6 +66,7 @@ function EditEventDialog({
       setEventDate(event.event_date ?? "");
       setCategoryId(event.category_id ?? "");
       setTerm(event.term ?? "");
+      setClassId(event.student_group_id ?? "");
     }
   }
 
@@ -76,6 +80,7 @@ function EditEventDialog({
       event_date?: string;
       category_id?: string;
       term?: string;
+      student_group_id?: string;
     } = {};
     if (name.trim() && name.trim() !== event.name) patch.name = name.trim();
     if (description.trim() && description.trim() !== (event.description ?? "")) {
@@ -85,6 +90,10 @@ function EditEventDialog({
     // Changing to a different category works; "No category" (empty) can't clear it (0027).
     if (categoryId && categoryId !== (event.category_id ?? "")) patch.category_id = categoryId;
     if (term.trim() && term.trim() !== (event.term ?? "")) patch.term = term.trim();
+    // Changing the class works; "School-wide" (empty) can't clear it once set (0027).
+    if (classId && classId !== (event.student_group_id ?? "")) {
+      patch.student_group_id = classId;
+    }
     if (Object.keys(patch).length === 0) {
       toast("No changes to save.", "info");
       setOpen(false);
@@ -158,14 +167,34 @@ function EditEventDialog({
               </select>
             </Field>
           </div>
-          <Field label="Term" htmlFor="edit-event-term" hint="Optional, e.g. Fall 2026.">
-            <Input
-              id="edit-event-term"
-              maxLength={100}
-              value={term}
-              onChange={(e) => setTerm(e.target.value)}
-            />
-          </Field>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Term" htmlFor="edit-event-term" hint="Optional, e.g. Fall 2026.">
+              <Input
+                id="edit-event-term"
+                maxLength={100}
+                value={term}
+                onChange={(e) => setTerm(e.target.value)}
+              />
+            </Field>
+            {classes.length > 0 ? (
+              <Field label="Class" htmlFor="edit-event-class" hint="Optional.">
+                <select
+                  id="edit-event-class"
+                  value={classId}
+                  onChange={(e) => setClassId(e.target.value)}
+                  className="h-10 rounded-button border border-hairline bg-canvas px-3 text-body text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  {/* Once tagged, clearing isn't supported (0027) — omit the no-op option. */}
+                  {!event.student_group_id ? <option value="">School-wide</option> : null}
+                  {classes.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            ) : null}
+          </div>
           <div className="mt-2 flex justify-end gap-2">
             <DialogClose asChild>
               <Button type="button" variant="secondary">
@@ -467,6 +496,10 @@ export default function EventDetailPage() {
                 <div className="flex flex-col gap-1">
                   <dt className="text-body-sm text-ink-muted">Term</dt>
                   <dd className="text-body text-ink">{event.term ?? "—"}</dd>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <dt className="text-body-sm text-ink-muted">Class</dt>
+                  <dd className="text-body text-ink">{event.student_group_name ?? "School-wide"}</dd>
                 </div>
                 <div className="flex flex-col gap-1">
                   <dt className="text-body-sm text-ink-muted">Status</dt>

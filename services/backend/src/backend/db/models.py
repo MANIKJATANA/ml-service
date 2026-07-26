@@ -215,6 +215,47 @@ class StudentGroup(Base):
     __table_args__ = (Index("ix_student_groups_school", "school_id", "name", "id"),)
 
 
+class TeacherClass(Base):
+    """A teacher ↔ class delegation link (BP11c, migration 0015, decisions/0060).
+
+    Many-to-many: a teacher can own several classes; a class can have several teachers.
+    Both FKs ``ON DELETE CASCADE`` — deleting a teacher (a ``users`` row) or a class drops
+    the link, never the other side. Tenant-owned (``school_id`` denormalized for scoped
+    scans). A teacher's assigned classes drive their list "focus" scope."""
+
+    __tablename__ = "teacher_classes"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    school_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("schools.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    teacher_user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    student_group_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("student_groups.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "teacher_user_id", "student_group_id", name="uq_teacher_classes_pair"
+        ),
+        Index("ix_teacher_classes_teacher", "school_id", "teacher_user_id"),
+        Index("ix_teacher_classes_group", "school_id", "student_group_id"),
+    )
+
+
 class Event(Base):
     """An event (decisions/0027). ``id`` (as a string) is the ML ``event_id``.
     ``created_by`` uses ON DELETE SET NULL so an event outlives its creator's account.
@@ -268,6 +309,13 @@ class Event(Base):
         ForeignKey("event_categories.id", ondelete="SET NULL"),
         nullable=True,
     )
+    # BP11c (migration 0015): the class this event belongs to, or NULL (school-wide). SET NULL
+    # on class delete — un-tags its events, never deletes them. A teacher's "focus" scope reads it.
+    student_group_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("student_groups.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -286,6 +334,14 @@ class Event(Base):
             "ix_events_school_category",
             "school_id",
             "category_id",
+            "event_date",
+            "id",
+        ),
+        # BP11c: filter events by class + a teacher's focus scope within a school.
+        Index(
+            "ix_events_school_group",
+            "school_id",
+            "student_group_id",
             "event_date",
             "id",
         ),

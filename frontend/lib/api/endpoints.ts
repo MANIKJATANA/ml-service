@@ -2,6 +2,7 @@ import { bffFetch } from "./client";
 import type {
   BulkImportResponse,
   ClassListResponse,
+  ClassRefListResponse,
   ClassResponse,
   DashboardResponse,
   DownloadLogPageResponse,
@@ -54,11 +55,12 @@ export interface ListParams {
   sort?: string;
   dir?: SortDir;
   status?: string;
-  student_group_id?: string; // BP11a: filter the students list to one class
+  student_group_id?: string; // BP11a/BP11c: filter students/events list to one class
   category_id?: string; // BP11b: filter the events list to one category
   term?: string; // BP11b: filter the events list to one term
   date_from?: string; // BP11b: event_date >= (the calendar month window)
   date_to?: string; // BP11b: event_date <=
+  mine?: boolean; // BP11c: a teacher's "focus" — scope the list to their assigned classes
 }
 
 function listQuery(params: ListParams): string {
@@ -75,6 +77,7 @@ function listQuery(params: ListParams): string {
   if (params.term) q.set("term", params.term);
   if (params.date_from) q.set("date_from", params.date_from);
   if (params.date_to) q.set("date_to", params.date_to);
+  if (params.mine) q.set("mine", "true");
   return q.toString();
 }
 
@@ -354,6 +357,57 @@ export function setStudentClass(
   });
 }
 
+// --- Teacher delegation (BP11c, decisions/0060) ---
+
+/** The caller-teacher's own assigned classes (student:manage) — labels their list "focus". */
+export function getMyClasses(): Promise<ClassRefListResponse> {
+  return bffFetch<ClassRefListResponse>("/api/v1/classes/mine");
+}
+
+/** The teachers assigned to a class (class:manage — school_admin only). */
+export function getClassTeachers(classId: string): Promise<UserResponse[]> {
+  return bffFetch<UserResponse[]>(
+    `/api/v1/classes/${encodeURIComponent(classId)}/teachers`,
+  );
+}
+
+/** Bulk-assign teachers to a class (class:manage). Returns how many were linked. */
+export function assignTeachersToClass(
+  classId: string,
+  teacherIds: string[],
+): Promise<{ assigned: number }> {
+  return bffFetch<{ assigned: number }>(
+    `/api/v1/classes/${encodeURIComponent(classId)}/teachers`,
+    { method: "POST", body: JSON.stringify({ teacher_ids: teacherIds }) },
+  );
+}
+
+/** Unassign one teacher from a class (class:manage). */
+export function removeClassTeacher(classId: string, teacherId: string): Promise<void> {
+  return bffFetch<void>(
+    `/api/v1/classes/${encodeURIComponent(classId)}/teachers/${encodeURIComponent(teacherId)}`,
+    { method: "DELETE" },
+  );
+}
+
+/** The classes one teacher is assigned to (class:manage) — the staff-row chip. */
+export function getTeacherClasses(userId: string): Promise<ClassRefListResponse> {
+  return bffFetch<ClassRefListResponse>(
+    `/api/v1/staff/${encodeURIComponent(userId)}/classes`,
+  );
+}
+
+/** Replace a teacher's whole class set (class:manage) — the "Edit classes" dialog. */
+export function setTeacherClasses(
+  userId: string,
+  groupIds: string[],
+): Promise<ClassRefListResponse> {
+  return bffFetch<ClassRefListResponse>(
+    `/api/v1/staff/${encodeURIComponent(userId)}/classes`,
+    { method: "PUT", body: JSON.stringify({ group_ids: groupIds }) },
+  );
+}
+
 // --- Events (F4, event:manage / media:upload / job:status:view) ---
 
 /** One page of the events list (BP9): server search (name), sort (incl. the whole-list
@@ -372,6 +426,7 @@ export function createEvent(
   eventDate: string | null,
   categoryId: string | null = null,
   term: string | null = null,
+  studentGroupId: string | null = null,
 ): Promise<EventResponse> {
   return bffFetch<EventResponse>("/api/v1/events", {
     method: "POST",
@@ -381,12 +436,14 @@ export function createEvent(
       event_date: eventDate,
       category_id: categoryId,
       term,
+      student_group_id: studentGroupId,
     }),
   });
 }
 
 /** Partial update — only supplied fields change; clearing a field to null is unsupported (0027).
- *  BP11b: `category_id`/`term` follow the same convention (send to set, omit to leave). */
+ *  BP11b/BP11c: `category_id`/`term`/`student_group_id` follow the same convention (send to set,
+ *  omit to leave unchanged). */
 export function updateEvent(
   eventId: string,
   patch: {
@@ -397,6 +454,7 @@ export function updateEvent(
     auto_notify?: boolean;
     category_id?: string;
     term?: string;
+    student_group_id?: string;
   },
 ): Promise<EventResponse> {
   return bffFetch<EventResponse>(`/api/v1/events/${encodeURIComponent(eventId)}`, {

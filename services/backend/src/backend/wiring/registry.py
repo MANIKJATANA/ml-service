@@ -44,6 +44,13 @@ EVENT_CATEGORY_REPO_REGISTRY: dict[str, str] = {
     ),
 }
 
+TEACHER_CLASS_REPO_REGISTRY: dict[str, str] = {
+    "postgres": (
+        "backend.adapters.repositories.postgres_teacher_classes"
+        ":PostgresTeacherClassRepository"
+    ),
+}
+
 MEDIA_REPO_REGISTRY: dict[str, str] = {
     "postgres": "backend.adapters.repositories.postgres_media:PostgresMediaRepository",
 }

@@ -13,9 +13,10 @@ export interface ListQuery {
   sort?: string;
   dir?: SortDir;
   status?: string;
-  student_group_id?: string; // BP11a: the students list can filter to one class
+  student_group_id?: string; // BP11a/BP11c: students & events lists can filter to one class
   category_id?: string; // BP11b: the events list can filter to one category
   term?: string; // BP11b: the events list can filter to one term
+  mine?: boolean; // BP11c: a teacher's "focus" — scope the list to their assigned classes
 }
 
 export const LIST_PAGE_SIZE = 50;

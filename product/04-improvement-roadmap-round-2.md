@@ -117,8 +117,12 @@ L ≈ net-new across services (+ migration / infra). **Impact:** H/M/L on the pr
   ([decisions/0059](../decisions/0059-product-build-BP11b-event-categories-calendar.md)): a free-text term +
   **per-school configurable categories** (a tenant `event_categories` table, seeded with 6 defaults on
   school-create + into existing schools in migration 0014; managed by admins + staff on `event:manage`) + a
-  read-only month calendar (List⇄Calendar tabs). **BP11c** teacher delegation (staged — a "focus" filter by
-  default, an opt-in "restrict" switch) — 📋 next. Cohort-scoped *matching* stays deferred to **BP15**.
+  read-only month calendar (List⇄Calendar tabs). **BP11c** teacher delegation — ✅ landed
+  ([decisions/0060](../decisions/0060-product-build-BP11c-teacher-delegation.md)): a `teacher_classes` N:M
+  join + `events.student_group_id` (the deferred event↔class link) + a `DelegationService` + a teacher list
+  **"focus"** scope (owner call: **focus-only**, no hard restrict — convenience, not a boundary), reusing
+  **`class:manage`** (no new perm). Cohort-scoped *matching* stays deferred to **BP15**. **BP11 is complete
+  (a, b, c).**
 
 ### BP13 — Bulk actions & batch review · **Effort M · Impact M · BE + FE** · 📋 proposed
 - **Problem (theme E):** everything is one-at-a-time — no bulk re-enroll, no bulk archive, **no batch
@@ -191,8 +195,8 @@ L ≈ net-new across services (+ migration / infra). **Impact:** H/M/L on the pr
 
 ## 5. How to use this file
 
-- **Pick the next phase** off the top of §4 — **BP9**, **BP17**, **BP10**, **BP11a** (student classes), and
-  **BP11b** (event term/category + calendar) have landed; **BP11c** (teacher delegation) is next.
+- **Pick the next phase** off the top of §4 — **BP9**, **BP17**, **BP10**, and **BP11a/b/c** (the whole
+  organizing-structure phase) have landed; **BP13** (bulk actions & batch review) is next.
 - **Before building**, re-read the phase's **source lens** in `01` (the acceptance target) and its finding
   in `02` (what breaks + severity), then lock the phase design in a `decisions/` doc (repo convention).
 - **Keep `00` honest:** when a capability ships, move it from "dark/absent" to "exposed" in `00`'s

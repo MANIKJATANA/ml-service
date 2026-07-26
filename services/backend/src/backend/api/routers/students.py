@@ -13,7 +13,12 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, status
 
-from backend.api.deps import ContainerDep, require_permissions, tenant_of
+from backend.api.deps import (
+    ContainerDep,
+    require_permissions,
+    resolve_focus_group_ids,
+    tenant_of,
+)
 from backend.api.pagination import (
     DEFAULT_PAGE_SIZE,
     LimitQuery,
@@ -130,10 +135,13 @@ async def list_students(
     dir: Annotated[SortDir, Query()] = SortDir.ASC,
     status: Annotated[EnrollmentStatus | None, Query()] = None,
     student_group_id: Annotated[str | None, Query(max_length=64)] = None,
+    mine: Annotated[bool, Query()] = False,
 ) -> StudentListPageResponse:
     """One page of the students list (BP9): server search (name/email), sort (incl. the
     whole-list appearance/event count columns), an enrollment-status filter, and (BP11a) an
-    optional class filter (``student_group_id``)."""
+    optional class filter (``student_group_id``). BP11c: ``mine=true`` limits a teacher's list
+    to the students in their assigned classes (their "focus"); ignored for an admin."""
+    scope = await resolve_focus_group_ids(container, actor, mine)
     page = await container.listing_service().list_students_page(
         school_id=tenant_of(actor),
         limit=limit,
@@ -143,6 +151,7 @@ async def list_students(
         descending=is_descending(dir),
         status=status,
         student_group_id=student_group_id,
+        scope_group_ids=scope,
     )
     return StudentListPageResponse.from_page(page)
 

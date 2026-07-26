@@ -38,6 +38,7 @@ from backend.domain.ports import (
     SchoolRepository,
     StudentGroupRepository,
     StudentRepository,
+    TeacherClassRepository,
     Thumbnailer,
     TokenService,
     UserRepository,
@@ -46,6 +47,7 @@ from backend.services.audit_service import AuditService
 from backend.services.auth_service import AuthService
 from backend.services.class_service import ClassService
 from backend.services.dashboard_service import DashboardService
+from backend.services.delegation_service import DelegationService
 from backend.services.event_category_service import EventCategoryService
 from backend.services.event_service import EventService
 from backend.services.gallery_service import GalleryService
@@ -73,6 +75,7 @@ class Container:
         self._user_repo: UserRepository | None = None
         self._student_repo: StudentRepository | None = None
         self._student_group_repo: StudentGroupRepository | None = None
+        self._teacher_class_repo: TeacherClassRepository | None = None
         self._event_repo: EventRepository | None = None
         self._event_category_repo: EventCategoryRepository | None = None
         self._media_repo: MediaRepository | None = None
@@ -92,6 +95,7 @@ class Container:
         self._onboarding_service: OnboardingService | None = None
         self._student_service: StudentService | None = None
         self._class_service: ClassService | None = None
+        self._delegation_service: DelegationService | None = None
         self._event_service: EventService | None = None
         self._event_category_service: EventCategoryService | None = None
         self._media_service: MediaService | None = None
@@ -160,6 +164,16 @@ class Container:
                     )
                     self._student_group_repo = cls(self.sessionmaker())
         return self._student_group_repo
+
+    def teacher_class_repo(self) -> TeacherClassRepository:
+        if self._teacher_class_repo is None:
+            with self._lock:
+                if self._teacher_class_repo is None:
+                    cls = registry.resolve(
+                        registry.TEACHER_CLASS_REPO_REGISTRY, self._s.repository_impl
+                    )
+                    self._teacher_class_repo = cls(self.sessionmaker())
+        return self._teacher_class_repo
 
     def event_repo(self) -> EventRepository:
         if self._event_repo is None:
@@ -413,6 +427,17 @@ class Container:
                     )
         return self._class_service
 
+    def delegation_service(self) -> DelegationService:
+        if self._delegation_service is None:
+            with self._lock:
+                if self._delegation_service is None:
+                    self._delegation_service = DelegationService(
+                        self.teacher_class_repo(),
+                        self.student_group_repo(),
+                        self.user_repo(),
+                    )
+        return self._delegation_service
+
     def event_service(self) -> EventService:
         if self._event_service is None:
             with self._lock:
@@ -422,6 +447,7 @@ class Container:
                         self.media_repo(),
                         self.event_job_producer(),
                         self.event_category_repo(),
+                        self.student_group_repo(),
                     )
         return self._event_service
 

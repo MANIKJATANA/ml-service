@@ -45,6 +45,9 @@ class CreateEventRequest(BaseModel):
     # free-text term.
     category_id: str | None = Field(default=None, max_length=64)
     term: str | None = Field(default=None, max_length=100)
+    # BP11c: the class this event belongs to (a tenant student_groups id; foreign → 404). None
+    # = untagged (school-wide).
+    student_group_id: str | None = Field(default=None, max_length=64)
 
 
 class UpdateEventRequest(BaseModel):
@@ -56,9 +59,10 @@ class UpdateEventRequest(BaseModel):
     event_date: date | None = None
     status: EventStatus | None = None
     auto_notify: bool | None = None  # BP4: auto-announce to students on completion
-    # BP11b: None = leave unchanged (so term/category can't be cleared to null — 0027).
+    # BP11b/BP11c: None = leave unchanged (so term/category/class can't be cleared to null — 0027).
     category_id: str | None = Field(default=None, max_length=64)
     term: str | None = Field(default=None, max_length=100)
+    student_group_id: str | None = Field(default=None, max_length=64)
 
 
 class EventResponse(BaseModel):
@@ -80,6 +84,9 @@ class EventResponse(BaseModel):
     term: str | None = None
     category_id: str | None = None
     category_name: str | None = None
+    # BP11c: the event's class (student_group_name denormalized for display; null = untagged).
+    student_group_id: str | None = None
+    student_group_name: str | None = None
 
     @classmethod
     def from_event(cls, event: Event) -> EventResponse:
@@ -100,6 +107,8 @@ class EventResponse(BaseModel):
             term=event.term,
             category_id=event.category_id,
             category_name=event.category_name,
+            student_group_id=event.student_group_id,
+            student_group_name=event.student_group_name,
         )
 
 

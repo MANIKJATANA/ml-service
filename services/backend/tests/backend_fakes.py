@@ -62,6 +62,7 @@ from backend.domain.ports import (
     SchoolRepository,
     StudentGroupRepository,
     StudentRepository,
+    TeacherClassRepository,
     Thumbnailer,
     UserRepository,
 )
@@ -228,6 +229,8 @@ def make_event(
     term: str | None = None,
     category_id: str | None = None,
     category_name: str | None = None,
+    student_group_id: str | None = None,
+    student_group_name: str | None = None,
 ) -> Event:
     return Event(
         id=id,
@@ -247,6 +250,8 @@ def make_event(
         term=term,
         category_id=category_id,
         category_name=category_name,
+        student_group_id=student_group_id,
+        student_group_name=student_group_name,
     )
 
 
@@ -643,11 +648,17 @@ class FakeStudentRepo:
         q: str | None,
         status: EnrollmentStatus | None,
         student_group_id: str | None = None,
+        scope_group_ids: Sequence[str] | None = None,
     ) -> bool:
+        # BP11c focus: an un-classed student is in no teacher's scope (unlike events).
+        in_scope = scope_group_ids is None or (
+            s.student_group_id is not None and s.student_group_id in scope_group_ids
+        )
         return (
             s.school_id == school_id
             and (status is None or s.enrollment_status is status)
             and (student_group_id is None or s.student_group_id == student_group_id)
+            and in_scope
             and _q_match(q, s.name, s.email)
         )
 
@@ -662,11 +673,12 @@ class FakeStudentRepo:
         descending: bool = False,
         status: EnrollmentStatus | None = None,
         student_group_id: str | None = None,
+        scope_group_ids: Sequence[str] | None = None,
     ) -> list[Student]:
         rows = [
             s
             for s in self._by_id.values()
-            if self._match(s, school_id, q, status, student_group_id)
+            if self._match(s, school_id, q, status, student_group_id, scope_group_ids)
         ]
         return _page(
             rows,
@@ -683,11 +695,12 @@ class FakeStudentRepo:
         q: str | None = None,
         status: EnrollmentStatus | None = None,
         student_group_id: str | None = None,
+        scope_group_ids: Sequence[str] | None = None,
     ) -> int:
         return sum(
             1
             for s in self._by_id.values()
-            if self._match(s, school_id, q, status, student_group_id)
+            if self._match(s, school_id, q, status, student_group_id, scope_group_ids)
         )
 
     async def list_ids(
@@ -697,11 +710,12 @@ class FakeStudentRepo:
         q: str | None = None,
         status: EnrollmentStatus | None = None,
         student_group_id: str | None = None,
+        scope_group_ids: Sequence[str] | None = None,
     ) -> list[str]:
         return [
             s.id
             for s in self._by_id.values()
-            if self._match(s, school_id, q, status, student_group_id)
+            if self._match(s, school_id, q, status, student_group_id, scope_group_ids)
         ]
 
     async def list_by_ids(
@@ -1018,12 +1032,17 @@ class FakeEventRepo:
         self._media_repo: FakeMediaRepo | None = None
         # Resolves a category name by id — mirrors the event_categories LEFT JOIN (BP11b).
         self._category_name_of: Callable[[str], str | None] = lambda _cid: None
+        # Resolves a class name by id — mirrors the student_groups LEFT JOIN (BP11c).
+        self._group_name_of: Callable[[str], str | None] = lambda _gid: None
 
     def link_media(self, media_repo: FakeMediaRepo) -> None:
         self._media_repo = media_repo
 
     def link_categories(self, resolver: Callable[[str], str | None]) -> None:
         self._category_name_of = resolver
+
+    def link_groups(self, resolver: Callable[[str], str | None]) -> None:
+        self._group_name_of = resolver
 
     async def create(
         self,
@@ -1035,6 +1054,7 @@ class FakeEventRepo:
         created_by: str | None,
         category_id: str | None = None,
         term: str | None = None,
+        student_group_id: str | None = None,
     ) -> Event:
         self._seq += 1
         event = make_event(
@@ -1051,6 +1071,12 @@ class FakeEventRepo:
                 else None
             ),
             term=term,
+            student_group_id=student_group_id,
+            student_group_name=(
+                self._group_name_of(student_group_id)
+                if student_group_id is not None
+                else None
+            ),
         )
         self._by_id[event.id] = event
         return event
@@ -1074,7 +1100,13 @@ class FakeEventRepo:
         term: str | None = None,
         date_from: date | None = None,
         date_to: date | None = None,
+        student_group_id: str | None = None,
+        scope_group_ids: Sequence[str] | None = None,
     ) -> bool:
+        # BP11c focus: an untagged (school-wide) event shows for every focused teacher.
+        in_scope = scope_group_ids is None or (
+            e.student_group_id is None or e.student_group_id in scope_group_ids
+        )
         return (
             e.school_id == school_id
             and (status is None or e.status is status)
@@ -1088,6 +1120,8 @@ class FakeEventRepo:
                 date_to is None
                 or (e.event_date is not None and e.event_date <= date_to)
             )
+            and (student_group_id is None or e.student_group_id == student_group_id)
+            and in_scope
             and _q_match(q, e.name)
         )
 
@@ -1105,11 +1139,16 @@ class FakeEventRepo:
         term: str | None = None,
         date_from: date | None = None,
         date_to: date | None = None,
+        student_group_id: str | None = None,
+        scope_group_ids: Sequence[str] | None = None,
     ) -> list[Event]:
         rows = [
             e
             for e in self._by_id.values()
-            if self._match(e, school_id, q, status, category_id, term, date_from, date_to)
+            if self._match(
+                e, school_id, q, status, category_id, term, date_from, date_to,
+                student_group_id, scope_group_ids,
+            )
         ]
         return _page(
             rows,
@@ -1129,11 +1168,16 @@ class FakeEventRepo:
         term: str | None = None,
         date_from: date | None = None,
         date_to: date | None = None,
+        student_group_id: str | None = None,
+        scope_group_ids: Sequence[str] | None = None,
     ) -> int:
         return sum(
             1
             for e in self._by_id.values()
-            if self._match(e, school_id, q, status, category_id, term, date_from, date_to)
+            if self._match(
+                e, school_id, q, status, category_id, term, date_from, date_to,
+                student_group_id, scope_group_ids,
+            )
         )
 
     async def list_ids(
@@ -1146,11 +1190,16 @@ class FakeEventRepo:
         term: str | None = None,
         date_from: date | None = None,
         date_to: date | None = None,
+        student_group_id: str | None = None,
+        scope_group_ids: Sequence[str] | None = None,
     ) -> list[str]:
         return [
             e.id
             for e in self._by_id.values()
-            if self._match(e, school_id, q, status, category_id, term, date_from, date_to)
+            if self._match(
+                e, school_id, q, status, category_id, term, date_from, date_to,
+                student_group_id, scope_group_ids,
+            )
         ]
 
     async def list_terms(self, school_id: str) -> list[str]:
@@ -1168,6 +1217,14 @@ class FakeEventRepo:
             if e.category_id == category_id:
                 self._by_id[eid] = replace(
                     e, category_id=None, category_name=None
+                )
+
+    def untag_group(self, group_id: str) -> None:
+        """Cascade hook for FakeStudentGroupRepo.delete (events.student_group_id SET NULL)."""
+        for eid, e in list(self._by_id.items()):
+            if e.student_group_id == group_id:
+                self._by_id[eid] = replace(
+                    e, student_group_id=None, student_group_name=None
                 )
 
     async def list_by_ids(
@@ -1245,6 +1302,7 @@ class FakeEventRepo:
         auto_notify: bool | None = None,
         category_id: str | None = None,
         term: str | None = None,
+        student_group_id: str | None = None,
     ) -> Event | None:
         event = await self.get(school_id, event_id)
         if event is None:
@@ -1265,6 +1323,9 @@ class FakeEventRepo:
             changes["category_name"] = self._category_name_of(category_id)
         if term is not None:
             changes["term"] = term
+        if student_group_id is not None:
+            changes["student_group_id"] = student_group_id
+            changes["student_group_name"] = self._group_name_of(student_group_id)
         updated = replace(event, **changes)  # type: ignore[arg-type]
         self._by_id[event_id] = updated
         return updated
@@ -1352,6 +1413,61 @@ class FakeEventCategoryRepo:
                 self._by_id[f"ecat-{self._seq}"] = make_event_category(
                     id=f"ecat-{self._seq}", school_id=school_id, name=name
                 )
+
+
+class FakeTeacherClassRepo:
+    """TeacherClassRepository double (BP11c). Stores ``(school_id, teacher_id, group_id)``
+    tuples; tenant-scoped like the real adapter. ``add`` is idempotent (a set)."""
+
+    def __init__(self, links: list[tuple[str, str, str]] | None = None) -> None:
+        self._links: set[tuple[str, str, str]] = set(links or [])
+
+    async def add(
+        self, *, school_id: str, teacher_user_id: str, student_group_id: str
+    ) -> None:
+        self._links.add((school_id, teacher_user_id, student_group_id))
+
+    async def remove(
+        self, *, school_id: str, teacher_user_id: str, student_group_id: str
+    ) -> bool:
+        key = (school_id, teacher_user_id, student_group_id)
+        if key in self._links:
+            self._links.discard(key)
+            return True
+        return False
+
+    async def replace_for_teacher(
+        self,
+        *,
+        school_id: str,
+        teacher_user_id: str,
+        student_group_ids: Sequence[str],
+    ) -> None:
+        self._links = {
+            link
+            for link in self._links
+            if not (link[0] == school_id and link[1] == teacher_user_id)
+        }
+        for gid in student_group_ids:
+            self._links.add((school_id, teacher_user_id, gid))
+
+    async def list_group_ids_for_teacher(
+        self, school_id: str, teacher_user_id: str
+    ) -> list[str]:
+        return [
+            g
+            for (s, t, g) in self._links
+            if s == school_id and t == teacher_user_id
+        ]
+
+    async def list_teacher_ids_for_group(
+        self, school_id: str, student_group_id: str
+    ) -> list[str]:
+        return [
+            t
+            for (s, t, g) in self._links
+            if s == school_id and g == student_group_id
+        ]
 
 
 class RecordingStudentRepo(FakeStudentRepo):
@@ -1796,6 +1912,7 @@ class SeededContainer(Container):
         *,
         students: StudentRepository | None = None,
         student_groups: StudentGroupRepository | None = None,
+        teacher_classes: TeacherClassRepository | None = None,
         object_store: ObjectStore | None = None,
         ml_client: MlEnrollmentClient | None = None,
         thumbnailer: Thumbnailer | None = None,
@@ -1816,6 +1933,9 @@ class SeededContainer(Container):
         self._seed_students: StudentRepository = students or FakeStudentRepo()
         self._seed_student_groups: StudentGroupRepository = (
             student_groups or FakeStudentGroupRepo()
+        )
+        self._seed_teacher_classes: TeacherClassRepository = (
+            teacher_classes or FakeTeacherClassRepo()
         )
         self._seed_object_store: ObjectStore = object_store or FakeObjectStore()
         self._seed_ml_client: MlEnrollmentClient = ml_client or FakeMlClient()
@@ -1848,15 +1968,28 @@ class SeededContainer(Container):
             self._seed_users.link_cascade(self._seed_students.remove_by_user)
             self._seed_students.link_users(self._seed_users.email_of)
         # Wire the class↔student links (BP11a): the student read carries its class name, the
-        # classes list shows member counts, and deleting a class un-assigns its students.
+        # classes list shows member counts, and deleting a class un-assigns its students —
+        # and (BP11c) un-tags its events (both students.student_group_id + events.student_group_id
+        # are ON DELETE SET NULL).
         if isinstance(self._seed_students, FakeStudentRepo) and isinstance(
             self._seed_student_groups, FakeStudentGroupRepo
         ):
-            self._seed_students.link_groups(self._seed_student_groups.name_of)
-            self._seed_student_groups.link_students(
-                self._seed_students.group_counts,
-                on_delete=self._seed_students.unassign_group,
-            )
+            students = self._seed_students
+            groups = self._seed_student_groups
+            events = self._seed_events
+            students.link_groups(groups.name_of)
+            if isinstance(events, FakeEventRepo):
+                events.link_groups(groups.name_of)  # events carry the class name (BP11c)
+
+                def _on_group_delete(gid: str) -> None:
+                    students.unassign_group(gid)  # SET NULL: un-assign the class's students
+                    events.untag_group(gid)  # SET NULL: un-tag the class's events (BP11c)
+
+                groups.link_students(students.group_counts, on_delete=_on_group_delete)
+            else:
+                groups.link_students(
+                    students.group_counts, on_delete=students.unassign_group
+                )
         # Let the event repo see media presence (the not_started-with-media alert).
         if isinstance(self._seed_events, FakeEventRepo) and isinstance(
             self._seed_media, FakeMediaRepo
@@ -1881,6 +2014,9 @@ class SeededContainer(Container):
 
     def student_group_repo(self) -> StudentGroupRepository:
         return self._seed_student_groups
+
+    def teacher_class_repo(self) -> TeacherClassRepository:
+        return self._seed_teacher_classes
 
     def object_store(self) -> ObjectStore:
         return self._seed_object_store

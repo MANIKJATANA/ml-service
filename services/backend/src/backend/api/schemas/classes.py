@@ -81,6 +81,41 @@ class AssignStudentsResponse(BaseModel):
     assigned: int
 
 
+# ---- BP11c teacher delegation (decisions/0060) --------------------------
+
+# The largest number of teachers one class-assign call, or classes one teacher-set call, can
+# carry — well above any real school's staff/class count; over it is a 422 (an abuse ceiling).
+_MAX_DELEGATION = 200
+
+
+class AssignTeachersRequest(BaseModel):
+    """Bulk-link teachers to a class (BP11c). Ids are validated + tenant-scoped in the service
+    (a foreign/non-teacher id is silently skipped, never a cross-tenant link)."""
+
+    teacher_ids: list[str] = Field(min_length=1, max_length=_MAX_DELEGATION)
+
+
+class AssignTeachersResponse(BaseModel):
+    assigned: int
+
+
+class SetTeacherClassesRequest(BaseModel):
+    """Replace a teacher's whole class set (the staff-row "Edit classes" PUT). An empty list
+    clears the teacher's classes; a foreign class id is silently skipped in the service."""
+
+    group_ids: list[str] = Field(default_factory=list, max_length=_MAX_DELEGATION)
+
+
+class ClassRefListResponse(BaseModel):
+    """A plain list of classes (no counts) — a teacher's assigned classes / "my classes"."""
+
+    items: list[ClassResponse]
+
+    @classmethod
+    def from_groups(cls, groups: list[StudentGroup]) -> ClassRefListResponse:
+        return cls(items=[ClassResponse.from_group(g) for g in groups])
+
+
 class ClassListResponse(BaseModel):
     """The classes list. Unpaginated — classes are bounded per school (a few dozen); the FE
     also uses this list to populate the students-list class filter."""

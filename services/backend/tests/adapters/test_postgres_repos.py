@@ -36,6 +36,9 @@ from backend.adapters.repositories.postgres_student_groups import (
     PostgresStudentGroupRepository,
 )
 from backend.adapters.repositories.postgres_students import PostgresStudentRepository
+from backend.adapters.repositories.postgres_teacher_classes import (
+    PostgresTeacherClassRepository,
+)
 from backend.adapters.repositories.postgres_users import PostgresUserRepository
 from backend.db.base import Base
 from backend.db.session import make_engine, make_sessionmaker
@@ -1220,3 +1223,91 @@ async def test_event_category_crud_seed_join_filters_and_cascade(
     assert after is not None and after.category_id is None and after.category_name is None
     assert await cats.get(a.id, sports.id) is None
     assert await cats.delete(a.id, sports.id) is False  # already gone
+
+
+async def test_teacher_class_links_and_event_group_scope_and_cascade(
+    sm: async_sessionmaker[AsyncSession],
+) -> None:
+    # BP11c: the teacher↔class link (add idempotent / both directions / remove / replace /
+    # tenant scope), the events LEFT JOIN carrying the class name + the class filter + the
+    # focus scope (class events OR untagged), and the two SET-NULL/CASCADE deletes — end to
+    # end on real SQL.
+    schools = PostgresSchoolRepository(sm)
+    users = PostgresUserRepository(sm)
+    events = PostgresEventRepository(sm)
+    groups = PostgresStudentGroupRepository(sm)
+    links = PostgresTeacherClassRepository(sm)
+    a = await schools.create(name="A", max_teachers=5)
+    b = await schools.create(name="B", max_teachers=5)
+    c1 = await groups.create(school_id=a.id, name="3A", grade="3", section="A")
+    c2 = await groups.create(school_id=a.id, name="3B", grade="3", section="B")
+    t1 = await users.create(
+        school_id=a.id, email="t1@a.io", password_hash="h", role=Role.TEACHER
+    )
+    t2 = await users.create(
+        school_id=a.id, email="t2@a.io", password_hash="h", role=Role.TEACHER
+    )
+
+    # add is idempotent; links resolve both directions; tenant-scoped
+    await links.add(school_id=a.id, teacher_user_id=t1.id, student_group_id=c1.id)
+    await links.add(school_id=a.id, teacher_user_id=t1.id, student_group_id=c1.id)  # no-op
+    await links.add(school_id=a.id, teacher_user_id=t2.id, student_group_id=c1.id)
+    assert await links.list_group_ids_for_teacher(a.id, t1.id) == [c1.id]
+    assert set(await links.list_teacher_ids_for_group(a.id, c1.id)) == {t1.id, t2.id}
+    assert await links.list_group_ids_for_teacher(b.id, t1.id) == []  # foreign school
+
+    # remove returns whether a row went; a second remove is False
+    assert await links.remove(
+        school_id=a.id, teacher_user_id=t2.id, student_group_id=c1.id
+    ) is True
+    assert await links.remove(
+        school_id=a.id, teacher_user_id=t2.id, student_group_id=c1.id
+    ) is False
+
+    # replace_for_teacher sets the whole set atomically (dedupes a repeated id)
+    await links.replace_for_teacher(
+        school_id=a.id, teacher_user_id=t1.id, student_group_ids=[c1.id, c2.id, c2.id]
+    )
+    assert set(await links.list_group_ids_for_teacher(a.id, t1.id)) == {c1.id, c2.id}
+
+    # events carry the class name (LEFT JOIN); the class filter + the focus scope work
+    e1 = await events.create(
+        school_id=a.id, name="Cls", description=None, event_date=None,
+        created_by=None, student_group_id=c1.id,
+    )
+    await events.create(
+        school_id=a.id, name="Other", description=None, event_date=None,
+        created_by=None, student_group_id=c2.id,
+    )
+    await events.create(
+        school_id=a.id, name="Assembly", description=None, event_date=None,
+        created_by=None,  # untagged / school-wide
+    )
+    got = await events.get(a.id, e1.id)
+    assert got is not None and got.student_group_id == c1.id
+    assert got.student_group_name == "3A"
+    by_class = await events.list_page(a.id, limit=50, offset=0, student_group_id=c1.id)
+    assert {e.name for e in by_class} == {"Cls"}
+    # focus scope: the teacher's classes' events PLUS the untagged school-wide event
+    focused = await events.list_page(
+        a.id, limit=50, offset=0, scope_group_ids=[c1.id]
+    )
+    assert {e.name for e in focused} == {"Cls", "Assembly"}
+    # an empty focus scope leaves only the untagged events
+    only_untagged = await events.list_page(
+        a.id, limit=50, offset=0, scope_group_ids=[]
+    )
+    assert {e.name for e in only_untagged} == {"Assembly"}
+
+    # delete the class → its events SET NULL and its teacher links CASCADE away
+    assert await groups.delete(a.id, c1.id) is True
+    after = await events.get(a.id, e1.id)
+    assert after is not None and after.student_group_id is None
+    assert after.student_group_name is None
+    assert await links.list_teacher_ids_for_group(a.id, c1.id) == []  # links cascaded
+
+    # deleting the teacher (a users row) cascades its remaining links away too
+    remaining = await links.list_group_ids_for_teacher(a.id, t1.id)
+    assert remaining == [c2.id]
+    await users.delete(t1.id)
+    assert await links.list_group_ids_for_teacher(a.id, t1.id) == []

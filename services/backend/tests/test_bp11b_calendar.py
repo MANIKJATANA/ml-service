@@ -27,6 +27,7 @@ from backend_fakes import (
     FakeHasher,
     FakeMediaRepo,
     FakeSchoolRepo,
+    FakeStudentGroupRepo,
     FakeUserRepo,
     SeededContainer,
     make_event,
@@ -57,7 +58,9 @@ def _event_svc(
     *, events: list[Event] | None = None, categories: list[EventCategory] | None = None
 ) -> tuple[EventService, FakeEventRepo, FakeEventCategoryRepo]:
     crepo, erepo = _wire(categories, events)
-    svc = EventService(erepo, FakeMediaRepo(), FakeEventJobProducer(), crepo)
+    svc = EventService(
+        erepo, FakeMediaRepo(), FakeEventJobProducer(), crepo, FakeStudentGroupRepo()
+    )
     return svc, erepo, crepo
 
 

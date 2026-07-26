@@ -20,7 +20,7 @@ batch here yet).
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import date
 
@@ -170,12 +170,15 @@ class ListingService:
         term: str | None = None,
         date_from: date | None = None,
         date_to: date | None = None,
+        student_group_id: str | None = None,
+        scope_group_ids: Sequence[str] | None = None,
     ) -> Page[EventListing]:
         """One page of the events list (BP9), searched/filtered/sorted server-side. Count
         sorts (media/matched/needs_review) take the whole-list id-scan path; row-native
         sorts page directly in SQL. BP11b: ``category_id``/``term`` filter + ``date_from``/
-        ``date_to`` bound ``event_date`` (the calendar month window) — threaded through both
-        paths."""
+        ``date_to`` bound ``event_date`` (the calendar month window). BP11c: ``student_group_id``
+        filters to one class; ``scope_group_ids`` is a teacher's focus (their classes + untagged
+        events) — all threaded through both paths."""
         media_counts = await self._media.counts_by_event(school_id)
         match_counts = await self._reader.event_match_counts(school_id)
         if sort in EVENT_COUNT_SORTS:
@@ -187,6 +190,8 @@ class ListingService:
                 term=term,
                 date_from=date_from,
                 date_to=date_to,
+                student_group_id=student_group_id,
+                scope_group_ids=scope_group_ids,
             )
             total = len(ids)
 
@@ -222,6 +227,8 @@ class ListingService:
                 term=term,
                 date_from=date_from,
                 date_to=date_to,
+                student_group_id=student_group_id,
+                scope_group_ids=scope_group_ids,
             )
             total = await self._events.count_page(
                 school_id,
@@ -231,6 +238,8 @@ class ListingService:
                 term=term,
                 date_from=date_from,
                 date_to=date_to,
+                student_group_id=student_group_id,
+                scope_group_ids=scope_group_ids,
             )
         items = [_event_listing(e, media_counts, match_counts) for e in events]
         return Page(items=items, total=total, limit=limit, offset=offset)
@@ -251,14 +260,20 @@ class ListingService:
         descending: bool = False,
         status: EnrollmentStatus | None = None,
         student_group_id: str | None = None,
+        scope_group_ids: Sequence[str] | None = None,
     ) -> Page[StudentListing]:
         """One page of the students list (BP9). Count sorts (appearance/event) take the
         whole-list id-scan path; row-native sorts page directly in SQL. BP11a:
-        ``student_group_id`` filters to one class (threaded through both paths)."""
+        ``student_group_id`` filters to one class. BP11c: ``scope_group_ids`` is a teacher's
+        focus (limit to their classes) — both threaded through both paths."""
         counts = await self._reader.student_appearance_counts(school_id)
         if sort in STUDENT_COUNT_SORTS:
             ids = await self._students.list_ids(
-                school_id, q=q, status=status, student_group_id=student_group_id
+                school_id,
+                q=q,
+                status=status,
+                student_group_id=student_group_id,
+                scope_group_ids=scope_group_ids,
             )
             total = len(ids)
 
@@ -289,9 +304,14 @@ class ListingService:
                 descending=descending,
                 status=status,
                 student_group_id=student_group_id,
+                scope_group_ids=scope_group_ids,
             )
             total = await self._students.count_page(
-                school_id, q=q, status=status, student_group_id=student_group_id
+                school_id,
+                q=q,
+                status=status,
+                student_group_id=student_group_id,
+                scope_group_ids=scope_group_ids,
             )
         items = [_student_listing(s, counts) for s in students]
         return Page(items=items, total=total, limit=limit, offset=offset)

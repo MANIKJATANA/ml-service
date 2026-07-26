@@ -79,6 +79,12 @@ export interface ClassListResponse {
   items: ClassListItem[];
 }
 
+/** A plain list of classes without counts (BP11c) — a teacher's assigned classes / "my
+ *  classes" / a class's teacher set responses. */
+export interface ClassRefListResponse {
+  items: ClassResponse[];
+}
+
 /** A newly created student + its ONE-TIME server-generated temp password (BP7d). */
 export interface ProvisionedStudentResponse {
   student: StudentResponse;
@@ -167,6 +173,9 @@ export interface EventResponse {
   term: string | null;
   category_id: string | null;
   category_name: string | null;
+  // BP11c: the class this event belongs to (null = untagged/school-wide); name denormalized.
+  student_group_id: string | null;
+  student_group_name: string | null;
 }
 
 /** A tenant-configurable event category (BP11b, decisions/0059). */

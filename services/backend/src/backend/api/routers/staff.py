@@ -19,6 +19,10 @@ from backend.api.pagination import (
     SearchQuery,
     is_descending,
 )
+from backend.api.schemas.classes import (
+    ClassRefListResponse,
+    SetTeacherClassesRequest,
+)
 from backend.api.schemas.users import (
     CreateUserRequest,
     ProvisionedUserResponse,
@@ -33,6 +37,8 @@ router = APIRouter(prefix="/v1/staff", tags=["staff"])
 
 # Resolves the caller AND enforces the permission in one dependency.
 StaffManager = Annotated[User, Depends(require_permissions(Permission.STAFF_MANAGE))]
+# Teacher↔class delegation reuses class:manage (admin-only, like BP11a class lifecycle).
+ClassManager = Annotated[User, Depends(require_permissions(Permission.CLASS_MANAGE))]
 
 # The shared tenant-from-token helper (one implementation, decisions/0026). Kept
 # under this name so existing imports (tests) still resolve.
@@ -96,3 +102,33 @@ async def resend_teacher_invite(
         school_id=_tenant(actor), user_id=user_id, role=Role.TEACHER
     )
     return ProvisionedUserResponse.from_provisioned(provisioned)
+
+
+# ---- BP11c teacher delegation: a teacher's classes (admin-only) ----------
+
+
+@router.get("/{user_id}/classes", response_model=ClassRefListResponse)
+async def list_teacher_classes(
+    user_id: str, container: ContainerDep, actor: ClassManager
+) -> ClassRefListResponse:
+    """The classes this teacher is assigned to (BP11c — the staff-row chip). Tenant from the
+    token; a foreign/non-teacher id → 404."""
+    groups = await container.delegation_service().list_teacher_classes(
+        school_id=_tenant(actor), teacher_id=user_id
+    )
+    return ClassRefListResponse.from_groups(groups)
+
+
+@router.put("/{user_id}/classes", response_model=ClassRefListResponse)
+async def set_teacher_classes(
+    user_id: str,
+    body: SetTeacherClassesRequest,
+    container: ContainerDep,
+    actor: ClassManager,
+) -> ClassRefListResponse:
+    """Replace a teacher's whole class set (BP11c — the "Edit classes" dialog). Tenant from the
+    token; a foreign/non-teacher id → 404, a foreign class id is silently skipped."""
+    groups = await container.delegation_service().set_teacher_classes(
+        school_id=_tenant(actor), teacher_id=user_id, group_ids=body.group_ids
+    )
+    return ClassRefListResponse.from_groups(groups)

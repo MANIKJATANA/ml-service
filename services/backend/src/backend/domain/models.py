@@ -330,6 +330,11 @@ class Event:
     term: str | None = None
     category_id: str | None = None
     category_name: str | None = None
+    # BP11c: the class this event belongs to (nullable — an untagged, school-wide event).
+    # SET NULL on class delete. ``student_group_name`` is denormalized via a LEFT JOIN for
+    # display (like ``category_name``); a teacher's "focus" scope reads the tag.
+    student_group_id: str | None = None
+    student_group_name: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

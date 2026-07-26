@@ -20,7 +20,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from backend.deps import get_container
 from backend.domain.errors import AuthenticationError, AuthorizationError
-from backend.domain.models import User, UserStatus
+from backend.domain.models import Role, User, UserStatus
 from backend.domain.permissions import Permission
 from backend.domain.tokens import TokenType
 from backend.wiring.container import Container
@@ -64,6 +64,23 @@ def tenant_of(user: User) -> str:
     if user.school_id is None:
         raise AuthorizationError("account is not scoped to a school")
     return user.school_id
+
+
+async def resolve_focus_group_ids(
+    container: Container, actor: User, mine: bool
+) -> list[str] | None:
+    """A teacher's list "focus" scope (BP11c, decisions/0060): the class ids their students/
+    events lists limit to when ``mine=true``.
+
+    Returns ``None`` (no scoping — the full school) unless the caller is a **teacher** who asked
+    for ``mine`` — then their assigned class ids (possibly ``[]``, a teacher with no classes).
+    An admin's ``mine`` is ignored (they see everything); this never widens access — focus is a
+    convenience default over what the caller could already reach, not a hard boundary."""
+    if not mine or actor.role is not Role.TEACHER:
+        return None
+    return await container.delegation_service().my_group_ids(
+        school_id=tenant_of(actor), teacher_id=actor.id
+    )
 
 
 def require_permissions(

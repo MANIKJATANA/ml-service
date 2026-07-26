@@ -26,6 +26,7 @@ from backend.domain.ports import (
     EventJobProducer,
     EventRepository,
     MediaRepository,
+    StudentGroupRepository,
 )
 
 _MAX_NAME_LEN = 200
@@ -47,11 +48,13 @@ class EventService:
         media: MediaRepository,
         producer: EventJobProducer,
         categories: EventCategoryRepository,
+        groups: StudentGroupRepository,
     ) -> None:
         self._events = events
         self._media = media
         self._producer = producer
         self._categories = categories
+        self._groups = groups
 
     # ---- CRUD -----------------------------------------------------------
 
@@ -65,8 +68,10 @@ class EventService:
         created_by: str | None,
         category_id: str | None = None,
         term: str | None = None,
+        student_group_id: str | None = None,
     ) -> Event:
         await self._validate_category(school_id, category_id)
+        await self._validate_group(school_id, student_group_id)
         return await self._events.create(
             school_id=school_id,
             name=_clean_name(name),
@@ -75,6 +80,7 @@ class EventService:
             created_by=created_by,
             category_id=category_id,
             term=_clean_term(term),
+            student_group_id=student_group_id,
         )
 
     async def get_event(self, *, school_id: str, event_id: str) -> Event:
@@ -102,8 +108,10 @@ class EventService:
         auto_notify: bool | None = None,
         category_id: str | None = None,
         term: str | None = None,
+        student_group_id: str | None = None,
     ) -> Event:
         await self._validate_category(school_id, category_id)
+        await self._validate_group(school_id, student_group_id)
         updated = await self._events.update(
             school_id,
             event_id,
@@ -114,6 +122,7 @@ class EventService:
             auto_notify=auto_notify,
             category_id=category_id,
             term=_clean_term(term),
+            student_group_id=student_group_id,
         )
         if updated is None:
             raise NotFoundError(f"event not found: {event_id}")
@@ -128,6 +137,16 @@ class EventService:
             return
         if await self._categories.get(school_id, category_id) is None:
             raise NotFoundError(f"category not found: {category_id}")
+
+    async def _validate_group(
+        self, school_id: str, student_group_id: str | None
+    ) -> None:
+        """A non-null class must belong to the caller's school — else 404, never a
+        cross-tenant tag (BP11c)."""
+        if student_group_id is None:
+            return
+        if await self._groups.get(school_id, student_group_id) is None:
+            raise NotFoundError(f"class not found: {student_group_id}")
 
     # ---- process / redistribute ----------------------------------------
 

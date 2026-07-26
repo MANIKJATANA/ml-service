@@ -38,6 +38,7 @@ from backend.adapters.repositories._common import (
 from backend.db.models import Event as EventRow
 from backend.db.models import EventCategory as EventCategoryRow
 from backend.db.models import Media as MediaRow
+from backend.db.models import StudentGroup as StudentGroupRow
 from backend.domain.models import (
     Event,
     EventProcessingStatus,
@@ -58,7 +59,11 @@ _SORT_COLS = {
 }
 
 
-def _to_event(row: EventRow, category_name: str | None = None) -> Event:
+def _to_event(
+    row: EventRow,
+    category_name: str | None = None,
+    group_name: str | None = None,
+) -> Event:
     return Event(
         id=str(row.id),
         school_id=str(row.school_id),
@@ -79,6 +84,10 @@ def _to_event(row: EventRow, category_name: str | None = None) -> Event:
             str(row.category_id) if row.category_id is not None else None
         ),
         category_name=category_name,
+        student_group_id=(
+            str(row.student_group_id) if row.student_group_id is not None else None
+        ),
+        student_group_name=group_name,
     )
 
 
@@ -89,25 +98,50 @@ class PostgresEventRepository:
         self._sessionmaker = sessionmaker
 
     @staticmethod
-    def _select_with_category() -> Select[tuple[EventRow, str]]:
-        """The object read: event + its category name (LEFT JOIN, nullable). Returned rows are
-        ``(EventRow, category_name)`` — ``category_name`` is ``None`` for an uncategorized event."""
-        return select(EventRow, EventCategoryRow.name).outerjoin(
-            EventCategoryRow, EventRow.category_id == EventCategoryRow.id
+    def _select_with_names() -> Select[tuple[EventRow, str, str]]:
+        """The object read: event + its category name + its class name (two LEFT JOINs, both
+        nullable). Returned rows are ``(EventRow, category_name, group_name)`` — each name is
+        ``None`` when the event is uncategorized / untagged (BP11b + BP11c)."""
+        return (
+            select(EventRow, EventCategoryRow.name, StudentGroupRow.name)
+            .outerjoin(
+                EventCategoryRow, EventRow.category_id == EventCategoryRow.id
+            )
+            .outerjoin(
+                StudentGroupRow, EventRow.student_group_id == StudentGroupRow.id
+            )
         )
 
     @staticmethod
-    async def _category_name(
-        session: AsyncSession, category_id: uuid.UUID | None
-    ) -> str | None:
-        """The category name for a just-written event (so create/update return it)."""
-        if category_id is None:
-            return None
-        return (
-            await session.execute(
-                select(EventCategoryRow.name).where(EventCategoryRow.id == category_id)
-            )
-        ).scalar_one_or_none()
+    async def _names(
+        session: AsyncSession,
+        category_id: uuid.UUID | None,
+        student_group_id: uuid.UUID | None,
+    ) -> tuple[str | None, str | None]:
+        """The category + class names for a just-written event (so create/update return them)."""
+        category_name = (
+            None
+            if category_id is None
+            else (
+                await session.execute(
+                    select(EventCategoryRow.name).where(
+                        EventCategoryRow.id == category_id
+                    )
+                )
+            ).scalar_one_or_none()
+        )
+        group_name = (
+            None
+            if student_group_id is None
+            else (
+                await session.execute(
+                    select(StudentGroupRow.name).where(
+                        StudentGroupRow.id == student_group_id
+                    )
+                )
+            ).scalar_one_or_none()
+        )
+        return category_name, group_name
 
     async def create(
         self,
@@ -119,12 +153,18 @@ class PostgresEventRepository:
         created_by: str | None,
         category_id: str | None = None,
         term: str | None = None,
+        student_group_id: str | None = None,
     ) -> Event:
         sid = req_uuid(school_id, field="school_id")
         cby = req_uuid(created_by, field="created_by") if created_by is not None else None
         cat = (
             req_uuid(category_id, field="category_id")
             if category_id is not None
+            else None
+        )
+        grp = (
+            req_uuid(student_group_id, field="student_group_id")
+            if student_group_id is not None
             else None
         )
         async with self._sessionmaker() as session, session.begin():
@@ -136,11 +176,15 @@ class PostgresEventRepository:
                 created_by=cby,
                 category_id=cat,
                 term=term,
+                student_group_id=grp,
             )
             session.add(row)
             await session.flush()
             await session.refresh(row)
-            return _to_event(row, await self._category_name(session, row.category_id))
+            cat_name, grp_name = await self._names(
+                session, row.category_id, row.student_group_id
+            )
+            return _to_event(row, cat_name, grp_name)
 
     async def get(self, school_id: str, event_id: str) -> Event | None:
         sid = opt_uuid(school_id)
@@ -149,12 +193,12 @@ class PostgresEventRepository:
             return None  # malformed id -> not found (tenant-safe)
         async with self._sessionmaker() as session:
             result = await session.execute(
-                self._select_with_category().where(
+                self._select_with_names().where(
                     EventRow.id == eid, EventRow.school_id == sid
                 )
             )
             row = result.one_or_none()
-            return _to_event(row[0], row[1]) if row is not None else None
+            return _to_event(row[0], row[1], row[2]) if row is not None else None
 
     async def list_by_school(self, school_id: str) -> list[Event]:
         sid = opt_uuid(school_id)
@@ -162,11 +206,11 @@ class PostgresEventRepository:
             return []
         async with self._sessionmaker() as session:
             result = await session.execute(
-                self._select_with_category()
+                self._select_with_names()
                 .where(EventRow.school_id == sid)
                 .order_by(EventRow.created_at, EventRow.id)  # stable on ties
             )
-            return [_to_event(r[0], r[1]) for r in result.all()]
+            return [_to_event(r[0], r[1], r[2]) for r in result.all()]
 
     def _filtered(
         self,
@@ -177,11 +221,15 @@ class PostgresEventRepository:
         term: str | None = None,
         date_from: date | None = None,
         date_to: date | None = None,
+        student_group_id: str | None = None,
+        scope_group_ids: Sequence[str] | None = None,
     ) -> list[ColumnElement[bool]]:
-        """The shared WHERE clauses for the paginated events reads (BP9 + BP11b filters). A
-        malformed ``category_id`` yields no rows (never an ``IS NULL`` that would wrongly match
-        uncategorized events). ``date_from``/``date_to`` bound ``event_date`` — a null date is
-        excluded (which the calendar wants)."""
+        """The shared WHERE clauses for the paginated events reads (BP9 + BP11b + BP11c
+        filters). A malformed ``category_id``/``student_group_id`` yields no rows (never an
+        ``IS NULL`` that would wrongly match untagged events). ``date_from``/``date_to`` bound
+        ``event_date`` — a null date is excluded (which the calendar wants). BP11c
+        ``scope_group_ids`` (a teacher's focus) matches events tagged to those classes **OR
+        untagged/school-wide** — an empty scope leaves only the untagged."""
         conds: list[ColumnElement[bool]] = [EventRow.school_id == sid]
         if status is not None:
             conds.append(EventRow.status == status.value)
@@ -194,6 +242,25 @@ class PostgresEventRepository:
             conds.append(EventRow.event_date >= date_from)
         if date_to is not None:
             conds.append(EventRow.event_date <= date_to)
+        if student_group_id is not None:
+            gid = opt_uuid(student_group_id)
+            conds.append(
+                EventRow.student_group_id == gid if gid is not None else false()
+            )
+        if scope_group_ids is not None:
+            gids = [
+                g for g in (opt_uuid(x) for x in scope_group_ids) if g is not None
+            ]
+            # Untagged (school-wide) events show for every focused teacher; add the scoped
+            # classes when the teacher has any (an empty scope leaves only the untagged).
+            conds.append(
+                EventRow.student_group_id.is_(None)
+                if not gids
+                else or_(
+                    EventRow.student_group_id.is_(None),
+                    EventRow.student_group_id.in_(gids),
+                )
+            )
         if q:
             conds.append(EventRow.name.ilike(ilike_term(q), escape=LIKE_ESCAPE))
         return conds
@@ -212,6 +279,8 @@ class PostgresEventRepository:
         term: str | None = None,
         date_from: date | None = None,
         date_to: date | None = None,
+        student_group_id: str | None = None,
+        scope_group_ids: Sequence[str] | None = None,
     ) -> list[Event]:
         sid = opt_uuid(school_id)
         if sid is None:
@@ -224,17 +293,18 @@ class PostgresEventRepository:
         )
         async with self._sessionmaker() as session:
             result = await session.execute(
-                self._select_with_category()
+                self._select_with_names()
                 .where(
                     *self._filtered(
-                        sid, q, status, category_id, term, date_from, date_to
+                        sid, q, status, category_id, term, date_from, date_to,
+                        student_group_id, scope_group_ids,
                     )
                 )
                 .order_by(*order)
                 .offset(offset)
                 .limit(limit)
             )
-            return [_to_event(r[0], r[1]) for r in result.all()]
+            return [_to_event(r[0], r[1], r[2]) for r in result.all()]
 
     async def count_page(
         self,
@@ -246,6 +316,8 @@ class PostgresEventRepository:
         term: str | None = None,
         date_from: date | None = None,
         date_to: date | None = None,
+        student_group_id: str | None = None,
+        scope_group_ids: Sequence[str] | None = None,
     ) -> int:
         sid = opt_uuid(school_id)
         if sid is None:
@@ -256,7 +328,8 @@ class PostgresEventRepository:
                 .select_from(EventRow)
                 .where(
                     *self._filtered(
-                        sid, q, status, category_id, term, date_from, date_to
+                        sid, q, status, category_id, term, date_from, date_to,
+                        student_group_id, scope_group_ids,
                     )
                 )
             )
@@ -272,6 +345,8 @@ class PostgresEventRepository:
         term: str | None = None,
         date_from: date | None = None,
         date_to: date | None = None,
+        student_group_id: str | None = None,
+        scope_group_ids: Sequence[str] | None = None,
     ) -> list[str]:
         sid = opt_uuid(school_id)
         if sid is None:
@@ -280,7 +355,8 @@ class PostgresEventRepository:
             result = await session.execute(
                 select(EventRow.id).where(
                     *self._filtered(
-                        sid, q, status, category_id, term, date_from, date_to
+                        sid, q, status, category_id, term, date_from, date_to,
+                        student_group_id, scope_group_ids,
                     )
                 )
             )
@@ -311,11 +387,11 @@ class PostgresEventRepository:
             return []
         async with self._sessionmaker() as session:
             result = await session.execute(
-                self._select_with_category()
+                self._select_with_names()
                 .where(EventRow.school_id == sid, EventRow.id.in_(ids))
                 .order_by(EventRow.created_at, EventRow.id)  # stable on ties
             )
-            return [_to_event(r[0], r[1]) for r in result.all()]
+            return [_to_event(r[0], r[1], r[2]) for r in result.all()]
 
     async def status_counts(self, school_id: str) -> EventRollup:
         """A school's events counted by lifecycle + in-flight state (BP1 dashboard).
@@ -429,6 +505,7 @@ class PostgresEventRepository:
         auto_notify: bool | None = None,
         category_id: str | None = None,
         term: str | None = None,
+        student_group_id: str | None = None,
     ) -> Event | None:
         sid = opt_uuid(school_id)
         eid = opt_uuid(event_id)
@@ -442,8 +519,8 @@ class PostgresEventRepository:
             if row is None:
                 return None
             # Only the fields the caller supplied are changed (partial update); a None
-            # means "leave unchanged" (so term/category can't be cleared to null — BP11b,
-            # consistent with description/event_date, decisions/0027).
+            # means "leave unchanged" (so term/category/class can't be cleared to null —
+            # BP11b/BP11c, consistent with description/event_date, decisions/0027).
             if name is not None:
                 row.name = name
             if description is not None:
@@ -458,9 +535,16 @@ class PostgresEventRepository:
                 row.category_id = req_uuid(category_id, field="category_id")
             if term is not None:
                 row.term = term
+            if student_group_id is not None:
+                row.student_group_id = req_uuid(
+                    student_group_id, field="student_group_id"
+                )
             await session.flush()
             await session.refresh(row)
-            return _to_event(row, await self._category_name(session, row.category_id))
+            cat_name, grp_name = await self._names(
+                session, row.category_id, row.student_group_id
+            )
+            return _to_event(row, cat_name, grp_name)
 
     async def set_processing(
         self, event_id: str, *, status: EventProcessingStatus

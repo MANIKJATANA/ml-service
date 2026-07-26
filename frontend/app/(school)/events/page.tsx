@@ -5,6 +5,7 @@ import Link from "next/link";
 import { type FormEvent, useState } from "react";
 import { mutate as globalMutate } from "swr";
 
+import { FocusToggle } from "@/components/delegation/focus-toggle";
 import { ManageCategoriesDialog } from "@/components/events/manage-categories-dialog";
 import { MonthCalendar } from "@/components/events/month-calendar";
 import { type ChipItem, FilterChips } from "@/components/gallery/filter-chips";
@@ -35,10 +36,13 @@ import {
   PROCESSING_LABEL,
   PROCESSING_TONE,
 } from "@/lib/events/status";
+import { useClasses } from "@/lib/hooks/use-classes";
 import { useDashboard } from "@/lib/hooks/use-dashboard";
 import { useDebouncedValue } from "@/lib/hooks/use-debounced-value";
 import { useEventCategories, useEventTerms } from "@/lib/hooks/use-event-categories";
 import { useEvents } from "@/lib/hooks/use-events";
+import { useMe } from "@/lib/hooks/use-me";
+import { useMyClasses } from "@/lib/hooks/use-my-classes";
 import { useListSort } from "@/lib/hooks/use-sort";
 import { useMonthEvents } from "@/lib/hooks/use-month-events";
 import { cn, formatDate } from "@/lib/utils";
@@ -77,12 +81,14 @@ function CategoryBadge({
 function CreateEventDialog({ onCreated }: { onCreated: () => void }) {
   const { toast } = useToast();
   const { categories } = useEventCategories();
+  const { classes } = useClasses();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [eventDate, setEventDate] = useState("");
   const [categoryId, setCategoryId] = useState("");
   const [term, setTerm] = useState("");
+  const [classId, setClassId] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
   const otherId = categories.find((c) => c.name.trim().toLowerCase() === "other")?.id ?? "";
@@ -97,6 +103,7 @@ function CreateEventDialog({ onCreated }: { onCreated: () => void }) {
       setEventDate("");
       setCategoryId("");
       setTerm("");
+      setClassId("");
     }
   }
 
@@ -110,6 +117,7 @@ function CreateEventDialog({ onCreated }: { onCreated: () => void }) {
         eventDate || null,
         categoryId || null,
         term.trim() || null,
+        classId || null,
       );
       toast(`Event “${created.name}” created.`, "success");
       onCreated();
@@ -175,14 +183,37 @@ function CreateEventDialog({ onCreated }: { onCreated: () => void }) {
               </select>
             </Field>
           </div>
-          <Field label="Term" htmlFor="event-term" hint="Optional, e.g. Fall 2026.">
-            <Input
-              id="event-term"
-              maxLength={100}
-              value={term}
-              onChange={(e) => setTerm(e.target.value)}
-            />
-          </Field>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Term" htmlFor="event-term" hint="Optional, e.g. Fall 2026.">
+              <Input
+                id="event-term"
+                maxLength={100}
+                value={term}
+                onChange={(e) => setTerm(e.target.value)}
+              />
+            </Field>
+            {classes.length > 0 ? (
+              <Field
+                label="Class"
+                htmlFor="event-class"
+                hint="Optional — leave as school-wide for events everyone attends."
+              >
+                <select
+                  id="event-class"
+                  value={classId}
+                  onChange={(e) => setClassId(e.target.value)}
+                  className={SELECT_CLASS}
+                >
+                  <option value="">School-wide</option>
+                  {classes.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            ) : null}
+          </div>
           <div className="mt-2 flex justify-end gap-2">
             <DialogClose asChild>
               <Button type="button" variant="secondary">
@@ -205,10 +236,14 @@ function CalendarView({
   categoryId,
   term,
   status,
+  classId,
+  mine,
 }: {
   categoryId: string;
   term: string;
   status: string;
+  classId: string;
+  mine: boolean;
 }) {
   const [{ year, month }, setYm] = useState(currentMonth);
   const grid = buildMonthGrid(year, month);
@@ -216,6 +251,8 @@ function CalendarView({
     category_id: categoryId || undefined,
     term: term || undefined,
     status,
+    student_group_id: classId || undefined,
+    mine,
   });
   return (
     <div className="flex flex-col gap-3">
@@ -243,17 +280,28 @@ export default function EventsPage() {
   const [filter, setFilter] = useState<"all" | EventStatus>("all");
   const [categoryFilter, setCategoryFilter] = useState("");
   const [termFilter, setTermFilter] = useState("");
+  const [classFilter, setClassFilter] = useState("");
+  const [focus, setFocus] = useState(true); // BP11c: default a teacher to their classes
   const { sort, dir, onSort } = useListSort("event_date", SORT_DEFAULT_DIR);
   const [tab, setTab] = useState("list");
 
   const { dashboard } = useDashboard();
   const { categories } = useEventCategories();
   const terms = useEventTerms();
+  const { classes } = useClasses();
+  const { user } = useMe();
+  const isTeacher = user?.role === "teacher";
+  const { classes: myClasses } = useMyClasses(isTeacher);
+  const canFocus = isTeacher && myClasses.length > 0;
+  const focusOn = canFocus && focus;
 
-  // Derived so a deleted category / vanished term can't strand the list (BP11a pattern).
+  // Derived so a deleted category / vanished term / removed class can't strand the list
+  // (BP11a pattern).
   const activeCategory =
     categoryFilter && categories.some((c) => c.id === categoryFilter) ? categoryFilter : "";
   const activeTerm = termFilter && terms.includes(termFilter) ? termFilter : "";
+  const activeClass =
+    classFilter && classes.some((c) => c.id === classFilter) ? classFilter : "";
 
   const { items, total, isLoading, isLoadingMore, error, reachedEnd, loadMore, mutate } =
     useEvents({
@@ -263,6 +311,8 @@ export default function EventsPage() {
       status: filter,
       category_id: activeCategory || undefined,
       term: activeTerm || undefined,
+      student_group_id: activeClass || undefined,
+      mine: focusOn,
     });
 
   const counts = dashboard?.events;
@@ -274,7 +324,12 @@ export default function EventsPage() {
 
   const isInitialLoading = isLoading && items.length === 0;
   const isFiltering =
-    filter !== "all" || query.length > 0 || activeCategory !== "" || activeTerm !== "";
+    filter !== "all" ||
+    query.length > 0 ||
+    activeCategory !== "" ||
+    activeTerm !== "" ||
+    activeClass !== "" ||
+    focusOn;
 
   function onCreated() {
     void mutate();
@@ -320,14 +375,31 @@ export default function EventsPage() {
         />
       ) : (
         <div className="flex flex-col gap-4">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <FilterChips
-              items={chips}
-              activeId={filter}
-              onSelect={(id) => setFilter(id as "all" | EventStatus)}
-              ariaLabel="Filter by event status"
-            />
-            <div className="flex flex-wrap gap-2">
+          {/* Row 1: the primary status filter on its own line. */}
+          <FilterChips
+            items={chips}
+            activeId={filter}
+            onSelect={(id) => setFilter(id as "all" | EventStatus)}
+            ariaLabel="Filter by event status"
+          />
+          {/* Row 2: the scope toggle + class/category/term filters (all AND together). */}
+          <div className="flex flex-wrap items-center gap-2">
+              {canFocus ? <FocusToggle value={focus} onChange={setFocus} /> : null}
+              {classes.length > 0 ? (
+                <select
+                  aria-label="Filter by class"
+                  value={activeClass}
+                  onChange={(e) => setClassFilter(e.target.value)}
+                  className={SELECT_CLASS}
+                >
+                  <option value="">All classes</option>
+                  {classes.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+              ) : null}
               {categories.length > 0 ? (
                 <select
                   aria-label="Filter by category"
@@ -358,7 +430,6 @@ export default function EventsPage() {
                   ))}
                 </select>
               ) : null}
-            </div>
           </div>
 
           <Tabs value={tab} onValueChange={setTab}>
@@ -402,8 +473,12 @@ export default function EventsPage() {
                                   </StatusPill>
                                 ) : null}
                               </div>
-                              {event.term ? (
-                                <span className="text-body-sm text-ink-muted">{event.term}</span>
+                              {(event.term || event.student_group_name) ? (
+                                <span className="text-body-sm text-ink-muted">
+                                  {[event.term, event.student_group_name]
+                                    .filter(Boolean)
+                                    .join(" · ")}
+                                </span>
                               ) : null}
                             </TableCell>
                             <TableCell>
@@ -450,7 +525,13 @@ export default function EventsPage() {
             </TabsContent>
 
             <TabsContent value="calendar" className="pt-4">
-              <CalendarView categoryId={activeCategory} term={activeTerm} status={filter} />
+              <CalendarView
+                categoryId={activeCategory}
+                term={activeTerm}
+                status={filter}
+                classId={activeClass}
+                mine={focusOn}
+              />
             </TabsContent>
           </Tabs>
         </div>

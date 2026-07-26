@@ -2,6 +2,7 @@
 
 import { UserPlus, Users } from "lucide-react";
 import { type FormEvent, useState } from "react";
+import useSWR, { mutate as globalMutate } from "swr";
 
 import { RoleGate } from "@/components/role-gate";
 import { type Invite, InviteResultDialog } from "@/components/staff/invite-result-dialog";
@@ -19,9 +20,16 @@ import { SortableHead } from "@/components/ui/sortable-head";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/components/ui/toast";
-import { createStaff, resendStaffInvite, setStaffStatus } from "@/lib/api/endpoints";
+import {
+  createStaff,
+  getTeacherClasses,
+  resendStaffInvite,
+  setStaffStatus,
+  setTeacherClasses,
+} from "@/lib/api/endpoints";
 import { isApiError } from "@/lib/api/errors";
-import type { SortDir, UserResponse } from "@/lib/api/types";
+import type { ClassResponse, SortDir, UserResponse } from "@/lib/api/types";
+import { useClasses } from "@/lib/hooks/use-classes";
 import { useDebouncedValue } from "@/lib/hooks/use-debounced-value";
 import { useListSort } from "@/lib/hooks/use-sort";
 import { useStaff } from "@/lib/hooks/use-staff";
@@ -176,6 +184,124 @@ function StaffActions({
   );
 }
 
+/** Set a teacher's whole class set (BP11c) — a checkbox list of the school's classes, initialized
+ *  from the teacher's current assignments, PUT as one set. */
+function EditClassesDialog({
+  teacher,
+  assigned,
+  onSaved,
+}: {
+  teacher: UserResponse;
+  assigned: ClassResponse[];
+  onSaved: () => void;
+}) {
+  const { toast } = useToast();
+  const { classes } = useClasses();
+  const [open, setOpen] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [saving, setSaving] = useState(false);
+
+  function handleOpenChange(next: boolean) {
+    setOpen(next);
+    if (next) setSelected(new Set(assigned.map((c) => c.id)));
+  }
+
+  function toggle(id: string) {
+    setSelected((cur) => {
+      const next = new Set(cur);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  async function onSave() {
+    setSaving(true);
+    try {
+      await setTeacherClasses(teacher.id, [...selected]);
+      toast("Classes updated.", "success");
+      onSaved();
+      // Also refresh any open class-detail teacher rosters (a different SWR namespace).
+      void globalMutate((k) => typeof k === "string" && k.startsWith("class-teachers:"));
+      setOpen(false);
+    } catch (err) {
+      toast(isApiError(err) ? err.message : "Something went wrong", "error");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <DialogTrigger asChild>
+        <Button variant="ghost" size="sm" aria-label={`Edit classes for ${teacher.email}`}>
+          Edit classes
+        </Button>
+      </DialogTrigger>
+      <DialogContent
+        title="Edit classes"
+        description={`Which classes does ${teacher.email} manage? They'll see those students and events focused first.`}
+      >
+        <div className="flex flex-col gap-3">
+          {classes.length === 0 ? (
+            <p className="text-body-sm text-ink-muted">
+              No classes yet. Create classes first, then assign them here.
+            </p>
+          ) : (
+            <ul className="max-h-64 divide-y divide-hairline overflow-y-auto overscroll-contain rounded-button border border-hairline">
+              {classes.map((c) => (
+                <li key={c.id}>
+                  <label className="flex cursor-pointer items-center gap-2 px-3 py-2 hover:bg-surface">
+                    <input
+                      type="checkbox"
+                      checked={selected.has(c.id)}
+                      onChange={() => toggle(c.id)}
+                      className="size-4 rounded border-hairline text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    />
+                    <span className="min-w-0 flex-1 truncate text-body-sm text-ink">{c.name}</span>
+                    {(c.grade || c.section) && (
+                      <span className="shrink-0 text-body-sm text-ink-muted">
+                        {[c.grade, c.section].filter(Boolean).join(" · ")}
+                      </span>
+                    )}
+                  </label>
+                </li>
+              ))}
+            </ul>
+          )}
+          <div className="mt-1 flex justify-end gap-2">
+            <DialogClose asChild>
+              <Button type="button" variant="secondary">
+                Cancel
+              </Button>
+            </DialogClose>
+            <Button onClick={onSave} loading={saving} disabled={classes.length === 0}>
+              Save
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** The teacher's assigned classes (BP11c) — a name summary + the Edit dialog. Per-row SWR keyed
+ *  on the teacher; the staff roster is bounded, so N small fetches are fine. */
+function ClassesCell({ teacher }: { teacher: UserResponse }) {
+  const { data, mutate } = useSWR(`staff-classes:${teacher.id}`, () =>
+    getTeacherClasses(teacher.id),
+  );
+  const assigned = data?.items ?? [];
+  return (
+    <div className="flex items-center gap-2">
+      <span className="min-w-0 truncate text-ink-secondary" title={assigned.map((c) => c.name).join(", ")}>
+        {assigned.length > 0 ? assigned.map((c) => c.name).join(", ") : "—"}
+      </span>
+      <EditClassesDialog teacher={teacher} assigned={assigned} onSaved={() => void mutate()} />
+    </div>
+  );
+}
+
 function StaffContent() {
   const [rawQuery, setRawQuery] = useState("");
   const query = useDebouncedValue(rawQuery.trim(), 300);
@@ -238,6 +364,7 @@ function StaffContent() {
                     <TableRow>
                       <SortableHead label="Email" sortKey="email" activeKey={sort} dir={dir} onSort={onSort} />
                       <TableHead>Status</TableHead>
+                      <TableHead>Classes</TableHead>
                       <SortableHead label="Added" sortKey="created_at" activeKey={sort} dir={dir} onSort={onSort} />
                       <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
@@ -250,6 +377,9 @@ function StaffContent() {
                           <TableCell>{teacher.email}</TableCell>
                           <TableCell>
                             <StatusPill tone={status.tone}>{status.label}</StatusPill>
+                          </TableCell>
+                          <TableCell className="max-w-[16rem]">
+                            <ClassesCell teacher={teacher} />
                           </TableCell>
                           <TableCell className="text-ink-secondary">
                             {formatDate(teacher.created_at)}

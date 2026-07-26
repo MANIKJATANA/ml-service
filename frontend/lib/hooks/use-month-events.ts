@@ -8,6 +8,8 @@ export interface MonthFilters {
   category_id?: string;
   term?: string;
   status?: string;
+  student_group_id?: string; // BP11c: the class filter
+  mine?: boolean; // BP11c: a teacher's focus scope
 }
 
 /**
@@ -23,6 +25,8 @@ export function useMonthEvents(gridStart: string, gridEnd: string, f: MonthFilte
     f.category_id ?? "",
     f.term ?? "",
     f.status ?? "",
+    f.student_group_id ?? "",
+    f.mine ? "mine" : "",
   ];
   const { data, error, isLoading, mutate } = useSWR(key, () =>
     getEvents({
@@ -33,6 +37,8 @@ export function useMonthEvents(gridStart: string, gridEnd: string, f: MonthFilte
       category_id: f.category_id || undefined,
       term: f.term || undefined,
       status: f.status && f.status !== "all" ? f.status : undefined,
+      student_group_id: f.student_group_id || undefined,
+      mine: f.mine,
     }),
   );
   return {

@@ -144,10 +144,13 @@ class StudentRepository(Protocol):
         descending: bool = False,
         status: EnrollmentStatus | None = None,
         student_group_id: str | None = None,
+        scope_group_ids: Sequence[str] | None = None,
     ) -> list[Student]:
         """One page of the students list (BP9), searched/filtered/sorted in SQL. Only
         row-native ``sort`` members reach here; count-column sorts take the id-scan path
-        (``list_ids``). BP11a: ``student_group_id`` filters to one class."""
+        (``list_ids``). BP11a: ``student_group_id`` filters to one class. BP11c:
+        ``scope_group_ids`` limits results to that set of classes — a teacher's "focus"
+        scope (``None`` = no scope; ``[]`` = a teacher with no classes = no students)."""
         ...
     async def count_page(
         self,
@@ -156,9 +159,10 @@ class StudentRepository(Protocol):
         q: str | None = None,
         status: EnrollmentStatus | None = None,
         student_group_id: str | None = None,
+        scope_group_ids: Sequence[str] | None = None,
     ) -> int:
-        """Total students matching the same ``q``/``status``/class filter (the page's
-        ``total``)."""
+        """Total students matching the same ``q``/``status``/class filter + focus scope (the
+        page's ``total``)."""
         ...
     async def list_ids(
         self,
@@ -167,6 +171,7 @@ class StudentRepository(Protocol):
         q: str | None = None,
         status: EnrollmentStatus | None = None,
         student_group_id: str | None = None,
+        scope_group_ids: Sequence[str] | None = None,
     ) -> list[str]:
         """All matching student ids (id-only, no join) — the count-sort path fetches these,
         sorts them by a school-wide count dict in-Python, then hydrates one page via
@@ -269,6 +274,7 @@ class EventRepository(Protocol):
         created_by: str | None,
         category_id: str | None = None,
         term: str | None = None,
+        student_group_id: str | None = None,
     ) -> Event: ...
     async def get(self, school_id: str, event_id: str) -> Event | None: ...
     async def list_by_school(self, school_id: str) -> list[Event]: ...
@@ -286,10 +292,14 @@ class EventRepository(Protocol):
         term: str | None = None,
         date_from: date | None = None,
         date_to: date | None = None,
+        student_group_id: str | None = None,
+        scope_group_ids: Sequence[str] | None = None,
     ) -> list[Event]:
         """One page of the events list (BP9). Row-native ``sort`` only; count sorts →
         ``list_ids`` (see ``StudentRepository.list_page``). BP11b: ``category_id``/``term`` filter
-        + ``date_from``/``date_to`` bound ``event_date`` (the calendar's month window)."""
+        + ``date_from``/``date_to`` bound ``event_date`` (the calendar's month window). BP11c:
+        ``student_group_id`` filters to one class; ``scope_group_ids`` is a teacher's "focus"
+        scope — events tagged to those classes OR untagged/school-wide (``None`` = no scope)."""
         ...
     async def count_page(
         self,
@@ -301,6 +311,8 @@ class EventRepository(Protocol):
         term: str | None = None,
         date_from: date | None = None,
         date_to: date | None = None,
+        student_group_id: str | None = None,
+        scope_group_ids: Sequence[str] | None = None,
     ) -> int: ...
     async def list_ids(
         self,
@@ -312,6 +324,8 @@ class EventRepository(Protocol):
         term: str | None = None,
         date_from: date | None = None,
         date_to: date | None = None,
+        student_group_id: str | None = None,
+        scope_group_ids: Sequence[str] | None = None,
     ) -> list[str]: ...
     async def list_terms(self, school_id: str) -> list[str]:
         """Distinct non-null ``term`` values for a school, sorted (BP11b — the FE term filter)."""
@@ -335,6 +349,7 @@ class EventRepository(Protocol):
         auto_notify: bool | None = None,
         category_id: str | None = None,
         term: str | None = None,
+        student_group_id: str | None = None,
     ) -> Event | None: ...
     async def set_processing(
         self, event_id: str, *, status: EventProcessingStatus
@@ -362,6 +377,41 @@ class EventCategoryRepository(Protocol):
     async def seed_defaults(self, school_id: str, names: Sequence[str]) -> None:
         """Insert the default categories for a new school, skipping any that already exist
         (idempotent on the ``(school_id, name)`` unique)."""
+        ...
+
+
+class TeacherClassRepository(Protocol):
+    """Backend-owned teacher ↔ class delegation links (BP11c, decisions/0060). A teacher can
+    own several classes; a class can have several teachers (many-to-many). Every read/write is
+    tenant-scoped by ``school_id``; ids are returned (the service composes the classes/teachers
+    from the group + user repos, both bounded per school)."""
+
+    async def add(
+        self, *, school_id: str, teacher_user_id: str, student_group_id: str
+    ) -> None:
+        """Link one teacher to one class (idempotent — a duplicate ``(teacher, class)`` is a
+        no-op). The service validates both are in-school + the target is a teacher first."""
+        ...
+    async def remove(
+        self, *, school_id: str, teacher_user_id: str, student_group_id: str
+    ) -> bool:
+        """Unlink one teacher from one class. Returns ``False`` if no such link (→ 404)."""
+        ...
+    async def replace_for_teacher(
+        self, *, school_id: str, teacher_user_id: str, student_group_ids: Sequence[str]
+    ) -> None:
+        """Set a teacher's whole class set (the staff-side "Edit classes" PUT). Tenant-scoped:
+        a foreign class id is skipped. Replaces the teacher's existing links atomically."""
+        ...
+    async def list_group_ids_for_teacher(
+        self, school_id: str, teacher_user_id: str
+    ) -> list[str]:
+        """The class ids one teacher is linked to (their focus scope + "my classes")."""
+        ...
+    async def list_teacher_ids_for_group(
+        self, school_id: str, student_group_id: str
+    ) -> list[str]:
+        """The teacher user ids linked to one class (the class-detail teacher roster)."""
         ...
 
 

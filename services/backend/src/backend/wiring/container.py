@@ -23,6 +23,7 @@ from backend.adapters.notification.composite import CompositeNotifier
 from backend.db.session import make_engine, make_sessionmaker
 from backend.domain.ports import (
     DownloadAuditRepository,
+    EventCategoryRepository,
     EventJobProducer,
     EventRepository,
     MatchCorrectionRepository,
@@ -45,6 +46,7 @@ from backend.services.audit_service import AuditService
 from backend.services.auth_service import AuthService
 from backend.services.class_service import ClassService
 from backend.services.dashboard_service import DashboardService
+from backend.services.event_category_service import EventCategoryService
 from backend.services.event_service import EventService
 from backend.services.gallery_service import GalleryService
 from backend.services.listing_service import ListingService
@@ -72,6 +74,7 @@ class Container:
         self._student_repo: StudentRepository | None = None
         self._student_group_repo: StudentGroupRepository | None = None
         self._event_repo: EventRepository | None = None
+        self._event_category_repo: EventCategoryRepository | None = None
         self._media_repo: MediaRepository | None = None
         self._ml_results_reader: MlResultsReader | None = None
         self._match_correction_repo: MatchCorrectionRepository | None = None
@@ -90,6 +93,7 @@ class Container:
         self._student_service: StudentService | None = None
         self._class_service: ClassService | None = None
         self._event_service: EventService | None = None
+        self._event_category_service: EventCategoryService | None = None
         self._media_service: MediaService | None = None
         self._gallery_service: GalleryService | None = None
         self._audit_service: AuditService | None = None
@@ -166,6 +170,16 @@ class Container:
                     )
                     self._event_repo = cls(self.sessionmaker())
         return self._event_repo
+
+    def event_category_repo(self) -> EventCategoryRepository:
+        if self._event_category_repo is None:
+            with self._lock:
+                if self._event_category_repo is None:
+                    cls = registry.resolve(
+                        registry.EVENT_CATEGORY_REPO_REGISTRY, self._s.repository_impl
+                    )
+                    self._event_category_repo = cls(self.sessionmaker())
+        return self._event_category_repo
 
     def media_repo(self) -> MediaRepository:
         if self._media_repo is None:
@@ -368,6 +382,7 @@ class Container:
                         self.school_repo(),
                         self.user_repo(),
                         self.password_hasher(),
+                        self.event_category_repo(),
                     )
         return self._onboarding_service
 
@@ -406,8 +421,18 @@ class Container:
                         self.event_repo(),
                         self.media_repo(),
                         self.event_job_producer(),
+                        self.event_category_repo(),
                     )
         return self._event_service
+
+    def event_category_service(self) -> EventCategoryService:
+        if self._event_category_service is None:
+            with self._lock:
+                if self._event_category_service is None:
+                    self._event_category_service = EventCategoryService(
+                        self.event_category_repo(),
+                    )
+        return self._event_category_service
 
     def media_service(self) -> MediaService:
         if self._media_service is None:

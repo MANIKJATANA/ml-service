@@ -99,7 +99,7 @@ L ≈ net-new across services (+ migration / infra). **Impact:** H/M/L on the pr
   bulk re-enroll clears a batch of failures in one action; unmatched filenames are surfaced, not silently
   dropped.
 
-### BP11 — Organizing structure: classes/sections + event terms/categories · **Effort M–L · Impact H · BE + FE (+ migration)** · 🔨 underway — sliced a/b/c; **BP11a landed** ([decisions/0058](../decisions/0058-product-build-BP11a-student-classes.md))
+### BP11 — Organizing structure: classes/sections + event terms/categories · **Effort M–L · Impact H · BE + FE (+ migration)** · 🔨 underway — sliced a/b/c; **BP11a + BP11b landed** ([0058](../decisions/0058-product-build-BP11a-student-classes.md), [0059](../decisions/0059-product-build-BP11b-event-categories-calendar.md))
 - **Problem (theme B):** no **class/grade/section** on students, no **term/category/calendar** on events —
   one flat 800-row / 120-event world. Blocks delegation, findability, reporting, and cohort-scoped matching
   all at once. Fails **P3/P5/X5**.
@@ -113,8 +113,12 @@ L ≈ net-new across services (+ migration / infra). **Impact:** H/M/L on the pr
   ([decisions/0058](../decisions/0058-product-build-BP11a-student-classes.md)): `student_groups` (one class
   per student, SET NULL on class delete) + a `ClassService` + a `class:manage` perm (admin-only lifecycle,
   `student:manage` reads/assign), the students class filter/badge/selector + a Classes management surface.
-  **BP11b** event term/category + calendar — 📋 next. **BP11c** teacher delegation (staged — a "focus" filter
-  by default, an opt-in "restrict" switch) — 📋. Cohort-scoped *matching* stays deferred to **BP15**.
+  **BP11b** event term/category + calendar — ✅ landed
+  ([decisions/0059](../decisions/0059-product-build-BP11b-event-categories-calendar.md)): a free-text term +
+  **per-school configurable categories** (a tenant `event_categories` table, seeded with 6 defaults on
+  school-create + into existing schools in migration 0014; managed by admins + staff on `event:manage`) + a
+  read-only month calendar (List⇄Calendar tabs). **BP11c** teacher delegation (staged — a "focus" filter by
+  default, an opt-in "restrict" switch) — 📋 next. Cohort-scoped *matching* stays deferred to **BP15**.
 
 ### BP13 — Bulk actions & batch review · **Effort M · Impact M · BE + FE** · 📋 proposed
 - **Problem (theme E):** everything is one-at-a-time — no bulk re-enroll, no bulk archive, **no batch
@@ -187,8 +191,8 @@ L ≈ net-new across services (+ migration / infra). **Impact:** H/M/L on the pr
 
 ## 5. How to use this file
 
-- **Pick the next phase** off the top of §4 — **BP9**, **BP17**, **BP10**, and **BP11a** (student classes)
-  have landed; **BP11b** (event term/category + calendar) is next, then **BP11c** (teacher delegation).
+- **Pick the next phase** off the top of §4 — **BP9**, **BP17**, **BP10**, **BP11a** (student classes), and
+  **BP11b** (event term/category + calendar) have landed; **BP11c** (teacher delegation) is next.
 - **Before building**, re-read the phase's **source lens** in `01` (the acceptance target) and its finding
   in `02` (what breaks + severity), then lock the phase design in a `decisions/` doc (repo convention).
 - **Keep `00` honest:** when a capability ships, move it from "dark/absent" to "exposed" in `00`'s

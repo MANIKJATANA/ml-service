@@ -20,6 +20,7 @@ from backend.api.routers import (
     auth,
     classes,
     dashboard,
+    event_categories,
     events,
     galleries,
     health,
@@ -279,6 +280,7 @@ def create_app(rate_limiter: RateLimiter | None = None) -> FastAPI:
     app.include_router(students.router)
     app.include_router(classes.router)
     app.include_router(events.router)
+    app.include_router(event_categories.router)
     app.include_router(media.router)
     app.include_router(galleries.router)
     app.include_router(me.router)

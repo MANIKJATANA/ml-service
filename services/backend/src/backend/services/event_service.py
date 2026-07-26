@@ -21,9 +21,15 @@ from backend.domain.models import (
     EventStatus,
     MediaProcessingStatus,
 )
-from backend.domain.ports import EventJobProducer, EventRepository, MediaRepository
+from backend.domain.ports import (
+    EventCategoryRepository,
+    EventJobProducer,
+    EventRepository,
+    MediaRepository,
+)
 
 _MAX_NAME_LEN = 200
+_MAX_TERM_LEN = 100
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,10 +46,12 @@ class EventService:
         events: EventRepository,
         media: MediaRepository,
         producer: EventJobProducer,
+        categories: EventCategoryRepository,
     ) -> None:
         self._events = events
         self._media = media
         self._producer = producer
+        self._categories = categories
 
     # ---- CRUD -----------------------------------------------------------
 
@@ -55,13 +63,18 @@ class EventService:
         description: str | None,
         event_date: date | None,
         created_by: str | None,
+        category_id: str | None = None,
+        term: str | None = None,
     ) -> Event:
+        await self._validate_category(school_id, category_id)
         return await self._events.create(
             school_id=school_id,
             name=_clean_name(name),
             description=description,
             event_date=event_date,
             created_by=created_by,
+            category_id=category_id,
+            term=_clean_term(term),
         )
 
     async def get_event(self, *, school_id: str, event_id: str) -> Event:
@@ -73,6 +86,10 @@ class EventService:
     async def list_events(self, *, school_id: str) -> list[Event]:
         return await self._events.list_by_school(school_id)
 
+    async def list_terms(self, *, school_id: str) -> list[str]:
+        """The distinct terms this school has used (BP11b — the FE term filter)."""
+        return await self._events.list_terms(school_id)
+
     async def update_event(
         self,
         *,
@@ -83,7 +100,10 @@ class EventService:
         event_date: date | None = None,
         status: EventStatus | None = None,
         auto_notify: bool | None = None,
+        category_id: str | None = None,
+        term: str | None = None,
     ) -> Event:
+        await self._validate_category(school_id, category_id)
         updated = await self._events.update(
             school_id,
             event_id,
@@ -92,10 +112,22 @@ class EventService:
             event_date=event_date,
             status=status,
             auto_notify=auto_notify,
+            category_id=category_id,
+            term=_clean_term(term),
         )
         if updated is None:
             raise NotFoundError(f"event not found: {event_id}")
         return updated
+
+    async def _validate_category(
+        self, school_id: str, category_id: str | None
+    ) -> None:
+        """A non-null category must belong to the caller's school — else 404, never a
+        cross-tenant tag (BP11b)."""
+        if category_id is None:
+            return
+        if await self._categories.get(school_id, category_id) is None:
+            raise NotFoundError(f"category not found: {category_id}")
 
     # ---- process / redistribute ----------------------------------------
 
@@ -152,4 +184,16 @@ def _clean_name(name: str) -> str:
     clean = name.strip()
     if not clean or len(clean) > _MAX_NAME_LEN:
         raise ValidationError("event name must be 1-200 characters")
+    return clean
+
+
+def _clean_term(term: str | None) -> str | None:
+    """Strip a term; empty → None (no term / leave unchanged on update). Caps the length."""
+    if term is None:
+        return None
+    clean = term.strip()
+    if not clean:
+        return None
+    if len(clean) > _MAX_TERM_LEN:
+        raise ValidationError(f"term too long (max {_MAX_TERM_LEN})")
     return clean

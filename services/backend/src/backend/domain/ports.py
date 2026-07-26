@@ -20,6 +20,7 @@ from backend.domain.models import (
     EnrollmentOutcome,
     EnrollmentStatus,
     Event,
+    EventCategory,
     EventJob,
     EventMatchCounts,
     EventProcessingStatus,
@@ -266,6 +267,8 @@ class EventRepository(Protocol):
         description: str | None,
         event_date: date | None,
         created_by: str | None,
+        category_id: str | None = None,
+        term: str | None = None,
     ) -> Event: ...
     async def get(self, school_id: str, event_id: str) -> Event | None: ...
     async def list_by_school(self, school_id: str) -> list[Event]: ...
@@ -279,9 +282,14 @@ class EventRepository(Protocol):
         sort: EventSort = EventSort.EVENT_DATE,
         descending: bool = True,
         status: EventStatus | None = None,
+        category_id: str | None = None,
+        term: str | None = None,
+        date_from: date | None = None,
+        date_to: date | None = None,
     ) -> list[Event]:
         """One page of the events list (BP9). Row-native ``sort`` only; count sorts →
-        ``list_ids`` (see ``StudentRepository.list_page``)."""
+        ``list_ids`` (see ``StudentRepository.list_page``). BP11b: ``category_id``/``term`` filter
+        + ``date_from``/``date_to`` bound ``event_date`` (the calendar's month window)."""
         ...
     async def count_page(
         self,
@@ -289,6 +297,10 @@ class EventRepository(Protocol):
         *,
         q: str | None = None,
         status: EventStatus | None = None,
+        category_id: str | None = None,
+        term: str | None = None,
+        date_from: date | None = None,
+        date_to: date | None = None,
     ) -> int: ...
     async def list_ids(
         self,
@@ -296,7 +308,14 @@ class EventRepository(Protocol):
         *,
         q: str | None = None,
         status: EventStatus | None = None,
+        category_id: str | None = None,
+        term: str | None = None,
+        date_from: date | None = None,
+        date_to: date | None = None,
     ) -> list[str]: ...
+    async def list_terms(self, school_id: str) -> list[str]:
+        """Distinct non-null ``term`` values for a school, sorted (BP11b — the FE term filter)."""
+        ...
     async def list_by_ids(
         self, school_id: str, event_ids: Sequence[str]
     ) -> list[Event]: ...
@@ -314,11 +333,36 @@ class EventRepository(Protocol):
         event_date: date | None = None,
         status: EventStatus | None = None,
         auto_notify: bool | None = None,
+        category_id: str | None = None,
+        term: str | None = None,
     ) -> Event | None: ...
     async def set_processing(
         self, event_id: str, *, status: EventProcessingStatus
     ) -> None: ...
     async def mark_notified(self, event_id: str) -> None: ...
+
+
+class EventCategoryRepository(Protocol):
+    """Backend-owned, tenant-configurable event categories (BP11b, decisions/0059). Reads are
+    tenant-scoped: a ``category_id`` from another school resolves to ``None``. Bounded per school,
+    so the list is unpaginated. Seeded with the defaults on school-create."""
+
+    async def create(self, *, school_id: str, name: str) -> EventCategory: ...
+    async def get(self, school_id: str, category_id: str) -> EventCategory | None: ...
+    async def get_by_name(
+        self, school_id: str, name: str
+    ) -> EventCategory | None:
+        """Case-insensitive lookup by name within a school — for the add-dedupe guard."""
+        ...
+    async def list_by_school(self, school_id: str) -> list[EventCategory]: ...
+    async def delete(self, school_id: str, category_id: str) -> bool:
+        """Delete a category (its events are un-tagged via ``ON DELETE SET NULL``). Returns
+        ``False`` if the category is absent/foreign (→ 404)."""
+        ...
+    async def seed_defaults(self, school_id: str, names: Sequence[str]) -> None:
+        """Insert the default categories for a new school, skipping any that already exist
+        (idempotent on the ``(school_id, name)`` unique)."""
+        ...
 
 
 class MediaRepository(Protocol):

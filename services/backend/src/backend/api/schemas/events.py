@@ -6,15 +6,45 @@ from datetime import date, datetime
 
 from pydantic import BaseModel, Field
 
-from backend.domain.models import Event, EventProcessingStatus, EventStatus
+from backend.domain.models import (
+    Event,
+    EventCategory,
+    EventProcessingStatus,
+    EventStatus,
+)
 from backend.services.listing_service import EventListing
 from backend.services.pagination import Page
+
+
+class EventCategoryResponse(BaseModel):
+    """A tenant-owned event category (BP11b, decisions/0059)."""
+
+    id: str
+    name: str
+
+    @classmethod
+    def from_category(cls, c: EventCategory) -> EventCategoryResponse:
+        return cls(id=c.id, name=c.name)
+
+
+class CreateEventCategoryRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=60)
+
+
+class EventTermsResponse(BaseModel):
+    """The distinct terms a school has used (BP11b — feeds the term filter dropdown)."""
+
+    terms: list[str]
 
 
 class CreateEventRequest(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     description: str | None = Field(default=None, max_length=2000)
     event_date: date | None = None
+    # BP11b: the event's category (a tenant event_categories id; a foreign one → 404) + a
+    # free-text term.
+    category_id: str | None = Field(default=None, max_length=64)
+    term: str | None = Field(default=None, max_length=100)
 
 
 class UpdateEventRequest(BaseModel):
@@ -26,6 +56,9 @@ class UpdateEventRequest(BaseModel):
     event_date: date | None = None
     status: EventStatus | None = None
     auto_notify: bool | None = None  # BP4: auto-announce to students on completion
+    # BP11b: None = leave unchanged (so term/category can't be cleared to null — 0027).
+    category_id: str | None = Field(default=None, max_length=64)
+    term: str | None = Field(default=None, max_length=100)
 
 
 class EventResponse(BaseModel):
@@ -42,6 +75,11 @@ class EventResponse(BaseModel):
     notified_at: datetime | None
     created_at: datetime
     updated_at: datetime
+    # BP11b: the event's term + category (category_name denormalized for display; null =
+    # uncategorized).
+    term: str | None = None
+    category_id: str | None = None
+    category_name: str | None = None
 
     @classmethod
     def from_event(cls, event: Event) -> EventResponse:
@@ -59,6 +97,9 @@ class EventResponse(BaseModel):
             notified_at=event.notified_at,
             created_at=event.created_at,
             updated_at=event.updated_at,
+            term=event.term,
+            category_id=event.category_id,
+            category_name=event.category_name,
         )
 
 

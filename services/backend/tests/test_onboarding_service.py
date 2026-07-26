@@ -11,7 +11,14 @@ from backend.domain.errors import (
 )
 from backend.domain.models import Role, School, SchoolStatus, User, UserStatus
 from backend.services.onboarding_service import OnboardingService
-from backend_fakes import FakeHasher, FakeSchoolRepo, FakeUserRepo, make_school, make_user
+from backend_fakes import (
+    FakeEventCategoryRepo,
+    FakeHasher,
+    FakeSchoolRepo,
+    FakeUserRepo,
+    make_school,
+    make_user,
+)
 
 
 def _svc(
@@ -19,7 +26,11 @@ def _svc(
 ) -> tuple[OnboardingService, FakeSchoolRepo, FakeUserRepo]:
     srepo = FakeSchoolRepo(schools or [])
     urepo = FakeUserRepo(users or [])
-    return OnboardingService(srepo, urepo, FakeHasher()), srepo, urepo
+    return (
+        OnboardingService(srepo, urepo, FakeHasher(), FakeEventCategoryRepo()),
+        srepo,
+        urepo,
+    )
 
 
 async def test_create_school_trims_validates_and_persists() -> None:

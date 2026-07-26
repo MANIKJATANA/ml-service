@@ -30,10 +30,12 @@ import {
   PROCESSING_LABEL,
   PROCESSING_TONE,
 } from "@/lib/events/status";
+import { categoryColor } from "@/lib/events/categories";
 import { useEvent } from "@/lib/hooks/use-events";
+import { useEventCategories } from "@/lib/hooks/use-event-categories";
 import { useEventNotifications } from "@/lib/hooks/use-event-notifications";
 import { useEventStatus } from "@/lib/hooks/use-event-status";
-import { formatDate } from "@/lib/utils";
+import { cn, formatDate } from "@/lib/utils";
 
 function EditEventDialog({
   event,
@@ -43,10 +45,13 @@ function EditEventDialog({
   onSaved: (event: EventResponse) => void;
 }) {
   const { toast } = useToast();
+  const { categories } = useEventCategories();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState(event.name);
   const [description, setDescription] = useState(event.description ?? "");
   const [eventDate, setEventDate] = useState(event.event_date ?? "");
+  const [categoryId, setCategoryId] = useState(event.category_id ?? "");
+  const [term, setTerm] = useState(event.term ?? "");
   const [submitting, setSubmitting] = useState(false);
 
   function handleOpenChange(next: boolean) {
@@ -56,6 +61,8 @@ function EditEventDialog({
       setName(event.name);
       setDescription(event.description ?? "");
       setEventDate(event.event_date ?? "");
+      setCategoryId(event.category_id ?? "");
+      setTerm(event.term ?? "");
     }
   }
 
@@ -63,12 +70,21 @@ function EditEventDialog({
     e.preventDefault();
     // Send only changed fields. The backend can't clear a field to null (0027), so an
     // emptied optional field is omitted (left unchanged) rather than cleared.
-    const patch: { name?: string; description?: string; event_date?: string } = {};
+    const patch: {
+      name?: string;
+      description?: string;
+      event_date?: string;
+      category_id?: string;
+      term?: string;
+    } = {};
     if (name.trim() && name.trim() !== event.name) patch.name = name.trim();
     if (description.trim() && description.trim() !== (event.description ?? "")) {
       patch.description = description.trim();
     }
     if (eventDate && eventDate !== (event.event_date ?? "")) patch.event_date = eventDate;
+    // Changing to a different category works; "No category" (empty) can't clear it (0027).
+    if (categoryId && categoryId !== (event.category_id ?? "")) patch.category_id = categoryId;
+    if (term.trim() && term.trim() !== (event.term ?? "")) patch.term = term.trim();
     if (Object.keys(patch).length === 0) {
       toast("No changes to save.", "info");
       setOpen(false);
@@ -116,12 +132,38 @@ function EditEventDialog({
               onChange={(e) => setDescription(e.target.value)}
             />
           </Field>
-          <Field label="Date" htmlFor="edit-event-date" hint="Optional.">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Date" htmlFor="edit-event-date" hint="Optional.">
+              <Input
+                id="edit-event-date"
+                type="date"
+                value={eventDate}
+                onChange={(e) => setEventDate(e.target.value)}
+              />
+            </Field>
+            <Field label="Category" htmlFor="edit-event-category" hint="Optional.">
+              <select
+                id="edit-event-category"
+                value={categoryId}
+                onChange={(e) => setCategoryId(e.target.value)}
+                className="h-10 rounded-button border border-hairline bg-canvas px-3 text-body text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                {/* Once categorized, clearing isn't supported (0027) — omit the no-op option. */}
+                {!event.category_id ? <option value="">No category</option> : null}
+                {categories.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          </div>
+          <Field label="Term" htmlFor="edit-event-term" hint="Optional, e.g. Fall 2026.">
             <Input
-              id="edit-event-date"
-              type="date"
-              value={eventDate}
-              onChange={(e) => setEventDate(e.target.value)}
+              id="edit-event-term"
+              maxLength={100}
+              value={term}
+              onChange={(e) => setTerm(e.target.value)}
             />
           </Field>
           <div className="mt-2 flex justify-end gap-2">
@@ -404,6 +446,27 @@ export default function EventDetailPage() {
                   <dd className="text-body text-ink">
                     {event.event_date ? formatDate(event.event_date) : "—"}
                   </dd>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <dt className="text-body-sm text-ink-muted">Category</dt>
+                  <dd>
+                    {event.category_id && event.category_name ? (
+                      <span
+                        className={cn(
+                          "inline-block rounded-full px-2.5 py-0.5 text-body-sm font-medium",
+                          categoryColor(event.category_id),
+                        )}
+                      >
+                        {event.category_name}
+                      </span>
+                    ) : (
+                      <span className="text-body text-ink-muted">—</span>
+                    )}
+                  </dd>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <dt className="text-body-sm text-ink-muted">Term</dt>
+                  <dd className="text-body text-ink">{event.term ?? "—"}</dd>
                 </div>
                 <div className="flex flex-col gap-1">
                   <dt className="text-body-sm text-ink-muted">Status</dt>

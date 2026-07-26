@@ -14,6 +14,8 @@ export interface ListQuery {
   dir?: SortDir;
   status?: string;
   student_group_id?: string; // BP11a: the students list can filter to one class
+  category_id?: string; // BP11b: the events list can filter to one category
+  term?: string; // BP11b: the events list can filter to one term
 }
 
 export const LIST_PAGE_SIZE = 50;

@@ -8,6 +8,7 @@ held by school_admin + teacher. Tenant isolation: the school is taken from the t
 
 from __future__ import annotations
 
+from datetime import date
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, status
@@ -24,6 +25,7 @@ from backend.api.schemas.events import (
     CreateEventRequest,
     EventListPageResponse,
     EventResponse,
+    EventTermsResponse,
     UpdateEventRequest,
 )
 from backend.api.schemas.media import EventStatusResponse
@@ -52,6 +54,8 @@ async def create_event(
         description=body.description,
         event_date=body.event_date,
         created_by=actor.id,
+        category_id=body.category_id,
+        term=body.term,
     )
     return EventResponse.from_event(event)
 
@@ -66,9 +70,14 @@ async def list_events(
     sort: Annotated[EventSort, Query()] = EventSort.EVENT_DATE,
     dir: Annotated[SortDir, Query()] = SortDir.DESC,
     status: Annotated[EventStatus | None, Query()] = None,
+    category_id: Annotated[str | None, Query(max_length=64)] = None,
+    term: Annotated[str | None, Query(max_length=100)] = None,
+    date_from: Annotated[date | None, Query()] = None,
+    date_to: Annotated[date | None, Query()] = None,
 ) -> EventListPageResponse:
     """One page of the events list (BP9): server search (name), sort (incl. the whole-list
-    media/matched/needs-review count columns), and lifecycle-status filter."""
+    media/matched/needs-review count columns), lifecycle-status filter, and (BP11b) category /
+    term / an ``event_date`` range (the calendar's month window)."""
     page = await container.listing_service().list_events_page(
         school_id=tenant_of(actor),
         limit=limit,
@@ -77,8 +86,22 @@ async def list_events(
         sort=sort,
         descending=is_descending(dir),
         status=status,
+        category_id=category_id,
+        term=term,
+        date_from=date_from,
+        date_to=date_to,
     )
     return EventListPageResponse.from_page(page)
+
+
+@router.get("/terms", response_model=EventTermsResponse)
+async def list_terms(
+    container: ContainerDep, actor: EventManager
+) -> EventTermsResponse:
+    """The distinct terms this school has used (BP11b — feeds the term filter dropdown).
+    Registered before ``/{event_id}`` so the literal wins the route match."""
+    terms = await container.event_service().list_terms(school_id=tenant_of(actor))
+    return EventTermsResponse(terms=terms)
 
 
 @router.get("/{event_id}", response_model=EventResponse)
@@ -106,6 +129,8 @@ async def update_event(
         event_date=body.event_date,
         status=body.status,
         auto_notify=body.auto_notify,
+        category_id=body.category_id,
+        term=body.term,
     )
     return EventResponse.from_event(event)
 

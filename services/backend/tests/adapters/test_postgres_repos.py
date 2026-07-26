@@ -14,10 +14,14 @@ from __future__ import annotations
 
 import os
 from collections.abc import AsyncIterator
+from datetime import date
 
 import pytest
 from backend.adapters.repositories.postgres_download_audit import (
     PostgresDownloadAuditRepository,
+)
+from backend.adapters.repositories.postgres_event_categories import (
+    PostgresEventCategoryRepository,
 )
 from backend.adapters.repositories.postgres_events import PostgresEventRepository
 from backend.adapters.repositories.postgres_match_corrections import (
@@ -48,6 +52,7 @@ from backend.domain.models import (
     StudentSort,
     UserStatus,
 )
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 _DSN = os.environ.get("BE_TEST_DATABASE_URL")
@@ -1148,3 +1153,70 @@ async def test_set_group_bulk_never_moves_a_foreign_student(
     )
     still = await students.get(b.id, foreign.id)
     assert still is not None and still.student_group_id is None
+
+
+async def test_event_category_crud_seed_join_filters_and_cascade(
+    sm: async_sessionmaker[AsyncSession],
+) -> None:
+    # BP11b: category CRUD + seed + the events LEFT JOIN carrying the name + the
+    # category/term/date-range filters + the SET NULL cascade — end to end on real SQL.
+    schools = PostgresSchoolRepository(sm)
+    events = PostgresEventRepository(sm)
+    cats = PostgresEventCategoryRepository(sm)
+    a = await schools.create(name="A", max_teachers=5)
+    b = await schools.create(name="B", max_teachers=5)
+
+    # seed (idempotent) + list + tenant scope + case-insensitive name lookup
+    await cats.seed_defaults(a.id, ("Sports", "Academic", "Other"))
+    await cats.seed_defaults(a.id, ("Sports", "Trip"))  # skips the existing Sports
+    listed = await cats.list_by_school(a.id)
+    assert sorted(c.name for c in listed) == ["Academic", "Other", "Sports", "Trip"]
+    assert await cats.list_by_school(b.id) == []
+    sports = await cats.get_by_name(a.id, "SPORTS")
+    assert sports is not None and sports.name == "Sports"
+    assert await cats.get(b.id, sports.id) is None  # foreign school can't see it
+
+    # the (school_id, name) UNIQUE is enforced at the DB
+    with pytest.raises(IntegrityError):
+        await cats.create(school_id=a.id, name="Sports")
+
+    # create events with a category + term; the LEFT JOIN carries the category name
+    e1 = await events.create(
+        school_id=a.id,
+        name="Sports Day",
+        description=None,
+        event_date=date(2026, 7, 4),
+        created_by=None,
+        category_id=sports.id,
+        term="Fall 2026",
+    )
+    assert e1.category_id == sports.id and e1.category_name == "Sports"
+    await events.create(
+        school_id=a.id,
+        name="Undated",
+        description=None,
+        event_date=None,
+        created_by=None,
+        category_id=sports.id,
+        term="Fall 2026",
+    )
+    got = await events.get(a.id, e1.id)
+    assert got is not None and got.category_name == "Sports"
+
+    # filters: category / term / date-range (a null date is excluded)
+    by_cat = await events.list_page(a.id, limit=50, offset=0, category_id=sports.id)
+    assert {e.name for e in by_cat} == {"Sports Day", "Undated"}
+    assert await events.count_page(a.id, category_id=sports.id) == 2
+    assert len(await events.list_page(a.id, limit=50, offset=0, term="Fall 2026")) == 2
+    in_range = await events.list_page(
+        a.id, limit=50, offset=0, date_from=date(2026, 7, 1), date_to=date(2026, 7, 31)
+    )
+    assert {e.name for e in in_range} == {"Sports Day"}  # the undated one is excluded
+    assert await events.list_terms(a.id) == ["Fall 2026"]
+
+    # delete the category → its events are un-tagged (SET NULL), not deleted
+    assert await cats.delete(a.id, sports.id) is True
+    after = await events.get(a.id, e1.id)
+    assert after is not None and after.category_id is None and after.category_name is None
+    assert await cats.get(a.id, sports.id) is None
+    assert await cats.delete(a.id, sports.id) is False  # already gone

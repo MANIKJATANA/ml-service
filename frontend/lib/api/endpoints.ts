@@ -6,6 +6,7 @@ import type {
   DashboardResponse,
   DownloadLogPageResponse,
   DownloadResponse,
+  EventCategoryResponse,
   EventForStudentResponse,
   EventListPageResponse,
   EventResponse,
@@ -54,6 +55,10 @@ export interface ListParams {
   dir?: SortDir;
   status?: string;
   student_group_id?: string; // BP11a: filter the students list to one class
+  category_id?: string; // BP11b: filter the events list to one category
+  term?: string; // BP11b: filter the events list to one term
+  date_from?: string; // BP11b: event_date >= (the calendar month window)
+  date_to?: string; // BP11b: event_date <=
 }
 
 function listQuery(params: ListParams): string {
@@ -66,6 +71,10 @@ function listQuery(params: ListParams): string {
   if (params.dir) q.set("dir", params.dir);
   if (params.status && params.status !== "all") q.set("status", params.status);
   if (params.student_group_id) q.set("student_group_id", params.student_group_id);
+  if (params.category_id) q.set("category_id", params.category_id);
+  if (params.term) q.set("term", params.term);
+  if (params.date_from) q.set("date_from", params.date_from);
+  if (params.date_to) q.set("date_to", params.date_to);
   return q.toString();
 }
 
@@ -361,14 +370,23 @@ export function createEvent(
   name: string,
   description: string | null,
   eventDate: string | null,
+  categoryId: string | null = null,
+  term: string | null = null,
 ): Promise<EventResponse> {
   return bffFetch<EventResponse>("/api/v1/events", {
     method: "POST",
-    body: JSON.stringify({ name, description, event_date: eventDate }),
+    body: JSON.stringify({
+      name,
+      description,
+      event_date: eventDate,
+      category_id: categoryId,
+      term,
+    }),
   });
 }
 
-/** Partial update — only supplied fields change; clearing a field to null is unsupported (0027). */
+/** Partial update — only supplied fields change; clearing a field to null is unsupported (0027).
+ *  BP11b: `category_id`/`term` follow the same convention (send to set, omit to leave). */
 export function updateEvent(
   eventId: string,
   patch: {
@@ -377,12 +395,41 @@ export function updateEvent(
     event_date?: string;
     status?: EventStatus;
     auto_notify?: boolean;
+    category_id?: string;
+    term?: string;
   },
 ): Promise<EventResponse> {
   return bffFetch<EventResponse>(`/api/v1/events/${encodeURIComponent(eventId)}`, {
     method: "PATCH",
     body: JSON.stringify(patch),
   });
+}
+
+// --- Event categories + terms (BP11b, decisions/0059; event:manage) ---
+
+/** Every category in the school (bounded — feeds the filter + the create/edit picker). */
+export function getEventCategories(): Promise<EventCategoryResponse[]> {
+  return bffFetch<EventCategoryResponse[]>("/api/v1/event-categories");
+}
+
+/** Add a category (a duplicate name in the school → 409). */
+export function createEventCategory(name: string): Promise<EventCategoryResponse> {
+  return bffFetch<EventCategoryResponse>("/api/v1/event-categories", {
+    method: "POST",
+    body: JSON.stringify({ name }),
+  });
+}
+
+/** Remove a category — its events are un-tagged (SET NULL), never deleted. */
+export function deleteEventCategory(categoryId: string): Promise<void> {
+  return bffFetch<void>(`/api/v1/event-categories/${encodeURIComponent(categoryId)}`, {
+    method: "DELETE",
+  });
+}
+
+/** The distinct terms this school has used (feeds the term filter dropdown). */
+export function getEventTerms(): Promise<{ terms: string[] }> {
+  return bffFetch<{ terms: string[] }>("/api/v1/events/terms");
 }
 
 /** Enqueue one event-level inference job. 400 if archived / already in flight / no pending

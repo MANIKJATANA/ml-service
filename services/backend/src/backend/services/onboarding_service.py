@@ -17,6 +17,7 @@ from backend.domain.errors import (
     ValidationError,
 )
 from backend.domain.models import (
+    DEFAULT_EVENT_CATEGORIES,
     Role,
     School,
     SchoolStatus,
@@ -24,7 +25,12 @@ from backend.domain.models import (
     UserSort,
     UserStatus,
 )
-from backend.domain.ports import PasswordHasher, SchoolRepository, UserRepository
+from backend.domain.ports import (
+    EventCategoryRepository,
+    PasswordHasher,
+    SchoolRepository,
+    UserRepository,
+)
 from backend.services.credentials import generate_temp_password
 from backend.services.pagination import Page
 
@@ -46,10 +52,12 @@ class OnboardingService:
         schools: SchoolRepository,
         users: UserRepository,
         hasher: PasswordHasher,
+        categories: EventCategoryRepository,
     ) -> None:
         self._schools = schools
         self._users = users
         self._hasher = hasher
+        self._categories = categories
 
     # ---- schools (platform) --------------------------------------------
 
@@ -59,7 +67,12 @@ class OnboardingService:
             raise ValidationError("school name must be 1-200 characters")
         if max_teachers < 1:
             raise ValidationError("max_teachers must be >= 1")
-        return await self._schools.create(name=clean, max_teachers=max_teachers)
+        school = await self._schools.create(name=clean, max_teachers=max_teachers)
+        # BP11b: every new school starts with the default event categories (admins/staff
+        # add more). Seeded best-effort in the same flow — existing schools got them in
+        # migration 0014.
+        await self._categories.seed_defaults(school.id, DEFAULT_EVENT_CATEGORIES)
+        return school
 
     async def list_schools(self) -> list[School]:
         return await self._schools.list_all()

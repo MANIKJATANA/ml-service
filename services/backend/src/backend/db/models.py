@@ -260,6 +260,14 @@ class Event(Base):
     notified_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # BP11b (migration 0014): a free-text term + the event's category (a tenant-owned
+    # event_categories row). category_id SET NULL on category delete — un-tags, never deletes.
+    term: Mapped[str | None] = mapped_column(String, nullable=True)
+    category_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("event_categories.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -273,6 +281,14 @@ class Event(Base):
     __table_args__ = (
         Index("ix_events_school", "school_id"),
         Index("ix_events_processing", "processing_status"),
+        # BP11b: filter/calendar the events list by category within a school.
+        Index(
+            "ix_events_school_category",
+            "school_id",
+            "category_id",
+            "event_date",
+            "id",
+        ),
         # Lockstep with the EventStatus / EventProcessingStatus domain enums; widen
         # each enum and its CHECK together.
         CheckConstraint(
@@ -283,6 +299,38 @@ class Event(Base):
             "('not_started', 'queued', 'processing', 'completed')",
             name="ck_events_processing_status",
         ),
+    )
+
+
+class EventCategory(Base):
+    """A tenant-owned event category (BP11b, migration 0014, decisions/0059). Seeded with the 6
+    defaults on school-create; admins/staff add more. An event points at one via
+    ``events.category_id`` (SET NULL on delete). Bounded per school."""
+
+    __tablename__ = "event_categories"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    school_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("schools.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        UniqueConstraint("school_id", "name", name="uq_event_categories_school_name"),
+        Index("ix_event_categories_school", "school_id", "name", "id"),
     )
 
 

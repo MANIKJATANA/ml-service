@@ -22,6 +22,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import date
 
 from backend.domain.errors import NotFoundError
 from backend.domain.models import (
@@ -165,14 +166,28 @@ class ListingService:
         sort: EventSort = EventSort.EVENT_DATE,
         descending: bool = True,
         status: EventStatus | None = None,
+        category_id: str | None = None,
+        term: str | None = None,
+        date_from: date | None = None,
+        date_to: date | None = None,
     ) -> Page[EventListing]:
         """One page of the events list (BP9), searched/filtered/sorted server-side. Count
         sorts (media/matched/needs_review) take the whole-list id-scan path; row-native
-        sorts page directly in SQL."""
+        sorts page directly in SQL. BP11b: ``category_id``/``term`` filter + ``date_from``/
+        ``date_to`` bound ``event_date`` (the calendar month window) — threaded through both
+        paths."""
         media_counts = await self._media.counts_by_event(school_id)
         match_counts = await self._reader.event_match_counts(school_id)
         if sort in EVENT_COUNT_SORTS:
-            ids = await self._events.list_ids(school_id, q=q, status=status)
+            ids = await self._events.list_ids(
+                school_id,
+                q=q,
+                status=status,
+                category_id=category_id,
+                term=term,
+                date_from=date_from,
+                date_to=date_to,
+            )
             total = len(ids)
 
             def key(eid: str) -> int:
@@ -203,8 +218,20 @@ class ListingService:
                 sort=sort,
                 descending=descending,
                 status=status,
+                category_id=category_id,
+                term=term,
+                date_from=date_from,
+                date_to=date_to,
             )
-            total = await self._events.count_page(school_id, q=q, status=status)
+            total = await self._events.count_page(
+                school_id,
+                q=q,
+                status=status,
+                category_id=category_id,
+                term=term,
+                date_from=date_from,
+                date_to=date_to,
+            )
         items = [_event_listing(e, media_counts, match_counts) for e in events]
         return Page(items=items, total=total, limit=limit, offset=offset)
 

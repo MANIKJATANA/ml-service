@@ -15,6 +15,7 @@ from backend.domain.models import (
 )
 from backend.services.event_service import EventService
 from backend_fakes import (
+    FakeEventCategoryRepo,
     FakeEventJobProducer,
     FakeEventRepo,
     FakeMediaRepo,
@@ -34,8 +35,10 @@ def _svc(
 ) -> tuple[EventService, FakeEventRepo, FakeMediaRepo, FakeEventJobProducer]:
     erepo = FakeEventRepo(events or [])
     mrepo = FakeMediaRepo(media or [])
+    crepo = FakeEventCategoryRepo()
+    erepo.link_categories(crepo.name_of)
     prod = producer or FakeEventJobProducer()
-    return EventService(erepo, mrepo, prod), erepo, mrepo, prod
+    return EventService(erepo, mrepo, prod, crepo), erepo, mrepo, prod
 
 
 # ---- CRUD --------------------------------------------------------------

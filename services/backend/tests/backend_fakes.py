@@ -20,6 +20,7 @@ from backend.domain.models import (
     EnrollmentOutcome,
     EnrollmentStatus,
     Event,
+    EventCategory,
     EventJob,
     EventMatchCounts,
     EventProcessingStatus,
@@ -48,6 +49,7 @@ from backend.domain.models import (
 )
 from backend.domain.ports import (
     DownloadAuditRepository,
+    EventCategoryRepository,
     EventJobProducer,
     EventRepository,
     MatchCorrectionRepository,
@@ -223,6 +225,9 @@ def make_event(
     completed_at: datetime | None = None,
     auto_notify: bool = True,
     notified_at: datetime | None = None,
+    term: str | None = None,
+    category_id: str | None = None,
+    category_name: str | None = None,
 ) -> Event:
     return Event(
         id=id,
@@ -237,6 +242,24 @@ def make_event(
         completed_at=completed_at,
         auto_notify=auto_notify,
         notified_at=notified_at,
+        created_at=_NOW,
+        updated_at=_NOW,
+        term=term,
+        category_id=category_id,
+        category_name=category_name,
+    )
+
+
+def make_event_category(
+    *,
+    id: str = "cat-1",
+    school_id: str = "school-1",
+    name: str = "Sports",
+) -> EventCategory:
+    return EventCategory(
+        id=id,
+        school_id=school_id,
+        name=name,
         created_at=_NOW,
         updated_at=_NOW,
     )
@@ -993,9 +1016,14 @@ class FakeEventRepo:
         # Optionally linked to a FakeMediaRepo so count_not_started_with_media can see
         # which events actually have photos (mirrors the real EXISTS join).
         self._media_repo: FakeMediaRepo | None = None
+        # Resolves a category name by id — mirrors the event_categories LEFT JOIN (BP11b).
+        self._category_name_of: Callable[[str], str | None] = lambda _cid: None
 
     def link_media(self, media_repo: FakeMediaRepo) -> None:
         self._media_repo = media_repo
+
+    def link_categories(self, resolver: Callable[[str], str | None]) -> None:
+        self._category_name_of = resolver
 
     async def create(
         self,
@@ -1005,6 +1033,8 @@ class FakeEventRepo:
         description: str | None,
         event_date: date | None,
         created_by: str | None,
+        category_id: str | None = None,
+        term: str | None = None,
     ) -> Event:
         self._seq += 1
         event = make_event(
@@ -1014,6 +1044,13 @@ class FakeEventRepo:
             description=description,
             event_date=event_date,
             created_by=created_by,
+            category_id=category_id,
+            category_name=(
+                self._category_name_of(category_id)
+                if category_id is not None
+                else None
+            ),
+            term=term,
         )
         self._by_id[event.id] = event
         return event
@@ -1028,11 +1065,29 @@ class FakeEventRepo:
         return [e for e in self._by_id.values() if e.school_id == school_id]
 
     def _match(
-        self, e: Event, school_id: str, q: str | None, status: EventStatus | None
+        self,
+        e: Event,
+        school_id: str,
+        q: str | None,
+        status: EventStatus | None,
+        category_id: str | None = None,
+        term: str | None = None,
+        date_from: date | None = None,
+        date_to: date | None = None,
     ) -> bool:
         return (
             e.school_id == school_id
             and (status is None or e.status is status)
+            and (category_id is None or e.category_id == category_id)
+            and (term is None or e.term == term)
+            and (
+                date_from is None
+                or (e.event_date is not None and e.event_date >= date_from)
+            )
+            and (
+                date_to is None
+                or (e.event_date is not None and e.event_date <= date_to)
+            )
             and _q_match(q, e.name)
         )
 
@@ -1046,8 +1101,16 @@ class FakeEventRepo:
         sort: EventSort = EventSort.EVENT_DATE,
         descending: bool = True,
         status: EventStatus | None = None,
+        category_id: str | None = None,
+        term: str | None = None,
+        date_from: date | None = None,
+        date_to: date | None = None,
     ) -> list[Event]:
-        rows = [e for e in self._by_id.values() if self._match(e, school_id, q, status)]
+        rows = [
+            e
+            for e in self._by_id.values()
+            if self._match(e, school_id, q, status, category_id, term, date_from, date_to)
+        ]
         return _page(
             rows,
             key=_EVENT_SORT_KEYS.get(sort, _EVENT_SORT_KEYS[EventSort.EVENT_DATE]),
@@ -1062,9 +1125,15 @@ class FakeEventRepo:
         *,
         q: str | None = None,
         status: EventStatus | None = None,
+        category_id: str | None = None,
+        term: str | None = None,
+        date_from: date | None = None,
+        date_to: date | None = None,
     ) -> int:
         return sum(
-            1 for e in self._by_id.values() if self._match(e, school_id, q, status)
+            1
+            for e in self._by_id.values()
+            if self._match(e, school_id, q, status, category_id, term, date_from, date_to)
         )
 
     async def list_ids(
@@ -1073,10 +1142,33 @@ class FakeEventRepo:
         *,
         q: str | None = None,
         status: EventStatus | None = None,
+        category_id: str | None = None,
+        term: str | None = None,
+        date_from: date | None = None,
+        date_to: date | None = None,
     ) -> list[str]:
         return [
-            e.id for e in self._by_id.values() if self._match(e, school_id, q, status)
+            e.id
+            for e in self._by_id.values()
+            if self._match(e, school_id, q, status, category_id, term, date_from, date_to)
         ]
+
+    async def list_terms(self, school_id: str) -> list[str]:
+        return sorted(
+            {
+                e.term
+                for e in self._by_id.values()
+                if e.school_id == school_id and e.term is not None
+            }
+        )
+
+    def untag_category(self, category_id: str) -> None:
+        """Cascade hook for FakeEventCategoryRepo.delete (events.category_id SET NULL)."""
+        for eid, e in list(self._by_id.items()):
+            if e.category_id == category_id:
+                self._by_id[eid] = replace(
+                    e, category_id=None, category_name=None
+                )
 
     async def list_by_ids(
         self, school_id: str, event_ids: Sequence[str]
@@ -1151,6 +1243,8 @@ class FakeEventRepo:
         event_date: date | None = None,
         status: EventStatus | None = None,
         auto_notify: bool | None = None,
+        category_id: str | None = None,
+        term: str | None = None,
     ) -> Event | None:
         event = await self.get(school_id, event_id)
         if event is None:
@@ -1166,6 +1260,11 @@ class FakeEventRepo:
             changes["status"] = status
         if auto_notify is not None:
             changes["auto_notify"] = auto_notify
+        if category_id is not None:
+            changes["category_id"] = category_id
+            changes["category_name"] = self._category_name_of(category_id)
+        if term is not None:
+            changes["term"] = term
         updated = replace(event, **changes)  # type: ignore[arg-type]
         self._by_id[event_id] = updated
         return updated
@@ -1188,6 +1287,71 @@ class FakeEventRepo:
         event = self._by_id.get(event_id)
         if event is not None:
             self._by_id[event_id] = replace(event, notified_at=_NOW)
+
+
+class FakeEventCategoryRepo:
+    """EventCategoryRepository double (BP11b). Tenant-scoped like the real adapter. Optionally
+    linked to a FakeEventRepo so the event read carries the category name and ``delete`` un-tags
+    its events (the SET NULL cascade)."""
+
+    def __init__(self, categories: list[EventCategory] | None = None) -> None:
+        self._by_id: dict[str, EventCategory] = {c.id: c for c in (categories or [])}
+        self._seq = 0
+        self._on_delete: Callable[[str], None] | None = None
+
+    def link_events(self, on_delete: Callable[[str], None]) -> None:
+        self._on_delete = on_delete
+
+    def name_of(self, category_id: str) -> str | None:
+        """Sync helper: the category name for an id (or None) — mirrors the LEFT JOIN."""
+        c = self._by_id.get(category_id)
+        return c.name if c is not None else None
+
+    async def create(self, *, school_id: str, name: str) -> EventCategory:
+        self._seq += 1
+        cat = make_event_category(
+            id=f"ecat-{self._seq}", school_id=school_id, name=name
+        )
+        self._by_id[cat.id] = cat
+        return cat
+
+    async def get(self, school_id: str, category_id: str) -> EventCategory | None:
+        c = self._by_id.get(category_id)
+        if c is None or c.school_id != school_id:  # tenant-scoped
+            return None
+        return c
+
+    async def get_by_name(self, school_id: str, name: str) -> EventCategory | None:
+        target = name.strip().lower()
+        for c in self._by_id.values():
+            if c.school_id == school_id and c.name.lower() == target:
+                return c
+        return None
+
+    async def list_by_school(self, school_id: str) -> list[EventCategory]:
+        return [c for c in self._by_id.values() if c.school_id == school_id]
+
+    async def delete(self, school_id: str, category_id: str) -> bool:
+        c = await self.get(school_id, category_id)
+        if c is None:
+            return False
+        del self._by_id[category_id]
+        if self._on_delete is not None:
+            self._on_delete(category_id)  # SET NULL: un-tag the category's events
+        return True
+
+    async def seed_defaults(self, school_id: str, names: Sequence[str]) -> None:
+        have = {
+            c.name.lower()
+            for c in self._by_id.values()
+            if c.school_id == school_id
+        }
+        for name in names:
+            if name.strip().lower() not in have:
+                self._seq += 1
+                self._by_id[f"ecat-{self._seq}"] = make_event_category(
+                    id=f"ecat-{self._seq}", school_id=school_id, name=name
+                )
 
 
 class RecordingStudentRepo(FakeStudentRepo):
@@ -1636,6 +1800,7 @@ class SeededContainer(Container):
         ml_client: MlEnrollmentClient | None = None,
         thumbnailer: Thumbnailer | None = None,
         events: EventRepository | None = None,
+        event_categories: EventCategoryRepository | None = None,
         media: MediaRepository | None = None,
         event_job_producer: EventJobProducer | None = None,
         ml_results_reader: MlResultsReader | None = None,
@@ -1656,6 +1821,9 @@ class SeededContainer(Container):
         self._seed_ml_client: MlEnrollmentClient = ml_client or FakeMlClient()
         self._seed_thumbnailer: Thumbnailer = thumbnailer or FakeThumbnailer()
         self._seed_events: EventRepository = events or FakeEventRepo()
+        self._seed_event_categories: EventCategoryRepository = (
+            event_categories or FakeEventCategoryRepo()
+        )
         self._seed_media: MediaRepository = media or FakeMediaRepo()
         self._seed_event_job_producer: EventJobProducer = (
             event_job_producer or FakeEventJobProducer()
@@ -1694,6 +1862,13 @@ class SeededContainer(Container):
             self._seed_media, FakeMediaRepo
         ):
             self._seed_events.link_media(self._seed_media)
+        # Wire the event↔category links (BP11b): the event read carries its category name,
+        # and deleting a category un-tags its events (SET NULL).
+        if isinstance(self._seed_events, FakeEventRepo) and isinstance(
+            self._seed_event_categories, FakeEventCategoryRepo
+        ):
+            self._seed_events.link_categories(self._seed_event_categories.name_of)
+            self._seed_event_categories.link_events(self._seed_events.untag_category)
 
     def user_repo(self) -> UserRepository:
         return self._seed_users
@@ -1718,6 +1893,9 @@ class SeededContainer(Container):
 
     def event_repo(self) -> EventRepository:
         return self._seed_events
+
+    def event_category_repo(self) -> EventCategoryRepository:
+        return self._seed_event_categories
 
     def media_repo(self) -> MediaRepository:
         return self._seed_media

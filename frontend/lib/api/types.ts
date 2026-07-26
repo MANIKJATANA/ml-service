@@ -163,6 +163,16 @@ export interface EventResponse {
   notified_at: string | null; // BP4: last manual "Notify students" push
   created_at: string;
   updated_at: string;
+  // BP11b: a free-text term + the event's category (category_name denormalized for display).
+  term: string | null;
+  category_id: string | null;
+  category_name: string | null;
+}
+
+/** A tenant-configurable event category (BP11b, decisions/0059). */
+export interface EventCategoryResponse {
+  id: string;
+  name: string;
 }
 
 /** An events-list row: the event + its counts (BP2, decisions/0039). */

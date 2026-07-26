@@ -275,6 +275,32 @@ class EnrollmentOutcome:
     photo_results: tuple[PhotoResult, ...]
 
 
+# The categories a school starts with (BP11b, decisions/0059) — seeded on school-create + into
+# every existing school in migration 0014. Stored as tenant rows, so a school can add/remove more.
+DEFAULT_EVENT_CATEGORIES: tuple[str, ...] = (
+    "Sports",
+    "Academic",
+    "Arts",
+    "Trip",
+    "Ceremony",
+    "Other",
+)
+
+
+@dataclass(frozen=True, slots=True)
+class EventCategory:
+    """A tenant-owned event category (BP11b, decisions/0059). A school starts with the
+    ``DEFAULT_EVENT_CATEGORIES`` (seeded on create) and admins/staff can add more; an event points
+    at one via ``events.category_id`` (nullable) — deleting a category un-tags its events (SET
+    NULL), never deletes them. Bounded per school."""
+
+    id: str
+    school_id: str
+    name: str
+    created_at: datetime
+    updated_at: datetime
+
+
 @dataclass(frozen=True, slots=True)
 class Event:
     """An event whose media is distributed to appearing students (decisions/0027).
@@ -299,6 +325,11 @@ class Event:
     notified_at: datetime | None
     created_at: datetime
     updated_at: datetime
+    # BP11b: a free-text term + the event's category (a tenant-owned event_categories row).
+    # ``category_name`` is denormalized for display (like ``student_group_name``); null = none.
+    term: str | None = None
+    category_id: str | None = None
+    category_name: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

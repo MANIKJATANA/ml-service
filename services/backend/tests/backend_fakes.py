@@ -1330,6 +1330,17 @@ class FakeEventRepo:
         self._by_id[event_id] = updated
         return updated
 
+    async def set_status_bulk(
+        self, school_id: str, event_ids: Sequence[str], *, status: EventStatus
+    ) -> int:
+        n = 0
+        for eid in event_ids:
+            e = self._by_id.get(eid)
+            if e is not None and e.school_id == school_id:  # tenant-scoped
+                self._by_id[eid] = replace(e, status=status)
+                n += 1
+        return n
+
     async def set_processing(
         self, event_id: str, *, status: EventProcessingStatus
     ) -> None:

@@ -38,6 +38,9 @@ export function PhotoGrid({
   onLoadMore,
   hasMore = false,
   loadingMore = false,
+  selectionMode = false,
+  selectedIds,
+  onToggleSelect,
 }: {
   items: GalleryItem[];
   showAppearances?: boolean;
@@ -52,6 +55,11 @@ export function PhotoGrid({
   onLoadMore?: () => void;
   hasMore?: boolean;
   loadingMore?: boolean;
+  /** BP13 multi-select (staff grid): when on, tile clicks toggle selection (not the lightbox).
+   *  The parent owns the selected set + the download action bar. */
+  selectionMode?: boolean;
+  selectedIds?: Set<string>;
+  onToggleSelect?: (mediaId: string) => void;
 }) {
   const [openIndex, setOpenIndex] = useState<number | null>(null);
   const [visibleCount, setVisibleCount] = useState(INITIAL_WINDOW);
@@ -108,6 +116,9 @@ export function PhotoGrid({
             index={i}
             onOpen={setOpenIndex}
             variant={variant}
+            selectionMode={selectionMode}
+            selected={selectedIds?.has(item.id) ?? false}
+            onToggleSelect={onToggleSelect}
           />
         ))}
       </div>

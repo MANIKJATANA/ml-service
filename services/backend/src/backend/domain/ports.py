@@ -351,6 +351,13 @@ class EventRepository(Protocol):
         term: str | None = None,
         student_group_id: str | None = None,
     ) -> Event | None: ...
+    async def set_status_bulk(
+        self, school_id: str, event_ids: Sequence[str], *, status: EventStatus
+    ) -> int:
+        """Set the lifecycle ``status`` (active/archived) on many of one school's events in one
+        tenant-scoped UPDATE (BP13 bulk archive/restore). A foreign/malformed id is silently
+        skipped (``WHERE school_id AND id IN (…)``); returns the count updated."""
+        ...
     async def set_processing(
         self, event_id: str, *, status: EventProcessingStatus
     ) -> None: ...

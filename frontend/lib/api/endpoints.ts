@@ -463,6 +463,18 @@ export function updateEvent(
   });
 }
 
+/** Archive/restore many events at once (BP13). Tenant from the token; a foreign id is silently
+ *  skipped. Returns how many were updated. */
+export function bulkEventStatus(
+  eventIds: string[],
+  status: EventStatus,
+): Promise<{ updated: number }> {
+  return bffFetch<{ updated: number }>("/api/v1/events/bulk-status", {
+    method: "POST",
+    body: JSON.stringify({ event_ids: eventIds, status }),
+  });
+}
+
 // --- Event categories + terms (BP11b, decisions/0059; event:manage) ---
 
 /** Every category in the school (bounded — feeds the filter + the create/edit picker). */
@@ -644,6 +656,18 @@ export function undoCorrection(mediaId: string, studentId: string): Promise<void
 export function eventReview(eventId: string): Promise<MediaReviewResponse[]> {
   return bffFetch<MediaReviewResponse[]>(
     `/api/v1/events/${encodeURIComponent(eventId)}/review`,
+  );
+}
+
+/** Apply many confirm/reject verdicts over an event's review lane at once (BP13). A pair that
+ *  isn't a real match in the event is silently skipped server-side. Returns how many applied. */
+export function batchReview(
+  eventId: string,
+  verdicts: { media_id: string; student_id: string; verdict: "confirmed" | "rejected" }[],
+): Promise<{ applied: number }> {
+  return bffFetch<{ applied: number }>(
+    `/api/v1/events/${encodeURIComponent(eventId)}/review/batch`,
+    { method: "POST", body: JSON.stringify({ verdicts }) },
   );
 }
 

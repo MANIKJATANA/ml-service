@@ -37,6 +37,23 @@ class EventTermsResponse(BaseModel):
     terms: list[str]
 
 
+# The most events one bulk archive/restore call can carry — well above a school's event count;
+# over it is a 422 (an abuse ceiling).
+_MAX_BULK_EVENTS = 500
+
+
+class BulkEventStatusRequest(BaseModel):
+    """Archive/restore many events at once (BP13). A foreign id is silently skipped in the
+    service (tenant-scoped UPDATE)."""
+
+    event_ids: list[str] = Field(min_length=1, max_length=_MAX_BULK_EVENTS)
+    status: EventStatus
+
+
+class BulkEventStatusResponse(BaseModel):
+    updated: int
+
+
 class CreateEventRequest(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     description: str | None = Field(default=None, max_length=2000)

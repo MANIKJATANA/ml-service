@@ -138,6 +138,15 @@ class EventService:
         if await self._categories.get(school_id, category_id) is None:
             raise NotFoundError(f"category not found: {category_id}")
 
+    async def set_status_bulk(
+        self, *, school_id: str, event_ids: list[str], status: EventStatus
+    ) -> int:
+        """Archive/restore many events at once (BP13). Tenant-scoped in the repo — a foreign id
+        is silently skipped, never a cross-tenant write. Returns the count updated."""
+        return await self._events.set_status_bulk(
+            school_id, event_ids, status=status
+        )
+
     async def _validate_group(
         self, school_id: str, student_group_id: str | None
     ) -> None:

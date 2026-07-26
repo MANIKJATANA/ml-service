@@ -124,15 +124,22 @@ L ≈ net-new across services (+ migration / infra). **Impact:** H/M/L on the pr
   **`class:manage`** (no new perm). Cohort-scoped *matching* stays deferred to **BP15**. **BP11 is complete
   (a, b, c).**
 
-### BP13 — Bulk actions & batch review · **Effort M · Impact M · BE + FE** · 📋 proposed
+### BP13 — Bulk actions & batch review · **Effort M · Impact M · BE + FE** · ✅ landed ([decisions/0061](../decisions/0061-product-build-BP13-bulk-actions-batch-review.md))
 - **Problem (theme E):** everything is one-at-a-time — no bulk re-enroll, no bulk archive, **no batch
   confirm/reject** in the needs-review lane, **no multi-select** on photos. At 100+ ambiguous matches, review
   gets skipped (defeating BP5). Fails **P5/X2**.
-- **Change:** multi-select on photos (download/archive); **batch confirm/reject** with **confidence sort** +
-  an **"auto-confirm ≥ threshold"**; bulk archive events; bulk staff/admin ops.
+- **Change (shipped):** the event review lane → a **confidence-sorted checklist** with Confirm/Reject
+  selected + a guarded **"Reject all remaining"** (batch confirm/reject reusing BP5's `set_verdict` overlay,
+  tenant-safe by construction); **bulk archive/restore** events (a checkbox column + a tenant-scoped
+  `set_status_bulk`); **multi-select photo download** (a staff-grid `selectionMode` on `PhotoGrid` +
+  BP9's streaming `useDownloadAll`). **Owner call: no auto-confirm** (the lane is confidence-sorted instead
+  of a threshold heuristic). Bulk re-enroll already shipped (BP8a/BP10 "Retry failed"). **No migration, no ML
+  change, no new permission** — two thin endpoints (`POST /v1/events/{id}/review/batch`, `POST
+  /v1/events/bulk-status`).
 - **Persona:** school admin + teacher. **Source lens:** P5, X2.
-- **Acceptance:** 100 ambiguous matches triaged in a few actions, not 100; a batch of failed enrollments
-  re-enrolls in one action.
+- **Acceptance:** 100 ambiguous matches triaged in a few actions, not 100; several events archived at once;
+  several photos downloaded as one zip. **Honest limits:** per-event review (no global queue), no
+  auto-confirm, bulk acts on loaded rows (no select-across-all-pages).
 
 ### BP14 — Program analytics & trends · **Effort M · Impact M · BE + FE** · 📋 proposed
 - **Problem (theme G):** dashboards are **point-in-time counts**. Neither the school admin ("how did
@@ -195,8 +202,9 @@ L ≈ net-new across services (+ migration / infra). **Impact:** H/M/L on the pr
 
 ## 5. How to use this file
 
-- **Pick the next phase** off the top of §4 — **BP9**, **BP17**, **BP10**, and **BP11a/b/c** (the whole
-  organizing-structure phase) have landed; **BP13** (bulk actions & batch review) is next.
+- **Pick the next phase** off the top of §4 — **BP9**, **BP17**, **BP10**, **BP11a/b/c** (organizing
+  structure), and **BP13** (bulk actions & batch review) have landed; **BP14** (program analytics &
+  trends) is next.
 - **Before building**, re-read the phase's **source lens** in `01` (the acceptance target) and its finding
   in `02` (what breaks + severity), then lock the phase design in a `decisions/` doc (repo convention).
 - **Keep `00` honest:** when a capability ships, move it from "dark/absent" to "exposed" in `00`'s

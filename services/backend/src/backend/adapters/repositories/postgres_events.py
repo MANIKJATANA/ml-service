@@ -546,6 +546,26 @@ class PostgresEventRepository:
             )
             return _to_event(row, cat_name, grp_name)
 
+    async def set_status_bulk(
+        self, school_id: str, event_ids: Sequence[str], *, status: EventStatus
+    ) -> int:
+        """Set the lifecycle status on many events in one tenant-scoped UPDATE (BP13). Only rows
+        whose ``school_id`` matches are touched (a foreign/malformed id is silently skipped);
+        returns the count updated."""
+        sid = opt_uuid(school_id)
+        if sid is None:
+            return 0
+        ids = [eid for eid in (opt_uuid(e) for e in event_ids) if eid is not None]
+        if not ids:
+            return 0
+        async with self._sessionmaker() as session, session.begin():
+            result = await session.execute(
+                update(EventRow)
+                .where(EventRow.school_id == sid, EventRow.id.in_(ids))
+                .values(status=status.value)
+            )
+            return int(result.rowcount or 0)  # type: ignore[attr-defined]
+
     async def set_processing(
         self, event_id: str, *, status: EventProcessingStatus
     ) -> None:

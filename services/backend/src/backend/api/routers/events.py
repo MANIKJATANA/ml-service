@@ -27,6 +27,8 @@ from backend.api.pagination import (
     is_descending,
 )
 from backend.api.schemas.events import (
+    BulkEventStatusRequest,
+    BulkEventStatusResponse,
     CreateEventRequest,
     EventListPageResponse,
     EventResponse,
@@ -115,6 +117,18 @@ async def list_terms(
     Registered before ``/{event_id}`` so the literal wins the route match."""
     terms = await container.event_service().list_terms(school_id=tenant_of(actor))
     return EventTermsResponse(terms=terms)
+
+
+@router.post("/bulk-status", response_model=BulkEventStatusResponse)
+async def bulk_event_status(
+    body: BulkEventStatusRequest, container: ContainerDep, actor: EventManager
+) -> BulkEventStatusResponse:
+    """Archive/restore many events at once (BP13). Tenant from the token; a foreign id is
+    silently skipped. Registered before ``/{event_id}`` so the literal wins the route match."""
+    updated = await container.event_service().set_status_bulk(
+        school_id=tenant_of(actor), event_ids=body.event_ids, status=body.status
+    )
+    return BulkEventStatusResponse(updated=updated)
 
 
 @router.get("/{event_id}", response_model=EventResponse)

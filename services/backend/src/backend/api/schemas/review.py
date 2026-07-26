@@ -11,15 +11,40 @@ from backend.services.review_service import MediaReview
 
 __all__ = [
     "AddMissedRequest",
+    "BatchReviewRequest",
+    "BatchReviewResponse",
     "MediaReviewResponse",
     "SetVerdictRequest",
 ]
+
+# The most verdicts one batch call can carry — well above a huge event's review lane; over it
+# is a 422 (an abuse ceiling, not a real limit).
+_MAX_BATCH = 2000
 
 
 class SetVerdictRequest(BaseModel):
     """Confirm or reject an ML match (staff). 'added' is the separate report-a-miss route."""
 
     verdict: Literal["confirmed", "rejected"]
+
+
+class BatchVerdictItem(BaseModel):
+    """One (media, student) decision in a batch (BP13)."""
+
+    media_id: str = Field(min_length=1)
+    student_id: str = Field(min_length=1)
+    verdict: Literal["confirmed", "rejected"]
+
+
+class BatchReviewRequest(BaseModel):
+    """Apply many confirm/reject verdicts over one event's review lane at once (BP13). A pair
+    that isn't a real match in the event is silently skipped in the service (tenant-safe)."""
+
+    verdicts: list[BatchVerdictItem] = Field(min_length=1, max_length=_MAX_BATCH)
+
+
+class BatchReviewResponse(BaseModel):
+    applied: int
 
 
 class AddMissedRequest(BaseModel):

@@ -42,6 +42,15 @@ class MediaReview:
     candidates: list[ReviewCandidate]
 
 
+@dataclass(frozen=True, slots=True)
+class BatchVerdict:
+    """One decision in a batch confirm/reject over an event's review lane (BP13)."""
+
+    media_id: str
+    student_id: str
+    verdict: MatchVerdict
+
+
 class ReviewService:
     def __init__(
         self,
@@ -120,6 +129,47 @@ class ReviewService:
         """Undo a correction — the effective membership reverts to the raw ML truth."""
         await self._require_media(school_id, media_id)  # tenant + existence
         await self._corrections.delete(school_id, media_id, student_id)
+
+    async def set_verdicts_batch(
+        self,
+        *,
+        school_id: str,
+        event_id: str,
+        decisions: list[BatchVerdict],
+        corrected_by: str | None,
+    ) -> int:
+        """Apply many confirm/reject verdicts over one event's matches in one request (BP13 —
+        the batch review lane + "reject all remaining").
+
+        Each decision is exactly the single ``set_verdict`` write to ``match_corrections`` — same
+        overlay, same hide-from-student gate on a reject, same undo, same ``resolves_review`` /
+        dashboard-count semantics — just applied to many pairs. Tenant-safe **by construction**:
+        the pairs are validated against the event's ML appearances (fetched once, event+school
+        scoped), so a pair that isn't a real match in this event is silently skipped — never a
+        cross-tenant or cross-event write, and no per-pair round-trip. Returns the count applied.
+        """
+        await self._require_event(school_id, event_id)
+        by_pair = {
+            (a.media_id, a.student_id): a
+            for a in await self._reader.list_event_appearances(school_id, event_id)
+        }
+        applied = 0
+        for d in decisions:
+            appearance = by_pair.get((d.media_id, d.student_id))
+            if appearance is None:
+                continue  # not a real ML match in this event -> skip (tenant-safe)
+            await self._corrections.upsert(
+                school_id=school_id,
+                media_id=d.media_id,
+                student_id=d.student_id,
+                event_id=event_id,
+                verdict=d.verdict,
+                corrected_by=corrected_by,
+                reason=None,
+                resolves_review=appearance.needs_review,
+            )
+            applied += 1
+        return applied
 
     # ---- student self-service ------------------------------------------
 

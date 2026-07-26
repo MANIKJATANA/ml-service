@@ -1,12 +1,13 @@
 "use client";
 
-import { Download, Play } from "lucide-react";
+import { Check, Download, Play } from "lucide-react";
 
 import { SignedImage } from "@/components/gallery/signed-image";
 import type { MediaType } from "@/lib/api/types";
 import { useDownloadToDisk } from "@/lib/hooks/use-download-to-disk";
 import { useInView } from "@/lib/hooks/use-in-view";
 import { useMediaDownload } from "@/lib/hooks/use-media-download";
+import { cn } from "@/lib/utils";
 
 interface PhotoTileProps {
   mediaId: string;
@@ -21,6 +22,11 @@ interface PhotoTileProps {
   /** "grid" = uniform square crop (staff galleries); "masonry" = natural aspect ratio,
    *  borderless, with a hover-to-download affordance (the student surface, BP3). */
   variant?: "grid" | "masonry";
+  /** BP13 multi-select (staff "grid" only): when on, a tile click toggles selection instead of
+   *  opening the lightbox, and a checkmark overlay + ring show the selected state. */
+  selectionMode?: boolean;
+  selected?: boolean;
+  onToggleSelect?: (mediaId: string) => void;
 }
 
 /** A play badge overlaid on a video tile so it reads as playable (BP6). */
@@ -45,28 +51,54 @@ export function PhotoTile({
   mediaType = "image",
   hasThumbnail = false,
   variant = "grid",
+  selectionMode = false,
+  selected = false,
+  onToggleSelect,
 }: PhotoTileProps) {
   const props = { mediaId, index, onOpen, mediaType, hasThumbnail };
-  return variant === "masonry" ? <MasonryTile {...props} /> : <GridTile {...props} />;
+  // Multi-select is a staff-grid affordance only; the student masonry surface ignores it.
+  return variant === "masonry" ? (
+    <MasonryTile {...props} />
+  ) : (
+    <GridTile
+      {...props}
+      selectionMode={selectionMode}
+      selected={selected}
+      onToggleSelect={onToggleSelect}
+    />
+  );
 }
 
-/** Staff galleries: uniform square crop, bordered — dense and scannable (unchanged). */
+/** Staff galleries: uniform square crop, bordered — dense and scannable. In BP13 selection
+ *  mode a click toggles selection instead of opening the lightbox. */
 function GridTile({
   mediaId,
   index,
   onOpen,
   mediaType,
   hasThumbnail,
+  selectionMode = false,
+  selected = false,
+  onToggleSelect,
 }: Omit<PhotoTileProps, "variant">) {
   const { ref, inView } = useInView<HTMLButtonElement>();
   const isVideo = mediaType === "video";
+  const kind = isVideo ? "video" : "photo";
   return (
     <button
       ref={ref}
       type="button"
-      onClick={() => onOpen(index)}
-      aria-label={`Open ${isVideo ? "video" : "photo"} ${index + 1}`}
-      className="relative block w-full overflow-hidden rounded-card border border-hairline bg-surface-2 transition-colors hover:border-hairline-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      onClick={() => (selectionMode ? onToggleSelect?.(mediaId) : onOpen(index))}
+      aria-label={
+        selectionMode
+          ? `${selected ? "Deselect" : "Select"} ${kind} ${index + 1}`
+          : `Open ${kind} ${index + 1}`
+      }
+      aria-pressed={selectionMode ? selected : undefined}
+      className={cn(
+        "relative block w-full overflow-hidden rounded-card border bg-surface-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        selected ? "border-accent-hover ring-2 ring-ring" : "border-hairline hover:border-hairline-strong",
+      )}
     >
       <SignedImage
         mediaId={mediaId}
@@ -80,6 +112,19 @@ function GridTile({
         fallbackText="Unavailable"
       />
       {isVideo ? <PlayBadge /> : null}
+      {selectionMode ? (
+        <span
+          aria-hidden="true"
+          className={cn(
+            "absolute left-2 top-2 flex size-6 items-center justify-center rounded-full border shadow-sm transition-colors",
+            selected
+              ? "border-accent-hover bg-accent-hover text-canvas"
+              : "border-hairline bg-canvas/85 text-transparent",
+          )}
+        >
+          <Check className="size-4" />
+        </span>
+      ) : null}
     </button>
   );
 }

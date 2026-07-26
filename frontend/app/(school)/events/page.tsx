@@ -25,7 +25,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/ui/toast";
-import { createEvent } from "@/lib/api/endpoints";
+import { bulkEventStatus, createEvent } from "@/lib/api/endpoints";
 import { isApiError } from "@/lib/api/errors";
 import type { EventStatus, SortDir } from "@/lib/api/types";
 import { buildMonthGrid, currentMonth, shiftMonth } from "@/lib/events/calendar";
@@ -315,6 +315,44 @@ export default function EventsPage() {
       mine: focusOn,
     });
 
+  const { toast } = useToast();
+  // BP13 bulk archive: selection over the loaded rows. Derived (not effect-reconciled) so a
+  // filter change that drops rows can't leave a stale id selected — only still-visible rows act.
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const selectedIds = items.filter((e) => selected.has(e.id)).map((e) => e.id);
+  const allOnPageSelected = items.length > 0 && selectedIds.length === items.length;
+
+  function toggleAllOnPage() {
+    setSelected(allOnPageSelected ? new Set() : new Set(items.map((e) => e.id)));
+  }
+  function toggleEvent(id: string) {
+    setSelected((cur) => {
+      const next = new Set(cur);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+  async function bulkSetStatus(status: EventStatus) {
+    if (selectedIds.length === 0) return;
+    setBulkBusy(true);
+    try {
+      const { updated } = await bulkEventStatus(selectedIds, status);
+      toast(
+        `${status === "archived" ? "Archived" : "Restored"} ${updated} ${updated === 1 ? "event" : "events"}.`,
+        "success",
+      );
+      setSelected(new Set());
+      await mutate();
+      void globalMutate("dashboard");
+    } catch (err) {
+      toast(isApiError(err) ? err.message : "Something went wrong", "error");
+    } finally {
+      setBulkBusy(false);
+    }
+  }
+
   const counts = dashboard?.events;
   const chips: ChipItem[] = [
     { id: "all", label: "All", count: counts?.total },
@@ -440,6 +478,33 @@ export default function EventsPage() {
 
             <TabsContent value="list" className="flex flex-col gap-4 pt-4">
               <SearchInput value={rawQuery} onChange={setRawQuery} placeholder="Search events…" />
+              {selectedIds.length > 0 ? (
+                <div
+                  role="region"
+                  aria-label="Bulk actions"
+                  className="flex flex-wrap items-center justify-between gap-3 rounded-card border border-hairline bg-surface-2 px-4 py-2"
+                >
+                  <span className="text-body-sm text-ink">
+                    {selectedIds.length} selected
+                  </span>
+                  <div className="flex flex-wrap gap-2">
+                    <Button size="sm" onClick={() => bulkSetStatus("archived")} loading={bulkBusy}>
+                      Archive
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => bulkSetStatus("active")}
+                      loading={bulkBusy}
+                    >
+                      Restore
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())} disabled={bulkBusy}>
+                      Clear
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
               {total === 0 ? (
                 <EmptyState title="No matching events" description="Try a different search or filter." />
               ) : (
@@ -448,6 +513,15 @@ export default function EventsPage() {
                     <Table>
                       <TableHeader>
                         <TableRow>
+                          <TableHead className="w-10">
+                            <input
+                              type="checkbox"
+                              checked={allOnPageSelected}
+                              onChange={toggleAllOnPage}
+                              aria-label="Select all events on this page"
+                              className="size-4 rounded border-hairline text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            />
+                          </TableHead>
                           <SortableHead label="Name" sortKey="name" activeKey={sort} dir={dir} onSort={onSort} />
                           <TableHead>Category</TableHead>
                           <SortableHead label="Date" sortKey="event_date" activeKey={sort} dir={dir} onSort={onSort} />
@@ -459,6 +533,15 @@ export default function EventsPage() {
                       <TableBody>
                         {items.map((event) => (
                           <TableRow key={event.id} className="transition-colors hover:bg-surface">
+                            <TableCell>
+                              <input
+                                type="checkbox"
+                                checked={selected.has(event.id)}
+                                onChange={() => toggleEvent(event.id)}
+                                aria-label={`Select ${event.name}`}
+                                className="size-4 rounded border-hairline text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                              />
+                            </TableCell>
                             <TableCell>
                               <div className="flex items-center gap-2">
                                 <Link

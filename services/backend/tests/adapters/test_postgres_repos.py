@@ -1311,3 +1311,37 @@ async def test_teacher_class_links_and_event_group_scope_and_cascade(
     assert remaining == [c2.id]
     await users.delete(t1.id)
     assert await links.list_group_ids_for_teacher(a.id, t1.id) == []
+
+
+async def test_event_set_status_bulk_is_tenant_scoped(
+    sm: async_sessionmaker[AsyncSession],
+) -> None:
+    # BP13: bulk archive/restore sets the status on many of one school's events in one UPDATE,
+    # and never touches another school's event.
+    schools = PostgresSchoolRepository(sm)
+    events = PostgresEventRepository(sm)
+    a = await schools.create(name="A", max_teachers=5)
+    b = await schools.create(name="B", max_teachers=5)
+    e1 = await events.create(
+        school_id=a.id, name="E1", description=None, event_date=None, created_by=None
+    )
+    e2 = await events.create(
+        school_id=a.id, name="E2", description=None, event_date=None, created_by=None
+    )
+    ef = await events.create(
+        school_id=b.id, name="Foreign", description=None, event_date=None, created_by=None
+    )
+
+    # Archive e1 + e2 (a's) and try to sneak in ef (b's) — ef is silently skipped.
+    updated = await events.set_status_bulk(
+        a.id, [e1.id, e2.id, ef.id, _MISSING_UUID, "not-a-uuid"], status=EventStatus.ARCHIVED
+    )
+    assert updated == 2
+    assert (await events.get(a.id, e1.id)).status is EventStatus.ARCHIVED  # type: ignore[union-attr]
+    assert (await events.get(a.id, e2.id)).status is EventStatus.ARCHIVED  # type: ignore[union-attr]
+    # b's event was never touched (still active).
+    assert (await events.get(b.id, ef.id)).status is EventStatus.ACTIVE  # type: ignore[union-attr]
+
+    # Restore e1.
+    assert await events.set_status_bulk(a.id, [e1.id], status=EventStatus.ACTIVE) == 1
+    assert (await events.get(a.id, e1.id)).status is EventStatus.ACTIVE  # type: ignore[union-attr]

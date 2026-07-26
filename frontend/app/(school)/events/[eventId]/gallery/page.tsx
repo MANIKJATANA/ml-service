@@ -3,7 +3,8 @@
 import { Images } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { mutate as globalMutate } from "swr";
 
 import { FilterChips } from "@/components/gallery/filter-chips";
 import { GridSkeleton } from "@/components/gallery/grid-skeleton";
@@ -11,9 +12,15 @@ import { PhotoGrid } from "@/components/gallery/photo-grid";
 import { SignedImage } from "@/components/gallery/signed-image";
 import { Breadcrumb } from "@/components/ui/breadcrumb";
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useToast } from "@/components/ui/toast";
+import { batchReview } from "@/lib/api/endpoints";
+import { isApiError } from "@/lib/api/errors";
+import type { MediaType } from "@/lib/api/types";
+import { useDownloadAll } from "@/lib/hooks/use-download-all";
 import { useEvent } from "@/lib/hooks/use-events";
 import {
   useEventMedia,
@@ -21,11 +28,43 @@ import {
   useEventStudentMedia,
   useEventStudents,
 } from "@/lib/hooks/use-galleries";
+import { cn } from "@/lib/utils";
 
 function AllPhotos({ eventId }: { eventId: string }) {
   const { items, total, isLoading, isLoadingMore, error, reachedEnd, loadMore, mutate } =
     useEventMedia(eventId);
+  const { toast } = useToast();
+  const [selectMode, setSelectMode] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const selectedIds = [...selected];
+  const { busy, done, total: dlTotal, onDownloadAll } = useDownloadAll(selectedIds);
   const isInitialLoading = isLoading && items.length === 0;
+
+  function exitSelect() {
+    setSelectMode(false);
+    setSelected(new Set());
+  }
+  function toggleSelect(id: string) {
+    setSelected((cur) => {
+      const next = new Set(cur);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+  async function downloadSelected() {
+    if (selectedIds.length === 0) return;
+    try {
+      const n = await onDownloadAll();
+      if (n > 0) {
+        toast(`Downloaded ${n} ${n === 1 ? "photo" : "photos"}.`, "success");
+        exitSelect();
+      }
+      // n === 0 => the user dismissed the save dialog; stay in select mode.
+    } catch {
+      toast("Couldn't download those photos.", "error");
+    }
+  }
 
   if (isInitialLoading) return <GridSkeleton />;
   if (error) {
@@ -52,17 +91,42 @@ function AllPhotos({ eventId }: { eventId: string }) {
     );
   }
   return (
-    <PhotoGrid
-      items={items.map((m) => ({
-        id: m.id,
-        mediaType: m.media_type,
-        hasThumbnail: m.thumbnail_path !== null,
-      }))}
-      canManageAppearances
-      onLoadMore={loadMore}
-      hasMore={!reachedEnd}
-      loadingMore={isLoadingMore}
-    />
+    <div className="flex flex-col gap-4">
+      <div className="flex items-center justify-end gap-3">
+        {selectMode ? (
+          <>
+            <span className="mr-auto text-body-sm text-ink" role="status">
+              {selected.size} selected
+              {busy ? ` · downloading ${done} of ${dlTotal}` : ""}
+            </span>
+            <Button size="sm" onClick={downloadSelected} loading={busy} disabled={selected.size === 0}>
+              Download {selected.size > 0 ? selected.size : ""}
+            </Button>
+            <Button size="sm" variant="ghost" onClick={exitSelect} disabled={busy}>
+              Cancel
+            </Button>
+          </>
+        ) : (
+          <Button size="sm" variant="secondary" onClick={() => setSelectMode(true)}>
+            Select
+          </Button>
+        )}
+      </div>
+      <PhotoGrid
+        items={items.map((m) => ({
+          id: m.id,
+          mediaType: m.media_type,
+          hasThumbnail: m.thumbnail_path !== null,
+        }))}
+        canManageAppearances
+        onLoadMore={loadMore}
+        hasMore={!reachedEnd}
+        loadingMore={isLoadingMore}
+        selectionMode={selectMode}
+        selectedIds={selected}
+        onToggleSelect={toggleSelect}
+      />
+    </div>
   );
 }
 
@@ -128,8 +192,68 @@ function ByStudent({ eventId }: { eventId: string }) {
   );
 }
 
+/** One ambiguous match awaiting a decision — a (photo, candidate-student) pair. */
+type ReviewPair = {
+  key: string;
+  mediaId: string;
+  mediaType: MediaType;
+  studentId: string;
+  name: string;
+  confidence: number;
+};
+
+/** The batch review lane (BP13): every ambiguous match flattened to a per-student decision,
+ *  sorted by confidence, with checkboxes → Confirm/Reject selected + a guarded "Reject all
+ *  remaining". Each decision is exactly the single confirm/reject (BP5), applied to many. */
 function NeedsReview({ eventId }: { eventId: string }) {
   const { reviews, isLoading, error, mutate } = useEventReview(eventId);
+  const { toast } = useToast();
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [busy, setBusy] = useState(false);
+  const [rejectAllOpen, setRejectAllOpen] = useState(false);
+
+  // Flatten photos → per-candidate pairs, highest confidence first (the obvious ones on top).
+  const pairs = useMemo<ReviewPair[]>(() => {
+    const out: ReviewPair[] = [];
+    for (const r of reviews ?? []) {
+      for (const c of r.candidates) {
+        out.push({
+          key: `${r.media_id}|${c.student_id}`,
+          mediaId: r.media_id,
+          mediaType: r.media_type,
+          studentId: c.student_id,
+          name: c.name,
+          confidence: c.confidence,
+        });
+      }
+    }
+    out.sort((a, b) => b.confidence - a.confidence);
+    return out;
+  }, [reviews]);
+
+  async function apply(keys: string[], verdict: "confirmed" | "rejected") {
+    if (keys.length === 0) return;
+    setBusy(true);
+    try {
+      const byKey = new Map(pairs.map((p) => [p.key, p]));
+      const verdicts = keys
+        .map((k) => byKey.get(k))
+        .filter((p): p is ReviewPair => p !== undefined)
+        .map((p) => ({ media_id: p.mediaId, student_id: p.studentId, verdict }));
+      const { applied } = await batchReview(eventId, verdicts);
+      toast(
+        `${verdict === "confirmed" ? "Confirmed" : "Rejected"} ${applied} ${applied === 1 ? "match" : "matches"}.`,
+        "success",
+      );
+      setSelected(new Set());
+      await mutate();
+      void globalMutate("dashboard"); // the "N to review" badge drops
+    } catch (err) {
+      toast(isApiError(err) ? err.message : "Something went wrong", "error");
+    } finally {
+      setBusy(false);
+    }
+  }
 
   if (isLoading) return <GridSkeleton />;
   if (error) {
@@ -146,7 +270,7 @@ function NeedsReview({ eventId }: { eventId: string }) {
       />
     );
   }
-  if (!reviews || reviews.length === 0) {
+  if (pairs.length === 0) {
     return (
       <EmptyState
         title="Nothing to review"
@@ -154,34 +278,121 @@ function NeedsReview({ eventId }: { eventId: string }) {
       />
     );
   }
+
+  const allSelected = selected.size === pairs.length;
+  function toggleAll() {
+    setSelected(allSelected ? new Set() : new Set(pairs.map((p) => p.key)));
+  }
+  function toggle(key: string) {
+    setSelected((cur) => {
+      const next = new Set(cur);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+
   return (
-    <ul className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
-      {reviews.map((r) => (
-        <li key={r.media_id}>
-          <Link
-            href={`/photos/${r.media_id}`}
-            className="block overflow-hidden rounded-card border border-hairline transition-colors hover:border-hairline-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    <div className="flex flex-col gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <label className="flex items-center gap-2 text-body-sm text-ink">
+          <input
+            type="checkbox"
+            checked={allSelected}
+            onChange={toggleAll}
+            className="size-4 rounded border-hairline text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          />
+          Select all
+          <span className="text-ink-muted">
+            · {selected.size} of {pairs.length} selected · sorted by confidence
+          </span>
+        </label>
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" onClick={() => apply([...selected], "confirmed")} loading={busy} disabled={selected.size === 0}>
+            Confirm {selected.size > 0 ? selected.size : ""}
+          </Button>
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={() => apply([...selected], "rejected")}
+            loading={busy}
+            disabled={selected.size === 0}
           >
-            <SignedImage
-              mediaId={r.media_id}
-              kind={r.media_type}
-              size="thumb"
-              alt=""
-              loading="square"
-              className="aspect-square w-full"
-              imgClassName="block w-full align-top"
-              fallbackText="Unavailable"
-            />
-            <div className="flex flex-col gap-1 p-3">
-              <p className="text-body-sm text-ink">
-                Is this {r.candidates.map((c) => c.name).join(" or ")}?
-              </p>
-              <span className="text-body-sm font-medium text-accent-hover">Review →</span>
-            </div>
-          </Link>
-        </li>
-      ))}
-    </ul>
+            Reject {selected.size > 0 ? selected.size : ""}
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => setRejectAllOpen(true)}
+            disabled={busy}
+          >
+            Reject all remaining
+          </Button>
+        </div>
+      </div>
+
+      <ul className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+        {pairs.map((p) => {
+          const isSel = selected.has(p.key);
+          return (
+            <li key={p.key}>
+              <div
+                className={cn(
+                  "overflow-hidden rounded-card border transition-colors",
+                  isSel ? "border-accent-hover ring-2 ring-ring" : "border-hairline",
+                )}
+              >
+                <label className="relative block cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={isSel}
+                    onChange={() => toggle(p.key)}
+                    aria-label={`Select match for ${p.name}`}
+                    className="absolute left-2 top-2 z-10 size-5 rounded border-hairline bg-canvas text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  />
+                  <SignedImage
+                    mediaId={p.mediaId}
+                    kind={p.mediaType}
+                    size="thumb"
+                    alt=""
+                    loading="square"
+                    className="aspect-square w-full"
+                    imgClassName="block w-full align-top"
+                    fallbackText="Unavailable"
+                  />
+                </label>
+                <div className="flex flex-col gap-1 p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="truncate text-body-sm text-ink" title={p.name}>
+                      {p.name}
+                    </p>
+                    <span className="shrink-0 tabular-nums text-body-sm text-ink-muted">
+                      {Math.round(p.confidence * 100)}%
+                    </span>
+                  </div>
+                  <Link
+                    href={`/photos/${p.mediaId}`}
+                    className="rounded text-body-sm font-medium text-accent-hover hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    Open photo →
+                  </Link>
+                </div>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+
+      <ConfirmDialog
+        open={rejectAllOpen}
+        onOpenChange={setRejectAllOpen}
+        title="Reject all remaining?"
+        description={`This rejects the remaining ${pairs.length} ${pairs.length === 1 ? "match" : "matches"} and hides those photos from the students in them. You can undo individual rejections later.`}
+        confirmLabel="Reject all"
+        loading={busy}
+        onConfirm={() => apply(pairs.map((p) => p.key), "rejected")}
+      />
+    </div>
   );
 }
 

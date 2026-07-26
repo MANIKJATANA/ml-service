@@ -15,11 +15,14 @@ from fastapi import APIRouter, Depends, status
 from backend.api.deps import ContainerDep, require_permissions, tenant_of
 from backend.api.schemas.review import (
     AddMissedRequest,
+    BatchReviewRequest,
+    BatchReviewResponse,
     MediaReviewResponse,
     SetVerdictRequest,
 )
 from backend.domain.models import MatchVerdict, User
 from backend.domain.permissions import Permission
+from backend.services.review_service import BatchVerdict
 
 router = APIRouter(prefix="/v1", tags=["review"])
 
@@ -89,3 +92,25 @@ async def event_review(
         school_id=tenant_of(actor), event_id=event_id
     )
     return [MediaReviewResponse.from_view(r) for r in reviews]
+
+
+@router.post("/events/{event_id}/review/batch", response_model=BatchReviewResponse)
+async def batch_review(
+    event_id: str,
+    body: BatchReviewRequest,
+    container: ContainerDep,
+    actor: Reviewer,
+) -> BatchReviewResponse:
+    """Apply many confirm/reject verdicts over the event's review lane at once (BP13) — backs
+    "Confirm selected" / "Reject selected" / "Reject all remaining". A pair that isn't a real
+    match in this event is silently skipped (tenant-safe). Returns how many were applied."""
+    applied = await container.review_service().set_verdicts_batch(
+        school_id=tenant_of(actor),
+        event_id=event_id,
+        decisions=[
+            BatchVerdict(v.media_id, v.student_id, MatchVerdict(v.verdict))
+            for v in body.verdicts
+        ],
+        corrected_by=actor.id,
+    )
+    return BatchReviewResponse(applied=applied)

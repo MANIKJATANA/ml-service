@@ -16,6 +16,7 @@ from fastapi.responses import JSONResponse
 
 from backend import __version__
 from backend.api.routers import (
+    analytics,
     audit,
     auth,
     classes,
@@ -285,6 +286,7 @@ def create_app(rate_limiter: RateLimiter | None = None) -> FastAPI:
     app.include_router(galleries.router)
     app.include_router(me.router)
     app.include_router(dashboard.router)
+    app.include_router(analytics.router)
     app.include_router(review.router)
     app.include_router(audit.router)
     # Middleware runs in reverse order of registration (last added = outermost), so this

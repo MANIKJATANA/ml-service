@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import ColumnElement, func, select
+from sqlalchemy import ColumnElement, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -120,6 +120,58 @@ class PostgresUserRepository:
             row = await session.get(UserRow, key)
             if row is not None:
                 await session.delete(row)
+
+    async def touch_last_login(self, user_id: str) -> None:
+        """Stamp ``last_login_at = now()`` on a successful login (BP14). A direct UPDATE (no
+        row load); a malformed id is a no-op. NB: ``updated_at``'s ``onupdate`` also advances —
+        harmless (it's internal), and a login is genuine activity."""
+        key = opt_uuid(user_id)
+        if key is None:
+            return
+        async with self._sessionmaker() as session, session.begin():
+            await session.execute(
+                update(UserRow)
+                .where(UserRow.id == key)
+                .values(last_login_at=func.now())
+            )
+
+    async def count_signed_in_by_school_and_role(
+        self, school_id: str, role: Role
+    ) -> int:
+        key = opt_uuid(school_id)
+        if key is None:
+            return 0
+        async with self._sessionmaker() as session:
+            result = await session.execute(
+                select(func.count())
+                .select_from(UserRow)
+                .where(
+                    UserRow.school_id == key,
+                    UserRow.role == role.value,
+                    UserRow.last_login_at.is_not(None),
+                )
+            )
+            return int(result.scalar_one())
+
+    async def signed_in_role_counts_by_school(self) -> dict[str, dict[Role, int]]:
+        """Signed-in users grouped by (school, role) across all schools (BP14 estate).
+
+        The ``last_login_at``-filtered sibling of ``role_counts_by_school``: one grouped scan
+        (``ix_users_school_role``); platform admins (null school) excluded. Cross-tenant on
+        purpose (reachable only behind ``school:manage``)."""
+        counts: dict[str, dict[Role, int]] = {}
+        async with self._sessionmaker() as session:
+            result = await session.execute(
+                select(UserRow.school_id, UserRow.role, func.count())
+                .where(
+                    UserRow.school_id.is_not(None),
+                    UserRow.last_login_at.is_not(None),
+                )
+                .group_by(UserRow.school_id, UserRow.role)
+            )
+            for school_id, role_value, n in result.all():
+                counts.setdefault(str(school_id), {})[Role(role_value)] = n
+        return counts
 
     async def count_by_school_and_role(self, school_id: str, role: Role) -> int:
         key = opt_uuid(school_id)

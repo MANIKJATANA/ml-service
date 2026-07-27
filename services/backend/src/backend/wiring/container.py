@@ -43,6 +43,7 @@ from backend.domain.ports import (
     TokenService,
     UserRepository,
 )
+from backend.services.analytics_service import AnalyticsService
 from backend.services.audit_service import AuditService
 from backend.services.auth_service import AuthService
 from backend.services.class_service import ClassService
@@ -102,6 +103,7 @@ class Container:
         self._gallery_service: GalleryService | None = None
         self._audit_service: AuditService | None = None
         self._dashboard_service: DashboardService | None = None
+        self._analytics_service: AnalyticsService | None = None
         self._listing_service: ListingService | None = None
         self._notification_service: NotificationService | None = None
         self._review_service: ReviewService | None = None
@@ -529,6 +531,20 @@ class Container:
                         self.user_repo(),
                     )
         return self._dashboard_service
+
+    def analytics_service(self) -> AnalyticsService:
+        if self._analytics_service is None:
+            with self._lock:
+                if self._analytics_service is None:
+                    self._analytics_service = AnalyticsService(
+                        self.school_repo(),
+                        self.user_repo(),
+                        self.student_repo(),
+                        self.event_repo(),
+                        self.media_repo(),
+                        self.notification_reads_repo(),
+                    )
+        return self._analytics_service
 
     def listing_service(self) -> ListingService:
         if self._listing_service is None:

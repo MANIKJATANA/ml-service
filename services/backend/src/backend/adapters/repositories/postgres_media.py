@@ -200,6 +200,23 @@ class PostgresMediaRepository:
             )
             return {str(event_id): n for event_id, n in result.all()}
 
+    async def monthly_upload_counts(self, school_id: str) -> dict[str, int]:
+        """Photos/videos uploaded per calendar month for a school (BP14 trend), keyed
+        ``'YYYY-MM'``.
+
+        One grouped scan (``date_trunc('month', created_at)``, UTC), tenant-scoped."""
+        sid = opt_uuid(school_id)
+        if sid is None:
+            return {}
+        month = func.to_char(func.date_trunc("month", MediaRow.created_at), "YYYY-MM")
+        async with self._sessionmaker() as session:
+            result = await session.execute(
+                select(month, func.count())
+                .where(MediaRow.school_id == sid)
+                .group_by(month)
+            )
+            return {str(m): n for m, n in result.all()}
+
     async def school_status_counts(
         self, school_id: str
     ) -> dict[MediaProcessingStatus, int]:

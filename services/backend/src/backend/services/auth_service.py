@@ -10,10 +10,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import structlog
+
 from backend.domain.errors import AuthenticationError
 from backend.domain.models import User, UserStatus
 from backend.domain.ports import PasswordHasher, TokenService, UserRepository
 from backend.domain.tokens import TokenPair, TokenType
+
+_log = structlog.get_logger(__name__)
 
 # One message for every credential failure — no account enumeration.
 _INVALID = "invalid email or password"
@@ -46,6 +50,12 @@ class AuthService:
         if user is None or user.status is not UserStatus.ACTIVE or not ok:
             raise AuthenticationError(_INVALID)
         await self._maybe_rehash(user, password)
+        # Record the sign-in (BP14) — login only, never refresh (not interactive). Best-effort:
+        # a failed analytics timestamp write must never block a valid login.
+        try:
+            await self._users.touch_last_login(user.id)
+        except Exception:
+            _log.warning("touch_last_login_failed", user_id=user.id, exc_info=True)
         return LoginResult(tokens=self._tokens.issue_pair(user), user=user)
 
     async def refresh(self, *, refresh_token: str) -> LoginResult:

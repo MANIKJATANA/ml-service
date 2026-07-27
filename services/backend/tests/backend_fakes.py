@@ -231,6 +231,7 @@ def make_event(
     category_name: str | None = None,
     student_group_id: str | None = None,
     student_group_name: str | None = None,
+    created_at: datetime = _NOW,
 ) -> Event:
     return Event(
         id=id,
@@ -245,7 +246,7 @@ def make_event(
         completed_at=completed_at,
         auto_notify=auto_notify,
         notified_at=notified_at,
-        created_at=_NOW,
+        created_at=created_at,
         updated_at=_NOW,
         term=term,
         category_id=category_id,
@@ -280,6 +281,7 @@ def make_media(
     processing_status: MediaProcessingStatus = MediaProcessingStatus.PENDING,
     completed_at: datetime | None = None,
     thumbnail_path: str | None = None,
+    created_at: datetime = _NOW,
 ) -> Media:
     return Media(
         id=id,
@@ -290,7 +292,7 @@ def make_media(
         processing_status=processing_status,
         completed_at=completed_at,
         thumbnail_path=thumbnail_path,
-        created_at=_NOW,
+        created_at=created_at,
         updated_at=_NOW,
     )
 
@@ -401,6 +403,9 @@ class FakeUserRepo:
         self._by_email: dict[str, User] = {u.email: u for u in seed}
         self.set_calls: list[tuple[str, str, bool]] = []
         self._seq = 0
+        # BP14: ids that have "signed in" (mirrors last_login_at being set). The domain User
+        # has no last_login_at field, so track it here.
+        self._signed_in: set[str] = set()
         # Simulates the students.user_id ON DELETE CASCADE (0026): when linked to a
         # FakeStudentRepo, deleting a user also removes its student profile.
         self._cascade: Callable[[str], None] | None = None
@@ -520,6 +525,30 @@ class FakeUserRepo:
         counts: dict[str, dict[Role, int]] = {}
         for u in self._by_id.values():
             if u.school_id is None:  # platform admins excluded
+                continue
+            per = counts.setdefault(u.school_id, {})
+            per[u.role] = per.get(u.role, 0) + 1
+        return counts
+
+    async def touch_last_login(self, user_id: str) -> None:
+        if user_id in self._by_id:
+            self._signed_in.add(user_id)
+
+    async def count_signed_in_by_school_and_role(
+        self, school_id: str, role: Role
+    ) -> int:
+        return sum(
+            1
+            for u in self._by_id.values()
+            if u.id in self._signed_in
+            and u.school_id == school_id
+            and u.role is role
+        )
+
+    async def signed_in_role_counts_by_school(self) -> dict[str, dict[Role, int]]:
+        counts: dict[str, dict[Role, int]] = {}
+        for u in self._by_id.values():
+            if u.school_id is None or u.id not in self._signed_in:
                 continue
             per = counts.setdefault(u.school_id, {})
             per[u.role] = per.get(u.role, 0) + 1
@@ -751,6 +780,13 @@ class FakeStudentRepo:
         counts: dict[str, int] = {}
         for student in self._by_id.values():
             counts[student.school_id] = counts.get(student.school_id, 0) + 1
+        return counts
+
+    async def enrolled_counts_by_school(self) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for student in self._by_id.values():
+            if student.enrollment_status is EnrollmentStatus.ENROLLED:
+                counts[student.school_id] = counts.get(student.school_id, 0) + 1
         return counts
 
     async def set_enrollment(
@@ -1290,6 +1326,33 @@ class FakeEventRepo:
                 n += 1
         return n
 
+    async def distributed_counts_by_school(self) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for e in self._by_id.values():
+            if e.notified_at is not None or (
+                e.auto_notify and e.completed_at is not None
+            ):
+                counts[e.school_id] = counts.get(e.school_id, 0) + 1
+        return counts
+
+    async def recent_event_counts_by_school(
+        self, since: datetime
+    ) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for e in self._by_id.values():
+            if e.created_at is not None and e.created_at >= since:
+                counts[e.school_id] = counts.get(e.school_id, 0) + 1
+        return counts
+
+    async def monthly_event_date_counts(self, school_id: str) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for e in self._by_id.values():
+            if e.school_id != school_id or e.event_date is None:
+                continue
+            key = e.event_date.strftime("%Y-%m")
+            counts[key] = counts.get(key, 0) + 1
+        return counts
+
     async def update(
         self,
         school_id: str,
@@ -1640,6 +1703,15 @@ class FakeMediaRepo:
                 counts[m.event_id] = counts.get(m.event_id, 0) + 1
         return counts
 
+    async def monthly_upload_counts(self, school_id: str) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for m in self._by_id.values():
+            if m.school_id != school_id or m.created_at is None:
+                continue
+            key = m.created_at.strftime("%Y-%m")
+            counts[key] = counts.get(key, 0) + 1
+        return counts
+
 
 class FakeEventJobProducer:
     """EventJobProducer double: records enqueued jobs; configurable failure."""
@@ -1889,6 +1961,11 @@ class FakeNotificationReadRepo:
         return {
             sid: seen for (sid, eid), seen in self._seen.items() if eid == event_id
         }
+
+    async def count_distinct_seen_students(self, school_id: str) -> int:
+        # School-agnostic like list_for_* here (the fake keys on (student, event) only);
+        # tests seed one school, so distinct students == the engagement numerator.
+        return len({sid for (sid, _eid) in self._seen})
 
     def set_seen(self, student_id: str, event_id: str, when: datetime) -> None:
         """Test helper: seed a read at a specific time (re-notify resurface tests)."""

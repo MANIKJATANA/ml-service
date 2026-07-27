@@ -15,6 +15,7 @@ import {
 import Link from "next/link";
 import type { ReactNode } from "react";
 
+import { ProgramAnalytics } from "@/components/analytics/program-analytics";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -124,6 +125,20 @@ export default function DashboardPage() {
       <PageHeader
         title={dashboard ? dashboard.school_name : "Dashboard"}
         description="Here's what's happening at your school."
+        actions={
+          dashboard ? (
+            <>
+              <Link href="/students" className={buttonVariants({ variant: "secondary", size: "sm" })}>
+                <GraduationCap className="size-4" aria-hidden="true" />
+                Add student
+              </Link>
+              <Link href="/events" className={buttonVariants({ variant: "primary", size: "sm" })}>
+                <CalendarDays className="size-4" aria-hidden="true" />
+                New event
+              </Link>
+            </>
+          ) : undefined
+        }
       />
       {isLoading && !dashboard ? (
         <DashboardSkeleton />
@@ -194,19 +209,9 @@ function DashboardContent({ d }: { d: DashboardResponse }) {
         <StatCard label="Photos" value={d.media.total} hint={photosHint(d)} />
       </div>
 
-      <div className="flex flex-col gap-3">
-        <h2 className="text-headline text-ink">Quick actions</h2>
-        <div className="flex flex-wrap gap-2">
-          <Link href="/students" className={buttonVariants({ variant: "secondary" })}>
-            <GraduationCap className="size-4" aria-hidden="true" />
-            Add student
-          </Link>
-          <Link href="/events" className={buttonVariants({ variant: "secondary" })}>
-            <CalendarDays className="size-4" aria-hidden="true" />
-            New event
-          </Link>
-        </div>
-      </div>
+      {/* Program analytics — rates, trend, per-term (BP14). In the dashboard, not a separate page.
+          The primary actions live in the page header (no separate "Quick actions" section). */}
+      <ProgramAnalytics />
     </div>
   );
 }

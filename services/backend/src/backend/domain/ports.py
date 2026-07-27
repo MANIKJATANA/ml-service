@@ -90,7 +90,22 @@ class UserRepository(Protocol):
         self, user_id: str, *, password_hash: str, must_change_password: bool
     ) -> None: ...
     async def set_status(self, user_id: str, *, status: UserStatus) -> None: ...
+    async def touch_last_login(self, user_id: str) -> None:
+        """Stamp ``last_login_at = now()`` on a successful login (BP14). Best-effort; not
+        called on token refresh (not an interactive sign-in)."""
+        ...
     async def count_by_school_and_role(self, school_id: str, role: Role) -> int: ...
+    async def count_signed_in_by_school_and_role(
+        self, school_id: str, role: Role
+    ) -> int:
+        """Users of a role in a school who have ever signed in (``last_login_at`` set) —
+        the school analytics sign-in rate numerator (BP14). Tenant-scoped."""
+        ...
+    async def signed_in_role_counts_by_school(self) -> dict[str, dict[Role, int]]:
+        """The signed-in sibling of ``role_counts_by_school`` — per (school, role) count of
+        users with ``last_login_at`` set (BP14 estate funnel). Cross-tenant (``school:manage``
+        only); platform admins (null school) excluded."""
+        ...
     async def list_by_school_and_role(
         self, school_id: str, role: Role
     ) -> list[User]: ...
@@ -194,6 +209,11 @@ class StudentRepository(Protocol):
         self, school_id: str
     ) -> dict[EnrollmentStatus, int]: ...
     async def counts_by_school(self) -> dict[str, int]: ...
+    async def enrolled_counts_by_school(self) -> dict[str, int]:
+        """Successfully-enrolled student count per school (BP14 estate funnel) — the
+        cross-tenant, enrolled-only sibling of ``counts_by_school``. Cross-tenant
+        (``school:manage`` only)."""
+        ...
     async def set_enrollment(
         self,
         student_id: str,
@@ -337,6 +357,21 @@ class EventRepository(Protocol):
     async def count_not_started_with_media(self, school_id: str) -> int: ...
     async def count_distributed(self, school_id: str) -> int: ...
     async def counts_by_school(self) -> dict[str, int]: ...
+    async def distributed_counts_by_school(self) -> dict[str, int]:
+        """Announced-events count per school (BP14 estate funnel) — the cross-tenant sibling
+        of ``count_distributed``. Cross-tenant (``school:manage`` only)."""
+        ...
+    async def recent_event_counts_by_school(
+        self, since: datetime
+    ) -> dict[str, int]:
+        """Events created at/after ``since`` per school (BP14 stalled-school heuristic).
+        Cross-tenant (``school:manage`` only)."""
+        ...
+    async def monthly_event_date_counts(self, school_id: str) -> dict[str, int]:
+        """Events per calendar month by their ``event_date`` (BP14 trend — when the event
+        happened, not when the row was created), keyed ``'YYYY-MM'``. Undated events are
+        excluded (they have no month). One grouped scan, tenant-scoped."""
+        ...
     async def update(
         self,
         school_id: str,
@@ -467,6 +502,10 @@ class MediaRepository(Protocol):
         self, school_id: str
     ) -> dict[MediaProcessingStatus, int]: ...
     async def counts_by_event(self, school_id: str) -> dict[str, int]: ...
+    async def monthly_upload_counts(self, school_id: str) -> dict[str, int]:
+        """Photos/videos uploaded per calendar month for a school (BP14 trend), keyed
+        ``'YYYY-MM'`` (UTC ``date_trunc`` of ``created_at``). One grouped scan, tenant-scoped."""
+        ...
 
 
 class EventJobProducer(Protocol):
@@ -647,6 +686,10 @@ class NotificationReadRepository(Protocol):
     async def list_for_event(
         self, school_id: str, event_id: str
     ) -> dict[str, datetime]: ...
+    async def count_distinct_seen_students(self, school_id: str) -> int:
+        """Distinct students who have opened >=1 distribution (BP14 engagement) — the
+        engagement-rate numerator. One grouped/DISTINCT scan, tenant-scoped."""
+        ...
 
 
 class NotificationChannel(Protocol):

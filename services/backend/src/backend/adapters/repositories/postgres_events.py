@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
-from datetime import date
+from datetime import date, datetime
 
 from sqlalchemy import (
     ColumnElement,
@@ -492,6 +492,62 @@ class PostgresEventRepository:
                 select(EventRow.school_id, func.count()).group_by(EventRow.school_id)
             )
             return {str(school_id): n for school_id, n in result.all()}
+
+    async def distributed_counts_by_school(self) -> dict[str, int]:
+        """Announced events per school across all schools (BP14 estate funnel).
+
+        The cross-tenant sibling of ``count_distributed`` — same "announced" predicate
+        (manual ``notified_at`` OR auto-notify + ``completed_at``). One grouped scan,
+        cross-tenant (reachable only behind ``school:manage``)."""
+        async with self._sessionmaker() as session:
+            result = await session.execute(
+                select(EventRow.school_id, func.count())
+                .where(
+                    or_(
+                        EventRow.notified_at.is_not(None),
+                        and_(
+                            EventRow.auto_notify.is_(True),
+                            EventRow.completed_at.is_not(None),
+                        ),
+                    )
+                )
+                .group_by(EventRow.school_id)
+            )
+            return {str(school_id): n for school_id, n in result.all()}
+
+    async def recent_event_counts_by_school(
+        self, since: datetime
+    ) -> dict[str, int]:
+        """Events created at/after ``since`` per school (BP14 stalled-school heuristic).
+
+        One grouped scan, cross-tenant (reachable only behind ``school:manage``)."""
+        async with self._sessionmaker() as session:
+            result = await session.execute(
+                select(EventRow.school_id, func.count())
+                .where(EventRow.created_at >= since)
+                .group_by(EventRow.school_id)
+            )
+            return {str(school_id): n for school_id, n in result.all()}
+
+    async def monthly_event_date_counts(self, school_id: str) -> dict[str, int]:
+        """Events per calendar month by their ``event_date`` (BP14 trend), keyed ``'YYYY-MM'``.
+
+        Buckets on the event's own date (when it happened), not ``created_at``; undated events
+        are excluded. One grouped scan, tenant-scoped."""
+        sid = opt_uuid(school_id)
+        if sid is None:
+            return {}
+        month = func.to_char(EventRow.event_date, "YYYY-MM")
+        async with self._sessionmaker() as session:
+            result = await session.execute(
+                select(month, func.count())
+                .where(
+                    EventRow.school_id == sid,
+                    EventRow.event_date.is_not(None),
+                )
+                .group_by(month)
+            )
+            return {str(m): n for m, n in result.all()}
 
     async def update(
         self,

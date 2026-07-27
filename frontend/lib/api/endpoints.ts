@@ -7,6 +7,7 @@ import type {
   DashboardResponse,
   DownloadLogPageResponse,
   DownloadResponse,
+  EstateAnalyticsResponse,
   EventCategoryResponse,
   EventForStudentResponse,
   EventListPageResponse,
@@ -28,6 +29,7 @@ import type {
   PhotoSize,
   ProvisionedStudentResponse,
   ProvisionedUserResponse,
+  SchoolAnalyticsResponse,
   SchoolListPageResponse,
   SchoolResponse,
   SchoolWithRollup,
@@ -111,6 +113,18 @@ export function getMe(): Promise<UserResponse> {
 /** The caller's school command-center rollup (tenant is the token's school). */
 export function getDashboard(): Promise<DashboardResponse> {
   return bffFetch<DashboardResponse>("/api/v1/dashboard");
+}
+
+// --- Program analytics (BP14, decisions/0062) ---
+
+/** The caller's school program view (dashboard:view; tenant is the token's school). */
+export function getSchoolAnalytics(): Promise<SchoolAnalyticsResponse> {
+  return bffFetch<SchoolAnalyticsResponse>("/api/v1/analytics/school");
+}
+
+/** The platform-wide adoption view (school:manage) — per-school funnel + estate totals. */
+export function getEstateAnalytics(): Promise<EstateAnalyticsResponse> {
+  return bffFetch<EstateAnalyticsResponse>("/api/v1/analytics/estate");
 }
 
 // --- Platform: schools + admins (F2, school:manage) ---

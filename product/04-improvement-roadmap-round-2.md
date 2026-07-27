@@ -141,16 +141,26 @@ L ≈ net-new across services (+ migration / infra). **Impact:** H/M/L on the pr
   several photos downloaded as one zip. **Honest limits:** per-event review (no global queue), no
   auto-confirm, bulk acts on loaded rows (no select-across-all-pages).
 
-### BP14 — Program analytics & trends · **Effort M · Impact M · BE + FE** · 📋 proposed
+### BP14 — Program analytics & trends · **Effort M · Impact M · BE + FE (+ migration)** · ✅ landed ([decisions/0062](../decisions/0062-product-build-BP14-program-analytics.md))
 - **Problem (theme G):** dashboards are **point-in-time counts**. Neither the school admin ("how did
   distribution go **this term**? how many of 800 have **ever signed in**?") nor the platform admin (which
   schools **adopted**, which **stalled**) can see trends or a funnel. Fails **T4/P8/X4**.
-- **Change:** delivery rate, sign-in/engagement rate, **per-term rollups**, trends over time — at the school
-  tier and, extending BP1's aggregates, the **estate tier** (per-school adoption funnel + stalled-school
-  alerts for the platform admin).
+- **Change (shipped):** a pure `AnalyticsService` composing existing + a few new grouped aggregates into two
+  reads — the **school program view** (`GET /v1/analytics/school`, `dashboard:view`: delivery/sign-in/
+  engagement rates + per-term rollups + a monthly upload/event trend) and the **estate adoption view**
+  (`GET /v1/analytics/estate`, `school:manage`: a per-school funnel staff→students→enrolled→events→distributed
+  + a transparent stalled/idle heuristic). **Migration `0016`** adds the one gap — `users.last_login_at`
+  (stamped on login, never refresh) — powering "ever signed in". Trends are **derived from timestamps**
+  (owner call — no snapshot table/job); "enrolled" is a current funnel, not a historical line. FE: a
+  **Program analytics** section folded **into the school Dashboard** (rate cards + a dependency-free CSS trend
+  chart + per-term table — no separate nav item, owner's call) + a platform **Estate-health** page (its own
+  nav item — stalled alerts + adoption-funnel table). **No ML change, no new permission, no new dependency, no
+  new env var.**
 - **Persona:** school + platform admin. **Source lens:** T4, P8, X4.
 - **Acceptance:** admins answer "how is the program doing this term?" and "which schools are stuck?" without
-  a spreadsheet.
+  a spreadsheet. **Honest limits:** query-only trends (a snapshot table is the scale-up); no login backfill
+  (the sign-in rate climbs from launch); the stalled/idle rule is a heuristic, not a model; in-app delivery
+  only (outbound email is BP12).
 
 ---
 
@@ -203,8 +213,9 @@ L ≈ net-new across services (+ migration / infra). **Impact:** H/M/L on the pr
 ## 5. How to use this file
 
 - **Pick the next phase** off the top of §4 — **BP9**, **BP17**, **BP10**, **BP11a/b/c** (organizing
-  structure), and **BP13** (bulk actions & batch review) have landed; **BP14** (program analytics &
-  trends) is next.
+  structure), **BP13** (bulk actions & batch review), and **BP14** (program analytics & trends) have landed.
+  The recommended track is complete; the **deprioritised** phases **BP12 → BP15 → BP16** remain at the back
+  of the queue (re-confirm scope when they come off it).
 - **Before building**, re-read the phase's **source lens** in `01` (the acceptance target) and its finding
   in `02` (what breaks + severity), then lock the phase design in a `decisions/` doc (repo convention).
 - **Keep `00` honest:** when a capability ships, move it from "dark/absent" to "exposed" in `00`'s

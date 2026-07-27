@@ -92,6 +92,11 @@ class User(Base):
         onupdate=func.now(),
         nullable=False,
     )
+    # Last successful login (migration 0016, BP14). Null until the account first signs in;
+    # never stamped on token refresh (not an interactive sign-in). Powers the sign-in rate.
+    last_login_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     __table_args__ = (
         UniqueConstraint("email", name="uq_users_email"),

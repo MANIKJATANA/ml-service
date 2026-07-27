@@ -69,3 +69,19 @@ class PostgresNotificationReadRepository:
                 )
             )
             return {str(student_id): seen_at for student_id, seen_at in result.all()}
+
+    async def count_distinct_seen_students(self, school_id: str) -> int:
+        """Distinct students who have opened >=1 distribution (BP14 engagement rate).
+
+        One scan of the tenant's ``notification_reads`` slice; a student with any 'seen' row
+        counts once. Tenant-scoped."""
+        sid = opt_uuid(school_id)
+        if sid is None:
+            return 0
+        async with self._sessionmaker() as session:
+            result = await session.execute(
+                select(func.count(func.distinct(ReadRow.student_id))).where(
+                    ReadRow.school_id == sid
+                )
+            )
+            return int(result.scalar_one())

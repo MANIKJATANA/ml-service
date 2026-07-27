@@ -340,6 +340,21 @@ class PostgresStudentRepository:
             )
             return {str(school_id): n for school_id, n in result.all()}
 
+    async def enrolled_counts_by_school(self) -> dict[str, int]:
+        """Successfully-enrolled students per school across all schools (BP14 estate funnel).
+
+        The ``enrollment_status = enrolled`` sibling of ``counts_by_school``: one grouped scan,
+        cross-tenant (reachable only behind ``school:manage``). Keys are canonical UUID strings."""
+        async with self._sessionmaker() as session:
+            result = await session.execute(
+                select(StudentRow.school_id, func.count())
+                .where(
+                    StudentRow.enrollment_status == EnrollmentStatus.ENROLLED.value
+                )
+                .group_by(StudentRow.school_id)
+            )
+            return {str(school_id): n for school_id, n in result.all()}
+
     async def set_enrollment(
         self,
         student_id: str,

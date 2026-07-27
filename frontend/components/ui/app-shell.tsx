@@ -8,6 +8,7 @@ import {
   GraduationCap,
   Images,
   LayoutDashboard,
+  LineChart,
   LogOut,
   type LucideIcon,
   Menu,
@@ -49,7 +50,10 @@ const BADGE_TONE: Record<NavBadge["tone"], string> = {
 
 // Nav is filtered to the caller's role.
 const NAV_BY_ROLE: Record<Role, NavItem[]> = {
-  platform_admin: [{ href: "/schools", label: "Schools", icon: Building2 }],
+  platform_admin: [
+    { href: "/schools", label: "Schools", icon: Building2 },
+    { href: "/estate", label: "Estate health", icon: LineChart },
+  ],
   school_admin: [
     { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
     { href: "/staff", label: "Staff", icon: Users },

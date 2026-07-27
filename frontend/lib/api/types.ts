@@ -350,6 +350,56 @@ export interface DashboardResponse {
   };
 }
 
+/** Program analytics (BP14, decisions/0062) — the school program view: raw
+ *  numerators/denominators (the FE renders the rates) + per-term rollups + a monthly trend. */
+export interface TermRollupResponse {
+  term: string;
+  events: number;
+  photos: number;
+  distributed: number;
+}
+export interface MonthPointResponse {
+  month: string; // 'YYYY-MM'
+  photos: number;
+  events: number;
+}
+export interface SchoolAnalyticsResponse {
+  school_name: string;
+  students_total: number;
+  students_enrolled: number;
+  students_signed_in: number;
+  students_engaged: number;
+  events_total: number;
+  events_distributed: number;
+  photos_total: number;
+  terms: TermRollupResponse[];
+  months: MonthPointResponse[];
+}
+
+/** One school's adoption funnel for the platform estate view (BP14). `stalled` = the
+ *  enrollment wall (students imported, none enrolled); `idle` = enrolled but gone quiet. */
+export interface SchoolFunnelResponse {
+  school_id: string;
+  school_name: string;
+  teachers: number;
+  students: number;
+  enrolled: number;
+  events: number;
+  distributed: number;
+  signed_in_students: number;
+  stalled: boolean;
+  idle: boolean;
+}
+export interface EstateAnalyticsResponse {
+  schools: SchoolFunnelResponse[];
+  total_schools: number;
+  total_students: number;
+  total_enrolled: number;
+  total_events: number;
+  stalled_schools: number;
+  idle_schools: number;
+}
+
 /** The student's "new photos" signal (BP4, decisions/0041): an unseen tally + the
  *  announced events (newest first). Authoritative + cross-device. */
 export interface MyNotificationEvent {

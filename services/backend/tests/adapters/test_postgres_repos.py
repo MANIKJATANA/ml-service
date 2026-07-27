@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import AsyncIterator
-from datetime import date
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 from backend.adapters.repositories.postgres_download_audit import (
@@ -1345,3 +1345,121 @@ async def test_event_set_status_bulk_is_tenant_scoped(
     # Restore e1.
     assert await events.set_status_bulk(a.id, [e1.id], status=EventStatus.ACTIVE) == 1
     assert (await events.get(a.id, e1.id)).status is EventStatus.ACTIVE  # type: ignore[union-attr]
+
+
+# ---- BP14 analytics aggregates (decisions/0062) -------------------------
+
+
+async def test_bp14_user_signin_aggregates(
+    sm: async_sessionmaker[AsyncSession],
+) -> None:
+    # touch_last_login sets the signal; the count aggregates are role- and tenant-scoped.
+    schools = PostgresSchoolRepository(sm)
+    users = PostgresUserRepository(sm)
+    a = await schools.create(name="A", max_teachers=5)
+    b = await schools.create(name="B", max_teachers=5)
+    s1 = await users.create(school_id=a.id, email="s1@a.io", password_hash="h", role=Role.STUDENT)
+    s2 = await users.create(school_id=a.id, email="s2@a.io", password_hash="h", role=Role.STUDENT)
+    await users.create(school_id=a.id, email="s3@a.io", password_hash="h", role=Role.STUDENT)
+    t1 = await users.create(school_id=a.id, email="t1@a.io", password_hash="h", role=Role.TEACHER)
+    bs = await users.create(school_id=b.id, email="s@b.io", password_hash="h", role=Role.STUDENT)
+
+    # No one has signed in yet.
+    assert await users.count_signed_in_by_school_and_role(a.id, Role.STUDENT) == 0
+    assert await users.signed_in_role_counts_by_school() == {}
+
+    await users.touch_last_login(s1.id)
+    await users.touch_last_login(s2.id)
+    await users.touch_last_login(t1.id)
+    await users.touch_last_login(bs.id)  # the OTHER school
+    await users.touch_last_login("not-a-uuid")  # no-op, no raise
+
+    # 2 of 3 A-students signed in; the teacher and B's student never bleed in.
+    assert await users.count_signed_in_by_school_and_role(a.id, Role.STUDENT) == 2
+    assert await users.count_signed_in_by_school_and_role(a.id, Role.TEACHER) == 1
+    counts = await users.signed_in_role_counts_by_school()
+    assert counts[a.id] == {Role.STUDENT: 2, Role.TEACHER: 1}
+    assert counts[b.id] == {Role.STUDENT: 1}
+
+
+async def test_bp14_analytics_grouped_aggregates(
+    sm: async_sessionmaker[AsyncSession],
+) -> None:
+    schools = PostgresSchoolRepository(sm)
+    users = PostgresUserRepository(sm)
+    students = PostgresStudentRepository(sm)
+    events = PostgresEventRepository(sm)
+    media = PostgresMediaRepository(sm)
+    reads = PostgresNotificationReadRepository(sm)
+    a = await schools.create(name="A", max_teachers=5)
+    b = await schools.create(name="B", max_teachers=5)
+
+    # A: 2 enrolled + 1 pending student; B: 1 enrolled.
+    async def _student(school_id: str, tag: str, status: EnrollmentStatus) -> str:
+        login = await users.create(
+            school_id=school_id, email=f"{tag}@x.io", password_hash="h", role=Role.STUDENT
+        )
+        s = await students.create(
+            school_id=school_id, user_id=login.id, name=tag,
+            reference_photo_path=f"reference-photos/{tag}.jpg",
+        )
+        await students.set_enrollment(s.id, status=status)
+        return s.id
+
+    sa1 = await _student(a.id, "a1", EnrollmentStatus.ENROLLED)
+    await _student(a.id, "a2", EnrollmentStatus.ENROLLED)
+    await _student(a.id, "a3", EnrollmentStatus.PENDING)
+    await _student(b.id, "b1", EnrollmentStatus.ENROLLED)
+
+    assert await students.enrolled_counts_by_school() == {a.id: 2, b.id: 1}
+
+    # A: 2 events (both dated in the same month), one announced; B: 1 event, not announced.
+    async def _event(school_id: str, name: str, event_date: date | None) -> str:
+        ev = await events.create(
+            school_id=school_id, name=name, description=None,
+            event_date=event_date, created_by=None,
+        )
+        return ev.id
+
+    ea1 = await _event(a.id, "A1", date(2026, 3, 4))
+    ea2 = await _event(a.id, "A2", date(2026, 3, 20))
+    eb1 = await _event(b.id, "B1", date(2026, 4, 1))
+    await _event(a.id, "A3", None)  # undated — excluded from the by-date trend
+    await events.mark_notified(ea1)
+
+    assert await events.distributed_counts_by_school() == {a.id: 1}  # only ea1
+
+    # recent_event_counts: created_at is server-now, so a far-past cutoff sees all, a
+    # far-future cutoff sees none (A has 3 events, B has 1).
+    all_recent = await events.recent_event_counts_by_school(datetime(2000, 1, 1, tzinfo=UTC))
+    assert all_recent == {a.id: 3, b.id: 1}
+    none_recent = await events.recent_event_counts_by_school(
+        datetime.now(UTC) + timedelta(days=1)
+    )
+    assert none_recent == {}
+
+    # monthly_event_date_counts (tenant-scoped): A's 2 dated events land in 2026-03; the
+    # undated one is excluded, and B's event never leaks.
+    a_months = await events.monthly_event_date_counts(a.id)
+    assert a_months == {"2026-03": 2}
+
+    # media: 2 photos in A's ea1, 1 in B's eb1.
+    async def _photo(school_id: str, event_id: str, path: str) -> None:
+        await media.create(
+            school_id=school_id, event_id=event_id, storage_path=path,
+            media_type=MediaType.IMAGE,
+        )
+
+    await _photo(a.id, ea1, "p1.jpg")
+    await _photo(a.id, ea1, "p2.jpg")
+    await _photo(b.id, eb1, "p3.jpg")
+    a_upload_months = await media.monthly_upload_counts(a.id)
+    assert sum(a_upload_months.values()) == 2 and len(a_upload_months) == 1
+
+    # count_distinct_seen_students: a1 opens two events (counts once), a2 opens one.
+    await reads.mark_seen(school_id=a.id, student_id=sa1, event_id=ea1)
+    await reads.mark_seen(school_id=a.id, student_id=sa1, event_id=ea2)
+    a2_id = next(s.id for s in await students.list_by_school(a.id) if s.name == "a2")
+    await reads.mark_seen(school_id=a.id, student_id=a2_id, event_id=ea1)
+    assert await reads.count_distinct_seen_students(a.id) == 2
+    assert await reads.count_distinct_seen_students(b.id) == 0

@@ -99,7 +99,7 @@ L ≈ net-new across services (+ migration / infra). **Impact:** H/M/L on the pr
   bulk re-enroll clears a batch of failures in one action; unmatched filenames are surfaced, not silently
   dropped.
 
-### BP11 — Organizing structure: classes/sections + event terms/categories · **Effort M–L · Impact H · BE + FE (+ migration)** · 🔨 underway — sliced a/b/c; **BP11a + BP11b landed** ([0058](../decisions/0058-product-build-BP11a-student-classes.md), [0059](../decisions/0059-product-build-BP11b-event-categories-calendar.md))
+### BP11 — Organizing structure: classes/sections + event terms/categories · **Effort M–L · Impact H · BE + FE (+ migration)** · ✅ landed — sliced a/b/c; **all three landed** ([0058](../decisions/0058-product-build-BP11a-student-classes.md), [0059](../decisions/0059-product-build-BP11b-event-categories-calendar.md), [0060](../decisions/0060-product-build-BP11c-teacher-delegation.md))
 - **Problem (theme B):** no **class/grade/section** on students, no **term/category/calendar** on events —
   one flat 800-row / 120-event world. Blocks delegation, findability, reporting, and cohort-scoped matching
   all at once. Fails **P3/P5/X5**.
@@ -214,8 +214,11 @@ L ≈ net-new across services (+ migration / infra). **Impact:** H/M/L on the pr
 
 - **Pick the next phase** off the top of §4 — **BP9**, **BP17**, **BP10**, **BP11a/b/c** (organizing
   structure), **BP13** (bulk actions & batch review), and **BP14** (program analytics & trends) have landed.
-  The recommended track is complete; the **deprioritised** phases **BP12 → BP15 → BP16** remain at the back
-  of the queue (re-confirm scope when they come off it).
+  The recommended track is **complete**. Everything still open is **parked** (owner call, 2026-07-27,
+  [decisions/0063](../decisions/0063-park-remaining-backlog.md)) and tracked in one place —
+  [`05-parked-backlog.md`](05-parked-backlog.md): the deprioritised **BP12 / BP15 / BP16**, the parked **BP6
+  video timeline**, plus the documented scale-up/polish refinements. Nothing is scheduled; pick an item up only
+  on an explicit request + a scope re-confirm.
 - **Before building**, re-read the phase's **source lens** in `01` (the acceptance target) and its finding
   in `02` (what breaks + severity), then lock the phase design in a `decisions/` doc (repo convention).
 - **Keep `00` honest:** when a capability ships, move it from "dark/absent" to "exposed" in `00`'s

@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Product Review R3 — Executive Summary</title>
+<style>
+  :root{
+    --ink:#0d1729; --ink-2:#5a6578; --ink-3:#7b8494;
+    --canvas:#f8f9fa; --surface:#fff; --hairline:#e3e8ef;
+    --accent:#4f46e5; --accent-soft:#eef2ff;
+    --crit:#dc2626; --crit-soft:#fef2f2;
+    --high:#b45309; --high-soft:#fffbeb;
+    --med:#0369a1; --med-soft:#f0f9ff;
+    --ok:#15803d; --ok-soft:#f0fdf4;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:ui-sans-serif,system-ui,"Segoe UI",Roboto,sans-serif;background:var(--canvas);color:var(--ink);line-height:1.55;padding:48px 20px}
+  .wrap{max-width:880px;margin:0 auto}
+  h1{font-size:30px;letter-spacing:-.02em;margin-bottom:6px}
+  h2{font-size:19px;letter-spacing:-.01em;margin:44px 0 14px}
+  .sub{color:var(--ink-2);font-size:14.5px;margin-bottom:8px}
+  .meta{font-size:12.5px;color:var(--ink-3);margin-bottom:36px}
+  .meta code{background:var(--surface);border:1px solid var(--hairline);border-radius:4px;padding:1px 5px;font-size:11.5px}
+  .card{background:var(--surface);border:1px solid var(--hairline);border-radius:12px;padding:20px 22px;margin-bottom:14px}
+  table{width:100%;border-collapse:collapse;font-size:13.5px}
+  th{text-align:left;font-size:11.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-2);padding:8px 10px;border-bottom:1px solid var(--hairline)}
+  td{padding:9px 10px;border-bottom:1px solid var(--hairline);vertical-align:top}
+  tr:last-child td{border-bottom:none}
+  .num{font-variant-numeric:tabular-nums}
+  .chip{display:inline-block;font-size:11px;font-weight:600;padding:2px 9px;border-radius:999px;white-space:nowrap}
+  .chip.crit{background:var(--crit-soft);color:var(--crit)}
+  .chip.high{background:var(--high-soft);color:var(--high)}
+  .chip.med{background:var(--med-soft);color:var(--med)}
+  .chip.ok{background:var(--ok-soft);color:var(--ok)}
+  .chip.acc{background:var(--accent-soft);color:var(--accent)}
+  .delta{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:6px}
+  .delta .box{flex:1 1 130px;background:var(--surface);border:1px solid var(--hairline);border-radius:10px;padding:14px 16px;text-align:center}
+  .delta .n{font-size:26px;font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+  .delta .l{font-size:11.5px;color:var(--ink-2);text-transform:uppercase;letter-spacing:.05em;margin-top:2px}
+  .find{border-left:3px solid var(--hairline);padding:10px 16px;margin:0 0 12px}
+  .find.crit{border-color:var(--crit)} .find.high{border-color:var(--high)}
+  .find h3{font-size:14.5px;margin-bottom:3px}
+  .find p{font-size:13.5px;color:var(--ink-2)}
+  .find .id{font-size:11px;color:var(--ink-3);font-family:ui-monospace,Consolas,monospace;margin-left:6px;font-weight:400}
+  .ord{background:var(--accent-soft);border:1px solid #dfe3ff;border-radius:10px;padding:13px 16px;margin-bottom:14px;font-size:13px;color:var(--ink);line-height:1.5}
+  .ord b{color:var(--accent)}
+  .ord .seq{font-variant-numeric:tabular-nums;font-weight:600;color:var(--accent);letter-spacing:.01em}
+  .phase{background:var(--surface);border:1px solid var(--hairline);border-radius:11px;padding:13px 17px;margin-bottom:10px}
+  .phase .top{display:flex;align-items:baseline;gap:9px;flex-wrap:wrap;margin-bottom:5px}
+  .phase .bp{font-weight:700;font-size:14.5px;letter-spacing:-.01em}
+  .phase .nm{font-size:14px;color:var(--ink)}
+  .phase .meta{margin-left:auto;display:flex;gap:5px;align-items:center;flex-wrap:wrap}
+  .phase .tag{font-size:10.5px;color:var(--ink-2);background:var(--canvas);border:1px solid var(--hairline);border-radius:5px;padding:1px 7px;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .phase .tag.mig{color:var(--high);background:var(--high-soft);border-color:#f3e2c0}
+  .phase .tag.ml{color:var(--med);background:var(--med-soft);border-color:#cfe6f5}
+  .phase p{font-size:13px;color:var(--ink-2);margin:0}
+  .phase .closes{font-size:11.5px;color:var(--ink-3);margin-top:5px;font-variant-numeric:tabular-nums}
+  .phase .closes b{color:var(--ink-2);font-weight:600}
+  .phase .exp{margin:7px 0 1px}
+  .phase .exp > div{font-size:13px;line-height:1.5;color:var(--ink);margin-bottom:3px}
+  .phase .exp .k{font-weight:700;font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;margin-right:7px}
+  .phase .exp .now .k{color:var(--crit)}
+  .phase .exp .aft .k{color:var(--ok)}
+  .phase .how{font-size:11.5px;color:var(--ink-3);margin-top:7px;line-height:1.5}
+  .phase .how b{color:var(--ink-2);font-weight:600}
+  .phase code,.ord code{font-family:ui-monospace,Consolas,monospace;font-size:11px;background:var(--canvas);border:1px solid var(--hairline);border-radius:4px;padding:0 4px}
+  .legend{font-size:12px;color:var(--ink-3);margin:2px 0 0}
+  .foot{margin-top:40px;padding-top:16px;border-top:1px solid var(--hairline);font-size:13px;color:var(--ink-2)}
+  .foot a{color:var(--accent)}
+  em{color:var(--ink-2)}
+  .good{font-size:13.5px;color:var(--ink-2)}
+  .good b{color:var(--ok)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>Product Review — Round 3</h1>
+  <p class="sub">UX-first, all roles walked as real users + a senior-PM sweep from every angle. Post-BP9–17, static code-grounded, every claim file:line-verified.</p>
+  <p class="meta">2026-07-28 · commit <code>bce5b59</code> · full review: <code>product/06-product-review-round-3-ux.md</code> · roadmap proposal: <code>product/07-improvement-roadmap-round-3.md</code> · method: 12 review agents (4 persona walks, leads-verifier, R2 re-test, 6 PM sweeps) + a citation-verification loop · parked items (BP12/15/16, video timeline) excluded by owner decision</p>
+
+  <h2>Round 2 → Round 3: did BP9–17 land?</h2>
+  <div class="delta">
+    <div class="box"><div class="n" style="color:var(--ok)">32</div><div class="l">Resolved</div></div>
+    <div class="box"><div class="n" style="color:var(--med)">5</div><div class="l">Partial</div></div>
+    <div class="box"><div class="n" style="color:var(--high)">2</div><div class="l">Unresolved</div></div>
+    <div class="box"><div class="n" style="color:var(--ink-3)">4</div><div class="l">Parked</div></div>
+    <div class="box"><div class="n" style="color:var(--ok)">0</div><div class="l">Regressed</div></div>
+  </div>
+  <p class="good">R2's three headline gaps: enrollment wall <b>✓ closed</b> (BP10), org structure <b>✓ closed</b> (BP11), distribution reach — parked by owner. Design bar: <b>Linear delivered</b>, <b>Stripe substantially closed</b>, Pinterest half-closed (grid mechanics hit the bar; the student still sits in admin chrome). The scale complaints of Round 2 are structurally gone. Round 3's problems are <em>the last mile, the failure paths, and the words</em>.</p>
+
+  <h2>Scorecard</h2>
+  <div class="card">
+  <table>
+    <tr><th>Role</th><th>Post-BP9–17</th><th>Worst finding</th><th></th></tr>
+    <tr><td><b>Platform admin</b></td><td>Estate funnel + stalled alerts work</td><td>The school record is <b>write-once</b> — no rename, cap-raise, or suspend exists anywhere</td><td><span class="chip high">High</span></td></tr>
+    <tr><td><b>School admin</b></td><td>Genuinely strong admin product now</td><td>Holds the destructive lever unknowingly — "fixing" a lost student login erases the child's photo history</td><td><span class="chip crit">Critical</span></td></tr>
+    <tr><td><b>Teacher</b></td><td>Fast event→upload→triage loop</td><td>Review is guesswork — "Is this Priya? 71%" with <b>no reference face shown</b>; distribution state invisible on the events list</td><td><span class="chip high">High</span></td></tr>
+    <tr><td><b>Student</b></td><td>Pinterest-grade masonry mechanics</td><td>Can be <b>permanently locked out</b> (zero recovery path); the "new photos" moment opens on three-year-old photos</td><td><span class="chip crit">Critical</span></td></tr>
+    <tr><td><b>Parent</b> <em>(via student account)</em></td><td>Jargon-free student surface</td><td>Told "Only you can see these" — structurally false; face recognition never explained to anyone</td><td><span class="chip high">High</span></td></tr>
+  </table>
+  </div>
+
+  <h2>The five that matter most</h2>
+
+  <div class="find crit">
+    <h3>1 · A forgotten student password destroys the child's photo history <span class="chip crit">Critical</span><span class="id">R3-A2-01 · nominated independently by 3 agents</span></h3>
+    <p>No reset path exists for any role; resend-invite covers only staff/admins. The only remedy — delete &amp; recreate — purges the student's matches (BP8e) and the worker skips completed photos on reprocess, so the history is <b>unrecoverable</b>. At 800 students on paper-slip passwords, this <em>will</em> happen. Fix is small: one endpoint reusing proven BP7c machinery + a login help line. <b>→ BP18</b></p>
+  </div>
+
+  <div class="find crit">
+    <h3>2 · A stranded processing job says "Distribution is running" forever <span class="chip crit">Critical</span><span class="id">R3-S1-01</span></h3>
+    <p>A job dead-letters (5 failed deliveries) or is lost → the Process button hides, the API refuses re-enqueue, the DLQ has <b>no consumer</b>, no staleness cue, and the failure half of the pipeline emits <b>zero metrics</b>. Students never get the photos; only out-of-band SQL can unstick it. <b>→ BP19</b></p>
+  </div>
+
+  <div class="find high">
+    <h3>3 · The product neither lands nor measures its last mile <span class="chip high">High</span><span class="id">R3-A4-02 · S6-03 · S3-11</span></h3>
+    <p>The student's badge says "3 new" → the gallery opens <b>oldest-first</b> with the new photos ~850 tiles down, the banner links nowhere, and the badge itself is fetched once per session (frozen in an open tab). Staff-side, "Delivery rate" measures the announce <em>button</em> — per-event opens and saves exist in the DB and reach no screen. <b>→ BP20 + BP23</b></p>
+  </div>
+
+  <div class="find high">
+    <h3>4 · The product misdescribes itself <span class="chip high">High</span><span class="id">R3-S2-01 · S5-02/03/04</span></h3>
+    <p>Seven words for one pipeline ("Process" toasts "Distribution started." — while distributing is a different button); "Notified 143 students" means 143 log lines; "Only you can see these" is false against staff view-all; face recognition is explained to no one; the delete dialog hides what it destroys. Almost entirely a strings pass. <b>→ BP21</b></p>
+  </div>
+
+  <div class="find high">
+    <h3>5 · The review loop is under-armed at its decision points <span class="chip high">High</span><span class="id">R3-A3-02 · A3-08 · A4-04</span></h3>
+    <p>No reference face beside the candidate name; review debt invisible at the announce moment while <b>auto-announce defaults on</b> (uncertain matches go student-visible unreviewed); the student's "This isn't me" is a one-tap, unconfirmed, unrecoverable removal that staff are never told about. <b>→ BP22</b></p>
+  </div>
+
+  <h2>Verified, not vibes</h2>
+  <p class="good">A pre-review sweep alleged 25 rough edges — verification <b>confirmed 10</b>, partially confirmed 4, and <b>refuted 11</b> (including four invented UI elements). Also positively confirmed: skeletons, aria-sort, live regions, reduced-motion, table scroll wrappers, and zero unlabeled icon buttons all exist — the floor mostly holds. Its two real breaks: sub-AA 12px data text on every table header (one-token fix) and a calendar with no mobile story.</p>
+
+  <h2>Proposed roadmap (owner picks — build stays paused)</h2>
+
+  <div class="ord">
+    <b>Recommended order</b> &nbsp;<span class="seq">BP18 → BP19 → BP21 → BP20 → BP22 → BP25 → BP23 → BP24</span><br>
+    The two Criticals first (BP18 is small and defuses the product's worst failure mode; BP19 is the other no-workaround path), then the cheapest High (BP21 — almost all strings, halves the trust exposure), then the student moment (BP20) and the teacher loop (BP22); the floor sweep (BP25) slots anywhere. Reorder freely — only BP18/BP19 carry the "these are the Criticals" weighting. Eight phases below in that order.
+  </div>
+
+  <div class="phase">
+    <div class="top"><span class="bp">BP18</span><span class="nm">Account recovery &amp; credential safety</span>
+      <span class="meta"><span class="chip crit">kills Critical #1</span><span class="tag">Effort S–M</span></span></div>
+    <div class="exp">
+      <div class="now"><span class="k">Now</span>A student forgets their password and no one can help — the only "fix" (delete &amp; re-add the student) erases every photo they were ever matched to, for good.</div>
+      <div class="aft"><span class="k">After</span>Staff send a fresh password in one click, the login screen tells a stuck family what to do, and nobody loses their photos just to get back into their account.</div>
+    </div>
+    <div class="how"><b>How:</b> a <code>/students/{id}/resend-invite</code> endpoint (reuses proven BP7c machinery) · close-guards on the shown-once password dialogs · a resend confirm · a Change-password link · <code>PATCH /schools/{id}</code> for the write-once school record. &nbsp;<b>Theme J</b> · R3-A2-01/A4-01 (Critical) + 6 more · optional <b>BP18b</b>: session revocation + student disable</div>
+  </div>
+
+  <div class="phase">
+    <div class="top"><span class="bp">BP19</span><span class="nm">Pipeline resilience &amp; stall visibility</span>
+      <span class="meta"><span class="chip crit">kills Critical #2</span><span class="tag">Effort M</span><span class="tag ml">ML worker</span></span></div>
+    <div class="exp">
+      <div class="now"><span class="k">Now</span>If photo-matching breaks on an event, it just says "Distribution is running…" forever — staff can't tell it's stuck, can't retry, and no alert fires. The photos never reach anyone.</div>
+      <div class="aft"><span class="k">After</span>A stuck event shows as <b>failed with a Retry button</b>, staff can see how long it's been running, and the team gets an alert — instead of hearing about it from a parent.</div>
+    </div>
+    <div class="how"><b>How:</b> an unstick / re-enqueue path · a dead-letter consumer that marks the event failed · failure metrics (jobs-failed, queue depth, age) · "processing since…" copy · retry-failed uploads. &nbsp;<b>Theme K</b> · R3-S1-01 (Critical) + 5 more · touches the ML worker, no contract change</div>
+  </div>
+
+  <div class="phase">
+    <div class="top"><span class="bp">BP21</span><span class="nm">Say what it does</span>
+      <span class="meta"><span class="chip acc">cheapest High</span><span class="tag">Effort S–M</span></span></div>
+    <div class="exp">
+      <div class="now"><span class="k">Now</span>The app calls one action five different names, tells students "only you can see these" (staff see everything), and says "Notified 143 students" when no message actually went out.</div>
+      <div class="aft"><span class="k">After</span>One clear word per action, honest privacy wording, and status messages that say <b>exactly what happened</b> — so people can trust what they read.</div>
+    </div>
+    <div class="how"><b>How:</b> one verb pair (Match / Announce) used everywhere · a true "who can see this" line · a short "how matching works" page · honest delete + audit wording · clearer 401/422/429 errors. Almost all copy. &nbsp;<b>Theme M</b> · R3-S2-01 + 8 more</div>
+  </div>
+
+  <div class="phase">
+    <div class="top"><span class="bp">BP20</span><span class="nm">The arrival moment</span>
+      <span class="meta"><span class="chip high">High</span><span class="tag">Effort M</span></span></div>
+    <div class="exp">
+      <div class="now"><span class="k">Now</span>A student taps "3 new photos" and lands on pictures from three years ago — the new ones are buried ~850 photos down, and the badge often doesn't even light up.</div>
+      <div class="aft"><span class="k">After</span>The gallery opens on the <b>newest photos</b>, the "new" banner jumps straight to them, the badge stays live, and saved files are named by event and date.</div>
+    </div>
+    <div class="how"><b>How:</b> newest-first order · a clickable "new photos" banner · a live badge · year/term chip groups · event captions on photos and the download zip. The backend already serves it all. &nbsp;<b>Theme L</b> · R3-A4-02/03 + 4 more · optional <b>BP20b</b>: warm student look</div>
+  </div>
+
+  <div class="phase">
+    <div class="top"><span class="bp">BP22</span><span class="nm">Review loop, armed</span>
+      <span class="meta"><span class="chip high">High</span><span class="tag">Effort S–M</span></span></div>
+    <div class="exp">
+      <div class="now"><span class="k">Now</span>A teacher checking "Is this Priya? 71%" has no picture of Priya — it's a guess — and uncertain matches can reach students before anyone reviews them.</div>
+      <div class="aft"><span class="k">After</span>The student's <b>enrolled face sits right next to the guess</b>, the "still to review" count sits on the Send button, and a mis-tapped "This isn't me" can be undone.</div>
+    </div>
+    <div class="how"><b>How:</b> the reference-photo thumbnail in the review tile (endpoint already exists) · a review-debt warning at announce · a deep-linkable review tab · a confirm + undo on "This isn't me". &nbsp;<b>Theme N</b> · R3-A3-02/08 + A4-04</div>
+  </div>
+
+  <div class="phase">
+    <div class="top"><span class="bp">BP25</span><span class="nm">Floor sweep</span>
+      <span class="meta"><span class="chip med">Medium (1 High)</span><span class="tag">Effort S–M</span></span></div>
+    <div class="exp">
+      <div class="now"><span class="k">Now</span>Faint grey table text is hard to read, the calendar is unusable on a phone, and reloading a filtered list throws away where you were.</div>
+      <div class="aft"><span class="k">After</span>Readable text everywhere it carries meaning, a calendar that works on mobile, and <b>filters and tabs you can bookmark and share</b>.</div>
+    </div>
+    <div class="how"><b>How:</b> one contrast fix across every table + metric label · a responsive calendar · focus rings + bigger tap targets · list state saved in the URL · per-page titles · brand/motion polish. &nbsp;<b>Theme Q</b> · R3-S4-01 (High) + ~11 more</div>
+  </div>
+
+  <div class="phase">
+    <div class="top"><span class="bp">BP23</span><span class="nm">Run it on numbers</span>
+      <span class="meta"><span class="chip high">High</span><span class="tag">Effort M</span><span class="tag mig">1 migration</span></span></div>
+    <div class="exp">
+      <div class="now"><span class="k">Now</span>The dashboard says "delivery 100%" when it only means "we pressed Send" — no one can see who actually opened or saved their photos, or whether teachers are even using the app.</div>
+      <div class="aft"><span class="k">After</span><b>Real numbers</b> — who opened, who saved, which schools are stalling, which teachers are active — with a name-list behind every percentage.</div>
+    </div>
+    <div class="how"><b>How:</b> record who uploaded each photo (the one small migration, before that history is lost) · expose last-login + creator · real open/save rates · accuracy from correction data already collected · a list behind each rate. &nbsp;<b>Theme O</b> · R3-S6-03/04/06 + 6 more</div>
+  </div>
+
+  <div class="phase">
+    <div class="top"><span class="bp">BP24</span><span class="nm">Two-way doors</span>
+      <span class="meta"><span class="chip med">Medium</span><span class="tag">Effort M</span></span></div>
+    <div class="exp">
+      <div class="now"><span class="k">Now</span>Tag an event wrong and you can never undo it; a bulk CSV import hides its mistakes until after it's already run.</div>
+      <div class="aft"><span class="k">After</span>Every choice is reversible, and a bad import <b>flags its problems up front</b> with a "download the failed rows" to fix and re-try.</div>
+    </div>
+    <div class="how"><b>How:</b> clearable event tags · CSV duplicate pre-flagging + skipped-row export · class assignment at CSV scale · honest partial-download messages · roster refresh after an invite. &nbsp;<b>Theme P</b> · R3-A2-05/11 + 3 more</div>
+  </div>
+
+  <p class="legend">All phases are <b>no-migration / no-ML</b> unless tagged above. Built from new findings only — parked work (BP12 outbound email/share-links, BP15, BP16, video timeline) is excluded, not re-ranked. Five Mediums (teacher-cap visibility, chip-count scoping, delegation visibility, the create→upload navigation tax, per-event "saved") sit consciously below the line in <code style="font-size:11.5px">product/07</code> §3.</p>
+
+  <p class="foot">Full findings ledger (2 Critical · 18 High · ~44 Medium · bundled Lows, every one with file:line evidence), the per-role walks, the six PM sweeps, themes J–Q, and the refuted-leads appendix: <a href="product/06-product-review-round-3-ux.md"><b>product/06-product-review-round-3-ux.md</b></a> — the markdown stands alone; this page is only the summary. Roadmap detail: <a href="product/07-improvement-roadmap-round-3.md"><b>product/07</b></a>.</p>
+
+</div>
+</body>
+</html>

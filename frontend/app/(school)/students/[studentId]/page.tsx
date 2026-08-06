@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, ImagePlus, RefreshCw, Trash2 } from "lucide-react";
+import { AlertTriangle, ImagePlus, KeyRound, RefreshCw, Trash2 } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
 import { type FormEvent, useState } from "react";
 import { mutate as globalMutate } from "swr";
@@ -8,6 +8,7 @@ import { mutate as globalMutate } from "swr";
 import { FilterChips } from "@/components/gallery/filter-chips";
 import { GridSkeleton } from "@/components/gallery/grid-skeleton";
 import { PhotoGrid } from "@/components/gallery/photo-grid";
+import { type Invite, InviteResultDialog } from "@/components/staff/invite-result-dialog";
 import { StudentAvatar } from "@/components/ui/avatar";
 import { Breadcrumb } from "@/components/ui/breadcrumb";
 import { Button } from "@/components/ui/button";
@@ -24,6 +25,7 @@ import { useToast } from "@/components/ui/toast";
 import {
   deleteStudent,
   enrollStudent,
+  resendStudentInvite,
   setStudentClass,
   setStudentReferencePhoto,
 } from "@/lib/api/endpoints";
@@ -279,6 +281,8 @@ export default function StudentDetailPage() {
   const [reenrolling, setReenrolling] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [invite, setInvite] = useState<Invite | null>(null);
 
   const notFound = isApiError(error) && error.status === 404;
 
@@ -298,6 +302,20 @@ export default function StudentDetailPage() {
       toast(isApiError(err) ? err.message : "Something went wrong", "error");
     } finally {
       setReenrolling(false);
+    }
+  }
+
+  async function onResend() {
+    setSending(true);
+    try {
+      // BP18a: recovery WITHOUT the destructive delete — regenerates the temp password,
+      // shown once. The student's photos + matches are untouched.
+      const { student: s, temp_password } = await resendStudentInvite(studentId);
+      setInvite({ email: s.email, tempPassword: temp_password });
+    } catch (err) {
+      toast(isApiError(err) ? err.message : "Something went wrong", "error");
+    } finally {
+      setSending(false);
     }
   }
 
@@ -370,16 +388,27 @@ export default function StudentDetailPage() {
                     variant="secondary"
                     onClick={onReenroll}
                     loading={reenrolling}
-                    disabled={deleting}
+                    disabled={deleting || sending}
                   >
                     <RefreshCw className="size-4" aria-hidden="true" />
                     Re-enroll
                   </Button>
                 ) : null}
+                {/* BP18a: give a locked-out student a fresh password without deleting them
+                    (delete would erase their photo history). */}
+                <Button
+                  variant="secondary"
+                  onClick={onResend}
+                  loading={sending}
+                  disabled={reenrolling || deleting}
+                >
+                  <KeyRound className="size-4" aria-hidden="true" />
+                  Send new password
+                </Button>
                 <Button
                   variant="destructive"
                   onClick={() => setConfirmOpen(true)}
-                  disabled={reenrolling}
+                  disabled={reenrolling || sending}
                 >
                   <Trash2 className="size-4" aria-hidden="true" />
                   Delete
@@ -445,6 +474,8 @@ export default function StudentDetailPage() {
         loading={deleting}
         onConfirm={onDelete}
       />
+
+      <InviteResultDialog invite={invite} onClose={() => setInvite(null)} />
     </div>
   );
 }

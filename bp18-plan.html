@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BP18 — Account recovery & credential safety</title>
+<style>
+  :root{
+    --ink:#0d1729; --ink-2:#5a6578; --ink-3:#7b8494;
+    --canvas:#f8f9fa; --surface:#fff; --hairline:#e3e8ef;
+    --accent:#4f46e5; --accent-soft:#eef2ff;
+    --crit:#dc2626; --crit-soft:#fef2f2;
+    --high:#b45309; --high-soft:#fffbeb;
+    --med:#0369a1; --med-soft:#f0f9ff;
+    --ok:#15803d; --ok-soft:#f0fdf4;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:ui-sans-serif,system-ui,"Segoe UI",Roboto,sans-serif;background:var(--canvas);color:var(--ink);line-height:1.55;padding:48px 20px}
+  .wrap{max-width:880px;margin:0 auto}
+  h1{font-size:29px;letter-spacing:-.02em;margin-bottom:6px}
+  h2{font-size:18px;letter-spacing:-.01em;margin:42px 0 13px}
+  .sub{color:var(--ink-2);font-size:14.5px;margin-bottom:8px}
+  .meta{font-size:12.5px;color:var(--ink-3);margin-bottom:30px}
+  .meta code{background:var(--surface);border:1px solid var(--hairline);border-radius:4px;padding:1px 5px;font-size:11.5px}
+  .card{background:var(--surface);border:1px solid var(--hairline);border-radius:12px;padding:18px 20px;margin-bottom:14px}
+  .chip{display:inline-block;font-size:11px;font-weight:600;padding:2px 9px;border-radius:999px;white-space:nowrap}
+  .chip.crit{background:var(--crit-soft);color:var(--crit)}
+  .chip.ok{background:var(--ok-soft);color:var(--ok)}
+  .chip.acc{background:var(--accent-soft);color:var(--accent)}
+  .problem{background:var(--crit-soft);border:1px solid #f3d0d0;border-radius:12px;padding:16px 20px;margin-bottom:14px;font-size:14px;line-height:1.6}
+  .problem b{color:var(--crit)}
+  .problem .chain{margin-top:8px;font-size:13px;color:var(--ink-2)}
+  .problem .chain b{color:var(--ink)}
+  .ord{background:var(--accent-soft);border:1px solid #dfe3ff;border-radius:10px;padding:13px 16px;margin-bottom:14px;font-size:13px;color:var(--ink);line-height:1.55}
+  .ord b{color:var(--accent)}
+  .ord .seq{font-variant-numeric:tabular-nums;font-weight:600;color:var(--accent)}
+  .slice{background:var(--surface);border:1px solid var(--hairline);border-radius:11px;padding:14px 18px;margin-bottom:11px}
+  .slice .top{display:flex;align-items:baseline;gap:9px;flex-wrap:wrap;margin-bottom:6px}
+  .slice .bp{font-weight:700;font-size:15px;letter-spacing:-.01em}
+  .slice .nm{font-size:14px;color:var(--ink)}
+  .slice .tags{margin-left:auto;display:flex;gap:5px;align-items:center;flex-wrap:wrap}
+  .slice .tag{font-size:10.5px;color:var(--ink-2);background:var(--canvas);border:1px solid var(--hairline);border-radius:5px;padding:1px 7px;white-space:nowrap}
+  .slice .tag.mig{color:var(--high);background:var(--high-soft);border-color:#f3e2c0}
+  .slice .tag.nomig{color:var(--ok);background:var(--ok-soft);border-color:#c6ecd2}
+  .exp{margin:7px 0 1px}
+  .exp > div{font-size:13.5px;line-height:1.55;color:var(--ink);margin-bottom:4px}
+  .exp .k{font-weight:700;font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;margin-right:7px}
+  .exp .now .k{color:var(--crit)}
+  .exp .aft .k{color:var(--ok)}
+  .how{font-size:11.5px;color:var(--ink-3);margin-top:7px;line-height:1.55}
+  .how b{color:var(--ink-2);font-weight:600}
+  ol.steps{margin:0 0 0 20px;font-size:13.5px;line-height:1.7}
+  ol.steps b{color:var(--ink)}
+  .verify{font-size:13.5px;line-height:1.6;color:var(--ink-2)}
+  .verify b{color:var(--ink)}
+  .foot{margin-top:38px;padding-top:16px;border-top:1px solid var(--hairline);font-size:13px;color:var(--ink-2)}
+  .foot code{background:var(--surface);border:1px solid var(--hairline);border-radius:4px;padding:1px 5px;font-size:11.5px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>BP18 — Account recovery &amp; credential safety</h1>
+  <p class="sub">The first build off the Round-3 roadmap. It fixes <b>Critical #1</b> and the credential-safety gaps around it.</p>
+  <p class="meta">Plan: <code>C:\Users\…\plans\…jolly-peach.md</code> · findings: <code>product/06</code> theme J · roadmap: <code>product/07</code> BP18 · this is the explainer to verify <b>before</b> any code · four slices, built and approved one at a time</p>
+
+  <h2>The problem we're fixing</h2>
+  <div class="problem">
+    Today, <b>a student who forgets their password is stuck — and the only way to help them destroys their photos.</b>
+    There's no "send a new password" for students (staff and admins have one; students don't).
+    <div class="chain">
+      The chain, step by step: forgotten password → the only fix in the app is <b>delete the student and re-create them</b> → but deleting a student <b>erases every photo they were ever matched to</b>, and re-processing old events skips photos already done, so a new account can <b>never</b> get that history back. → The child is either locked out for good, or their whole gallery is wiped to let them back in. At 800 students on paper-slip passwords, this <b>will</b> happen within a term.
+    </div>
+  </div>
+
+  <h2>What we're building — four slices</h2>
+
+  <div class="slice">
+    <div class="top"><span class="bp">BP18a</span><span class="nm">Student recovery — the Critical fix</span>
+      <span class="tags"><span class="chip crit">kills Critical #1</span><span class="tag">Effort S</span><span class="tag nomig">no migration</span></span></div>
+    <div class="exp">
+      <div class="now"><span class="k">Now</span>A student forgets their password and staff have no way to send a new one — the only option deletes the student and wipes every photo they were matched to.</div>
+      <div class="aft"><span class="k">After</span>One <b>"Send new password"</b> button hands out a fresh temporary password (shown once), the old one stops working, and the student <b>keeps every photo</b>. The login page also tells a locked-out family what to do.</div>
+    </div>
+    <div class="how"><b>How:</b> a resend-invite for students that copies the one staff/admins already have · a "Send new password" action reusing the existing invite pop-up · a "Forgot your password? Ask your school" line on login · a "You were signed out" message when a session ends. Nothing about the student's photos is touched.</div>
+  </div>
+
+  <div class="slice">
+    <div class="top"><span class="bp">BP18b</span><span class="nm">Credential safety &amp; self-service</span>
+      <span class="tags"><span class="chip acc">safety net</span><span class="tag">Effort S</span><span class="tag nomig">no migration</span></span></div>
+    <div class="exp">
+      <div class="now"><span class="k">Now</span>The one-time-password screen can be closed by accident before anyone copies it (back to the delete trap). "Resend invite" silently replaces a working password with no warning. There's no link to change your own password, and a student never sees their own name.</div>
+      <div class="aft"><span class="k">After</span>A "you haven't copied this yet — sure?" guard before a one-time password disappears; a "this replaces their current password" confirm on resend; a <b>Change password</b> link in the sidebar; and students see their own name.</div>
+    </div>
+    <div class="how"><b>How:</b> copied/downloaded guards on the two shown-once dialogs · a confirm on resend when the account is already active · a safety check before disabling a school's <b>only</b> admin · a Change-password link in the footer + the name added to the "who am I" data.</div>
+  </div>
+
+  <div class="slice">
+    <div class="top"><span class="bp">BP18c</span><span class="nm">School-record editing</span>
+      <span class="tags"><span class="chip acc">operator tools</span><span class="tag">Effort S–M</span><span class="tag nomig">no migration</span></span></div>
+    <div class="exp">
+      <div class="now"><span class="k">Now</span>Once a school is created, its name, teacher limit, and status can <b>never</b> be changed in the app — even though "suspended" is a real state the system already enforces. Fixing any of it means editing the database by hand.</div>
+      <div class="aft"><span class="k">After</span>The operator can <b>rename</b> a school, <b>raise or lower</b> its teacher limit, and <b>suspend or reactivate</b> it — all from the school's page.</div>
+    </div>
+    <div class="how"><b>How:</b> a school-edit endpoint (name / teacher-limit / status) + an Edit dialog and Suspend/Reactivate buttons on the platform school page. The columns are already editable in the database, so no migration.</div>
+  </div>
+
+  <div class="slice">
+    <div class="top"><span class="bp">BP18d</span><span class="nm">Log-out-everywhere &amp; pause a student</span>
+      <span class="tags"><span class="chip acc">security</span><span class="tag">Effort M</span><span class="tag mig">1 migration</span></span></div>
+    <div class="exp">
+      <div class="now"><span class="k">Now</span>Changing or resetting a password doesn't kick out sessions that are already signed in — a login left open on a shared computer keeps working for up to two weeks. And a student account can't be paused; the only "off switch" is the destructive delete.</div>
+      <div class="aft"><span class="k">After</span>A password change or reset <b>immediately signs out every old session on every device</b>; and staff can <b>disable then re-enable</b> a student login without touching their photos. Your own session stays signed in when you change your own password.</div>
+    </div>
+    <div class="how"><b>How:</b> a small per-account "token version" (the one small migration) that bumps on every password change, so older sign-ins are rejected instantly · a disable/enable student action (the account is just paused, nothing deleted). This is the deepest change (it touches how every request is checked), so it goes last and gets the most careful review.</div>
+  </div>
+
+  <h2>Build order &amp; how we'll work</h2>
+  <div class="ord">
+    <b>Order</b> &nbsp;<span class="seq">BP18a → BP18b → BP18c → BP18d</span> &nbsp;— the Critical fix first, then the safety net, then the operator tools, then the deepest security change last.<br>
+    <b>Process</b> — you're reading step 2 now. Each slice is then built on its own, run through the full check (types + lint + tests + build) and a <b>2× self-review</b>, and brought back to you to review. Nothing is committed until you say so. We do them <b>one by one</b>, not all at once.
+  </div>
+
+  <h2>How we'll prove BP18a actually works</h2>
+  <div class="card verify">
+    The whole point is "recover without losing photos", so the key test walks exactly that:
+    <ol class="steps" style="margin-top:8px">
+      <li>Create a student and note their photos/matches.</li>
+      <li>Hit <b>Send new password</b> → a new temporary password comes back, shown once.</li>
+      <li>The <b>old</b> password is rejected at login; the <b>new</b> one works and forces a password change.</li>
+      <li><b>The student's photos and matches are all still there</b> — nothing was deleted.</li>
+    </ol>
+    <p style="margin-top:8px">Plus: a foreign student returns "not found" (no cross-school leak), and every slice passes the full backend + frontend checks before it reaches you. BP18d additionally tests its migration up-and-down on a throwaway database (never your real dev data).</p>
+  </div>
+
+  <p class="foot">Not in this build: the rest of the Round-3 roadmap (<code>BP19–BP25</code>) stays as-is in <code>product/07</code>. One honest limit noted for BP18a: until BP18d lands, sending a new password stops the old password from logging in, but a session already signed in could linger up to two weeks — BP18d is what closes that, which is why it's in this same phase.</p>
+
+</div>
+</body>
+</html>

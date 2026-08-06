@@ -328,6 +328,37 @@ class StudentService:
             school_id, student.id, fallback=student, status=status, reason=reason
         )
 
+    # ---- credential recovery (BP18a) ------------------------------------
+
+    async def resend_invite(
+        self, *, school_id: str, student_id: str
+    ) -> ProvisionedStudent:
+        """Re-issue a one-time temp password for a student who lost theirs (BP18a).
+
+        The recovery path staff/admins already had (`OnboardingService.resend_invite`,
+        BP7c) — a student never did, so the only remedy was delete-and-recreate, which
+        BP8e makes destroy their matched-photo history. This regenerates the password,
+        forces a change on next login, and returns it once — **touching nothing else**:
+        the profile, reference photo, enrollment, and `matches` are all left intact.
+
+        Tenant-scoped: ``get_student`` resolves a foreign/missing student to 404 BEFORE
+        any password write. Role is implicit — the ``students`` row's linked login is a
+        ``student`` account by construction (0026); and it is intentionally NOT
+        active-school gated (mirrors staff resend) — recovery must work regardless of the
+        school's status. The returned student is the pre-write snapshot: ``set_password``
+        mutates only the ``users`` row (``must_change_password`` + ``updated_at``), neither
+        of which ``StudentResponse`` carries — so a re-fetch (cf.
+        ``OnboardingService.resend_invite``, which surfaces the ``users`` row) is identical.
+        """
+        student = await self.get_student(school_id=school_id, student_id=student_id)
+        temp_password = generate_temp_password()
+        await self._users.set_password(
+            student.user_id,
+            password_hash=self._hasher.hash(temp_password),
+            must_change_password=True,
+        )
+        return ProvisionedStudent(student, temp_password)
+
     async def _require_active_school(self, school_id: str) -> School:
         school = await self._schools.get(school_id)
         if school is None:

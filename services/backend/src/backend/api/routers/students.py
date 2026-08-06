@@ -211,6 +211,19 @@ async def enroll_student(
     return StudentResponse.from_student(student)
 
 
+@router.post("/{student_id}/resend-invite", response_model=ProvisionedStudentResponse)
+async def resend_student_invite(
+    student_id: str, container: ContainerDep, actor: StudentManager
+) -> ProvisionedStudentResponse:
+    """Re-issue a one-time temp password for a student who lost theirs (BP18a). Tenant from
+    the token (a foreign student → 404); regenerates + forces a change on next login and
+    returns it once. Does NOT delete/re-create — the student's photos + matches are kept."""
+    prov = await container.student_service().resend_invite(
+        school_id=tenant_of(actor), student_id=student_id
+    )
+    return ProvisionedStudentResponse.from_provisioned(prov)
+
+
 @router.put("/{student_id}/reference-photo", response_model=StudentResponse)
 async def set_reference_photo(
     student_id: str,

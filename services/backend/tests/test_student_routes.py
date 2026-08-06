@@ -110,6 +110,73 @@ def test_school_admin_creates_student_in_own_school() -> None:
     assert isinstance(ml, FakeMlClient) and ml.enroll_calls[0][2] == [_PATH]
 
 
+# ---- credential recovery: resend invite (BP18a) ------------------------
+
+
+def test_resend_invite_returns_a_new_password_and_keeps_the_student() -> None:
+    # BP18a: recovery WITHOUT the destructive delete — the student (and their photos/matches)
+    # survive; a fresh one-time password is returned.
+    client, token, container = _admin_client()
+    created = client.post(
+        "/v1/students",
+        json={"name": "Amy", "email": "amy@s1.io", "reference_photo_path": _PATH},
+        headers=_auth(token),
+    )
+    assert created.status_code == 201, created.text
+    student_id = created.json()["student"]["id"]
+    first_pw = created.json()["temp_password"]
+
+    resp = client.post(f"/v1/students/{student_id}/resend-invite", headers=_auth(token))
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["student"]["id"] == student_id
+    assert "password_hash" not in body["student"]
+    assert isinstance(body["temp_password"], str) and len(body["temp_password"]) >= 8
+    assert body["temp_password"] != first_pw  # a fresh one-time password
+    # The student still exists (no delete); the ML erasure seam was never called.
+    assert client.get(f"/v1/students/{student_id}", headers=_auth(token)).status_code == 200
+    ml = container.ml_enrollment_client()
+    assert isinstance(ml, FakeMlClient) and ml.delete_calls == []
+
+
+def test_resend_invite_kills_the_old_password_and_the_new_one_works() -> None:
+    # The point of BP18a, proved end-to-end at the auth layer: recovery restores access —
+    # the old temp password stops working, the new one logs in and forces a change — all
+    # WITHOUT deleting the student (their photos/matches survive, asserted above).
+    client, token, _ = _admin_client()
+    created = client.post(
+        "/v1/students",
+        json={"name": "Amy", "email": "amy@s1.io", "reference_photo_path": _PATH},
+        headers=_auth(token),
+    )
+    assert created.status_code == 201, created.text
+    student_id = created.json()["student"]["id"]
+    first_pw = created.json()["temp_password"]
+    # Baseline: the original temp password logs in.
+    base = client.post("/v1/auth/login", json={"email": "amy@s1.io", "password": first_pw})
+    assert base.status_code == 200, base.text
+
+    new_pw = client.post(
+        f"/v1/students/{student_id}/resend-invite", headers=_auth(token)
+    ).json()["temp_password"]
+
+    # The old password is now dead; the new one works and forces a change on first login.
+    old = client.post("/v1/auth/login", json={"email": "amy@s1.io", "password": first_pw})
+    assert old.status_code == 401, old.text
+    ok = client.post("/v1/auth/login", json={"email": "amy@s1.io", "password": new_pw})
+    assert ok.status_code == 200, ok.text
+    assert ok.json()["must_change_password"] is True
+
+
+def test_resend_invite_unknown_student_is_404() -> None:
+    client, token, _ = _admin_client()
+    resp = client.post(
+        "/v1/students/00000000-0000-0000-0000-000000000000/resend-invite",
+        headers=_auth(token),
+    )
+    assert resp.status_code == 404, resp.text
+
+
 def test_create_without_a_photo_is_pending() -> None:
     # BP7d: the reference photo is optional — a photoless student is created pending.
     client, token, container = _admin_client()

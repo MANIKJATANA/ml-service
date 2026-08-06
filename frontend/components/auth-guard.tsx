@@ -29,7 +29,10 @@ export function AuthGuard({ allow, children }: { allow: Role[]; children: ReactN
 
   let redirectTo: string | null = null;
   if (!isLoading && !backendError) {
-    if (sessionDead || !user) redirectTo = "/login";
+    // BP18a: a mid-session 401 (session truly dead) carries a reason so login can say "you
+    // were signed out"; a plain not-signed-in has none.
+    if (sessionDead) redirectTo = "/login?reason=expired";
+    else if (!user) redirectTo = "/login";
     else if (user.must_change_password) redirectTo = "/change-password";
     else if (!allow.includes(user.role)) redirectTo = homePathForRole(user.role);
   }

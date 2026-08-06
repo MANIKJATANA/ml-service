@@ -235,6 +235,17 @@ export function getStudent(studentId: string): Promise<StudentResponse> {
   return bffFetch<StudentResponse>(`/api/v1/students/${encodeURIComponent(studentId)}`);
 }
 
+/** Re-issue a one-time temp password for a student who lost theirs (BP18a) — recovery
+ *  without the destructive delete/recreate; the plaintext is returned once. */
+export function resendStudentInvite(
+  studentId: string,
+): Promise<ProvisionedStudentResponse> {
+  return bffFetch<ProvisionedStudentResponse>(
+    `/api/v1/students/${encodeURIComponent(studentId)}/resend-invite`,
+    { method: "POST" },
+  );
+}
+
 /** Mint a signed target for the reference photo (bytes go browser→Supabase). */
 export function studentUploadUrl(): Promise<UploadUrlResponse> {
   return bffFetch<UploadUrlResponse>("/api/v1/students/upload-url", { method: "POST" });

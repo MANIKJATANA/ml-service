@@ -136,6 +136,45 @@ async def test_ml_outage_still_creates_student_as_failed() -> None:
     assert await strepo.get(_S1, student.id) is not None  # profile persisted
 
 
+# ---- credential recovery (BP18a) ---------------------------------------
+
+
+async def test_resend_invite_regenerates_password_and_keeps_the_student() -> None:
+    # BP18a: a student who lost their password gets a fresh one WITHOUT the destructive
+    # delete-and-recreate — the profile, enrollment, and (crucially) their matches survive.
+    svc, strepo, urepo, ml = _svc()
+    student = await _create(
+        svc, school_id=_S1, name="Amy", email="amy@x.io", reference_photo_path=_PATH,
+    )
+    before = await urepo.get(student.user_id)
+    assert before is not None
+
+    prov = await svc.resend_invite(school_id=_S1, student_id=student.id)
+
+    assert prov.student.id == student.id and len(prov.temp_password) >= 8
+    # The stored hash is now the NEW temp password's; a change is forced on next login.
+    after = await urepo.get(student.user_id)
+    assert after is not None
+    assert after.password_hash == f"hash:{prov.temp_password}" != before.password_hash
+    assert after.must_change_password is True
+    # Nothing was destroyed: the student still exists and ML delete was never called.
+    assert await strepo.get(_S1, student.id) is not None
+    assert ml.delete_calls == []
+
+
+async def test_resend_invite_is_tenant_scoped() -> None:
+    # A student_id from another school resolves to 404 — never a cross-tenant password reset.
+    svc, _, _, ml = _svc(
+        schools=[make_school(id=_S1, max_teachers=5), make_school(id="s2", max_teachers=5)]
+    )
+    student = await _create(
+        svc, school_id=_S1, name="Amy", email="amy@x.io", reference_photo_path=_PATH,
+    )
+    with pytest.raises(NotFoundError):
+        await svc.resend_invite(school_id="s2", student_id=student.id)
+    assert ml.delete_calls == []
+
+
 async def test_path_outside_tenant_prefix_rejected_before_any_write() -> None:
     svc, strepo, urepo, ml = _svc()
     with pytest.raises(ValidationError):

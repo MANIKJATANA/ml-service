@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useEffect, useState } from "react";
 import { mutate } from "swr";
 
 import { Button } from "@/components/ui/button";
@@ -18,6 +18,15 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    // BP18a: a mid-session expiry redirects here with ?reason=expired (auth-guard) — say what
+    // happened instead of a bare "Sign in". Read straight from the URL (no useSearchParams →
+    // no Suspense boundary needed); `toast` is stable (useCallback), so this fires once.
+    if (new URLSearchParams(window.location.search).get("reason") === "expired") {
+      toast("You were signed out. Please sign in again.", "info");
+    }
+  }, [toast]);
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -66,6 +75,9 @@ export default function LoginPage() {
         <Button type="submit" loading={submitting} className="mt-2 w-full">
           Sign in
         </Button>
+        <p className="text-center text-body-sm text-ink-secondary">
+          Forgot your password? Ask your school to send you a new one.
+        </p>
       </form>
     </Card>
   );

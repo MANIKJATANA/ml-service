@@ -177,6 +177,30 @@ def test_resend_invite_unknown_student_is_404() -> None:
     assert resp.status_code == 404, resp.text
 
 
+def test_me_carries_the_student_name_for_a_student() -> None:
+    # BP18b: /auth/me surfaces the student's display name (the shell shows it); staff/admin
+    # accounts have none.
+    client, token, _ = _admin_client()
+    created = client.post(
+        "/v1/students",
+        json={"name": "Amy Adams", "email": "amy@s1.io", "reference_photo_path": _PATH},
+        headers=_auth(token),
+    )
+    assert created.status_code == 201, created.text
+    student_pw = created.json()["temp_password"]
+    # The admin's own /me has no name.
+    admin_me = client.get("/v1/auth/me", headers=_auth(token))
+    assert admin_me.status_code == 200 and admin_me.json()["name"] is None
+    # The student signs in with their temp password; their /me carries the name.
+    login = client.post(
+        "/v1/auth/login", json={"email": "amy@s1.io", "password": student_pw}
+    )
+    assert login.status_code == 200, login.text
+    me = client.get("/v1/auth/me", headers=_auth(login.json()["access_token"]))
+    assert me.status_code == 200, me.text
+    assert me.json()["name"] == "Amy Adams" and me.json()["role"] == "student"
+
+
 def test_create_without_a_photo_is_pending() -> None:
     # BP7d: the reference photo is optional — a photoless student is created pending.
     client, token, container = _admin_client()

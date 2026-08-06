@@ -478,6 +478,15 @@ class FakeUserRepo:
             if u.school_id == school_id and u.role is role
         )
 
+    async def count_active_by_school_and_role(self, school_id: str, role: Role) -> int:
+        return sum(
+            1
+            for u in self._by_id.values()
+            if u.school_id == school_id
+            and u.role is role
+            and u.status is UserStatus.ACTIVE
+        )
+
     async def list_by_school_and_role(self, school_id: str, role: Role) -> list[User]:
         return [
             u

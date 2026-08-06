@@ -216,6 +216,70 @@ async def test_set_status_rejects_the_wrong_role() -> None:
         )
 
 
+# ---- last-admin guard (BP18b) ------------------------------------------
+
+
+async def test_cannot_disable_the_last_active_admin() -> None:
+    # BP18b: disabling a school's only active admin is refused — it would lock everyone out
+    # of managing the school. The row is left untouched.
+    admin = make_user(id="a1", school_id="s1", email="a@x.io", role=Role.SCHOOL_ADMIN)
+    svc, _, urepo = _svc(schools=[make_school(id="s1")], users=[admin])
+    with pytest.raises(ValidationError):
+        await svc.set_staff_status(
+            school_id="s1", user_id="a1", role=Role.SCHOOL_ADMIN, status=UserStatus.DISABLED
+        )
+    stored = await urepo.get("a1")
+    assert stored is not None and stored.status is UserStatus.ACTIVE  # unchanged
+
+
+async def test_can_disable_an_admin_when_another_active_one_remains() -> None:
+    a1 = make_user(id="a1", school_id="s1", email="a1@x.io", role=Role.SCHOOL_ADMIN)
+    a2 = make_user(id="a2", school_id="s1", email="a2@x.io", role=Role.SCHOOL_ADMIN)
+    svc, _, _ = _svc(schools=[make_school(id="s1")], users=[a1, a2])
+    result = await svc.set_staff_status(
+        school_id="s1", user_id="a1", role=Role.SCHOOL_ADMIN, status=UserStatus.DISABLED
+    )
+    assert result.status is UserStatus.DISABLED
+
+
+async def test_a_disabled_second_admin_does_not_count_as_active() -> None:
+    # Only ACTIVE admins keep the school manageable: with one active + one already-disabled
+    # admin, disabling the active one is still refused (it's the last ACTIVE one).
+    a1 = make_user(id="a1", school_id="s1", email="a1@x.io", role=Role.SCHOOL_ADMIN)
+    a2 = make_user(
+        id="a2", school_id="s1", email="a2@x.io", role=Role.SCHOOL_ADMIN,
+        status=UserStatus.DISABLED,
+    )
+    svc, _, _ = _svc(schools=[make_school(id="s1")], users=[a1, a2])
+    with pytest.raises(ValidationError):
+        await svc.set_staff_status(
+            school_id="s1", user_id="a1", role=Role.SCHOOL_ADMIN, status=UserStatus.DISABLED
+        )
+
+
+async def test_reenabling_the_sole_admin_is_never_blocked() -> None:
+    # The guard is one-directional — it only blocks disabling, never enabling.
+    admin = make_user(
+        id="a1", school_id="s1", email="a@x.io", role=Role.SCHOOL_ADMIN,
+        status=UserStatus.DISABLED,
+    )
+    svc, _, _ = _svc(schools=[make_school(id="s1")], users=[admin])
+    result = await svc.set_staff_status(
+        school_id="s1", user_id="a1", role=Role.SCHOOL_ADMIN, status=UserStatus.ACTIVE
+    )
+    assert result.status is UserStatus.ACTIVE
+
+
+async def test_last_teacher_disable_is_not_blocked() -> None:
+    # Only the admin path is guarded — a lone teacher going dark locks no one out.
+    teacher = make_user(id="t1", school_id="s1", email="t@x.io", role=Role.TEACHER)
+    svc, _, _ = _svc(schools=[make_school(id="s1")], users=[teacher])
+    result = await svc.set_staff_status(
+        school_id="s1", user_id="t1", role=Role.TEACHER, status=UserStatus.DISABLED
+    )
+    assert result.status is UserStatus.DISABLED
+
+
 # ---- resend-invite (BP7c) ----------------------------------------------
 
 

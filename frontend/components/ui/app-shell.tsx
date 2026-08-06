@@ -7,6 +7,7 @@ import {
   CalendarDays,
   GraduationCap,
   Images,
+  KeyRound,
   LayoutDashboard,
   LineChart,
   LogOut,
@@ -121,21 +122,32 @@ function NavList({
   );
 }
 
-/** Email + role + sign out; shared by the sidebar and the drawer. */
+/** Identity (name when present + email + role) + change-password + sign out; shared by the
+ *  sidebar and the drawer. The name shows only for students (BP18b — staff/platform have none). */
 function UserFooter({ user, onSignOut }: { user: UserResponse; onSignOut: () => void }) {
+  const actionClass =
+    "flex w-full items-center gap-3 rounded-button px-3 py-2 text-body font-medium text-ink-secondary transition-colors hover:bg-surface hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
   return (
     <div className="border-t border-hairline p-3">
       <div className="flex flex-col gap-0.5 px-2 pb-2">
-        <span className="truncate text-body-sm font-medium text-ink" title={user.email}>
+        {user.name ? (
+          <span className="truncate text-body-sm font-medium text-ink" title={user.name}>
+            {user.name}
+          </span>
+        ) : null}
+        <span
+          className={cn("truncate text-body-sm", user.name ? "text-ink-muted" : "font-medium text-ink")}
+          title={user.email}
+        >
           {user.email}
         </span>
         <span className="text-body-sm text-ink-muted">{ROLE_LABELS[user.role]}</span>
       </div>
-      <button
-        type="button"
-        onClick={onSignOut}
-        className="flex w-full items-center gap-3 rounded-button px-3 py-2 text-body font-medium text-ink-secondary transition-colors hover:bg-surface hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-      >
+      <Link href="/change-password" className={actionClass}>
+        <KeyRound className="size-4 shrink-0" aria-hidden="true" />
+        Change password
+      </Link>
+      <button type="button" onClick={onSignOut} className={actionClass}>
         <LogOut className="size-4 shrink-0" aria-hidden="true" />
         Sign out
       </button>

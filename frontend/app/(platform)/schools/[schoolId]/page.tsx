@@ -9,6 +9,7 @@ import { type Invite, InviteResultDialog } from "@/components/staff/invite-resul
 import { Breadcrumb } from "@/components/ui/breadcrumb";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Dialog, DialogClose, DialogContent, DialogTrigger } from "@/components/ui/dialog";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Field } from "@/components/ui/field";
@@ -115,7 +116,10 @@ function AddAdminDialog({
 }
 
 /** Per-row admin lifecycle actions (BP7c): re-issue a one-time temp password, or
- *  enable/disable the account. */
+ *  enable/disable the account. BP18b: resending an already-signed-in admin confirms first
+ *  (it replaces their password). Disabling a school's only ACTIVE admin is refused by the
+ *  backend and surfaced as an error toast — a11y-friendlier than a title-only disabled button,
+ *  and it also catches the "1 active + 1 disabled" case a client-side count would miss. */
 function AdminActions({
   schoolId,
   admin,
@@ -129,7 +133,11 @@ function AdminActions({
 }) {
   const { toast } = useToast();
   const [busy, setBusy] = useState<"status" | "resend" | null>(null);
+  const [confirmResend, setConfirmResend] = useState(false);
   const isDisabled = admin.status === "disabled";
+  // Resending nukes a working password — confirm only once they've set their own (signed in:
+  // active + no pending change). An awaiting-sign-in / disabled account resends freely.
+  const resendNeedsConfirm = admin.status === "active" && !admin.must_change_password;
 
   async function toggleStatus() {
     setBusy("status");
@@ -157,29 +165,47 @@ function AdminActions({
     }
   }
 
+  function onResendClick() {
+    if (resendNeedsConfirm) setConfirmResend(true);
+    else void resend();
+  }
+
   return (
-    <div className="flex justify-end gap-1">
-      <Button
-        variant="ghost"
-        size="sm"
-        onClick={resend}
-        loading={busy === "resend"}
-        disabled={busy !== null}
-        aria-label={`Resend invite for ${admin.email}`}
-      >
-        Resend invite
-      </Button>
-      <Button
-        variant="ghost"
-        size="sm"
-        onClick={toggleStatus}
-        loading={busy === "status"}
-        disabled={busy !== null}
-        aria-label={`${isDisabled ? "Enable" : "Disable"} ${admin.email}`}
-      >
-        {isDisabled ? "Enable" : "Disable"}
-      </Button>
-    </div>
+    <>
+      <div className="flex justify-end gap-1">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={onResendClick}
+          loading={busy === "resend"}
+          disabled={busy !== null}
+          aria-label={`Resend invite for ${admin.email}`}
+        >
+          Resend invite
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={toggleStatus}
+          loading={busy === "status"}
+          disabled={busy !== null}
+          aria-label={`${isDisabled ? "Enable" : "Disable"} ${admin.email}`}
+        >
+          {isDisabled ? "Enable" : "Disable"}
+        </Button>
+      </div>
+      <ConfirmDialog
+        open={confirmResend}
+        onOpenChange={setConfirmResend}
+        title="Send a new password?"
+        description="This replaces their current password — they'll have to sign in with the new one and set their own again."
+        confirmLabel="Send new password"
+        onConfirm={() => {
+          setConfirmResend(false);
+          void resend();
+        }}
+      />
+    </>
   );
 }
 

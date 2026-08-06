@@ -185,6 +185,22 @@ class PostgresUserRepository:
             )
             return result.scalar_one()
 
+    async def count_active_by_school_and_role(self, school_id: str, role: Role) -> int:
+        key = opt_uuid(school_id)
+        if key is None:
+            return 0  # malformed id -> no such tenant
+        async with self._sessionmaker() as session:
+            result = await session.execute(
+                select(func.count())
+                .select_from(UserRow)
+                .where(
+                    UserRow.school_id == key,
+                    UserRow.role == role.value,
+                    UserRow.status == UserStatus.ACTIVE.value,
+                )
+            )
+            return result.scalar_one()
+
     async def list_by_school_and_role(self, school_id: str, role: Role) -> list[User]:
         key = opt_uuid(school_id)
         if key is None:

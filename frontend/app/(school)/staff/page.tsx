@@ -8,6 +8,7 @@ import { RoleGate } from "@/components/role-gate";
 import { type Invite, InviteResultDialog } from "@/components/staff/invite-result-dialog";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Dialog, DialogClose, DialogContent, DialogTrigger } from "@/components/ui/dialog";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Field } from "@/components/ui/field";
@@ -118,7 +119,8 @@ function CreateTeacherDialog({ onInvited }: { onInvited: (invite: Invite) => voi
 }
 
 /** Per-row lifecycle actions (BP7c): re-issue a one-time temp password, or enable/disable
- *  the account (a disabled teacher can't sign in). */
+ *  the account (a disabled teacher can't sign in). BP18b: resending an already-signed-in
+ *  teacher confirms first — it replaces their working password. */
 function StaffActions({
   teacher,
   onInvited,
@@ -130,7 +132,11 @@ function StaffActions({
 }) {
   const { toast } = useToast();
   const [busy, setBusy] = useState<"status" | "resend" | null>(null);
+  const [confirmResend, setConfirmResend] = useState(false);
   const isDisabled = teacher.status === "disabled";
+  // Resending nukes a working password — confirm only once they've set their own (signed in:
+  // active + no pending change). An awaiting-sign-in / disabled account resends freely.
+  const resendNeedsConfirm = teacher.status === "active" && !teacher.must_change_password;
 
   async function toggleStatus() {
     setBusy("status");
@@ -158,29 +164,47 @@ function StaffActions({
     }
   }
 
+  function onResendClick() {
+    if (resendNeedsConfirm) setConfirmResend(true);
+    else void resend();
+  }
+
   return (
-    <div className="flex justify-end gap-1">
-      <Button
-        variant="ghost"
-        size="sm"
-        onClick={resend}
-        loading={busy === "resend"}
-        disabled={busy !== null}
-        aria-label={`Resend invite for ${teacher.email}`}
-      >
-        Resend invite
-      </Button>
-      <Button
-        variant="ghost"
-        size="sm"
-        onClick={toggleStatus}
-        loading={busy === "status"}
-        disabled={busy !== null}
-        aria-label={`${isDisabled ? "Enable" : "Disable"} ${teacher.email}`}
-      >
-        {isDisabled ? "Enable" : "Disable"}
-      </Button>
-    </div>
+    <>
+      <div className="flex justify-end gap-1">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={onResendClick}
+          loading={busy === "resend"}
+          disabled={busy !== null}
+          aria-label={`Resend invite for ${teacher.email}`}
+        >
+          Resend invite
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={toggleStatus}
+          loading={busy === "status"}
+          disabled={busy !== null}
+          aria-label={`${isDisabled ? "Enable" : "Disable"} ${teacher.email}`}
+        >
+          {isDisabled ? "Enable" : "Disable"}
+        </Button>
+      </div>
+      <ConfirmDialog
+        open={confirmResend}
+        onOpenChange={setConfirmResend}
+        title="Send a new password?"
+        description="This replaces their current password — they'll have to sign in with the new one and set their own again."
+        confirmLabel="Send new password"
+        onConfirm={() => {
+          setConfirmResend(false);
+          void resend();
+        }}
+      />
+    </>
   );
 }
 

@@ -4,6 +4,7 @@ import { Download, Upload } from "lucide-react";
 import { useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Dialog, DialogClose, DialogContent, DialogTrigger } from "@/components/ui/dialog";
 import { StatusPill } from "@/components/ui/status-pill";
 import {
@@ -52,6 +53,8 @@ export function BulkImportDialog({ onImported }: { onImported: () => void }) {
   const [rows, setRows] = useState<CsvStudentRow[]>([]);
   const [results, setResults] = useState<BulkStudentResult[]>([]);
   const [submitting, setSubmitting] = useState(false);
+  const [downloaded, setDownloaded] = useState(false);
+  const [confirmClose, setConfirmClose] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   function reset() {
@@ -59,12 +62,28 @@ export function BulkImportDialog({ onImported }: { onImported: () => void }) {
     setRows([]);
     setResults([]);
     setSubmitting(false);
+    setDownloaded(false);
+    setConfirmClose(false);
     if (inputRef.current) inputRef.current.value = "";
   }
 
+  function forceClose() {
+    setOpen(false);
+    reset();
+  }
+
   function handleOpenChange(next: boolean) {
+    // Guard the shown-once credentials: block a close on the results step if accounts were
+    // created and the passwords haven't been downloaded yet (BP18b).
+    if (!next) {
+      const created = results.filter((r) => r.status === "created").length;
+      if (phase === "results" && created > 0 && !downloaded) {
+        setConfirmClose(true); // keep the dialog open — confirm first
+        return;
+      }
+      reset();
+    }
     setOpen(next);
-    if (!next) reset();
   }
 
   async function onFile(file: File) {
@@ -118,131 +137,142 @@ export function BulkImportDialog({ onImported }: { onImported: () => void }) {
     link.download = "student-credentials.csv";
     link.click();
     URL.revokeObjectURL(url);
+    setDownloaded(true);
   }
 
   const createdCount = results.filter((r) => r.status === "created").length;
 
   return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogTrigger asChild>
-        <Button variant="secondary">
-          <Upload className="size-4" aria-hidden="true" />
-          Import CSV
-        </Button>
-      </DialogTrigger>
-      <DialogContent
-        title="Import students from CSV"
-        description="A CSV with name and email columns. Students are created without a photo (pending) — add each reference photo afterwards to enroll their face."
-      >
-        {phase === "pick" ? (
-          <div className="flex flex-col gap-4">
-            <p className="text-body-sm text-ink-secondary">
-              The first row may be a header (<code>name,email</code>); otherwise the first
-              column is the name and the second is the email.
-            </p>
-            <label
-              className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-button border border-dashed border-hairline-strong bg-surface px-4 py-10 text-center transition-colors hover:bg-surface-2 focus-within:outline-none focus-within:ring-2 focus-within:ring-ring"
-            >
-              <Upload className="size-6 text-ink-muted" aria-hidden="true" />
-              <span className="text-body-sm text-ink-secondary">
-                Choose a <span className="font-medium text-accent-hover">.csv</span> file
-              </span>
-              <input
-                ref={inputRef}
-                type="file"
-                accept=".csv,text/csv"
-                className="sr-only"
-                onChange={(e) => {
-                  const f = e.target.files?.[0];
-                  if (f) void onFile(f);
-                  // Clear so re-picking the SAME file after a rejected parse still fires.
-                  e.target.value = "";
-                }}
-              />
-            </label>
-          </div>
-        ) : phase === "preview" ? (
-          <div className="flex flex-col gap-4">
-            <p role="status" className="text-body-sm text-ink-secondary">
-              {rows.length} {rows.length === 1 ? "student" : "students"} ready to import.
-              Duplicate or invalid rows are skipped and reported.
-            </p>
-            <div className="max-h-64 overflow-y-auto rounded-card border border-hairline">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Name</TableHead>
-                    <TableHead>Email</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {rows.map((r, i) => (
-                    <TableRow key={i}>
-                      <TableCell>{r.name || "—"}</TableCell>
-                      <TableCell>{r.email || "—"}</TableCell>
+    <>
+      <Dialog open={open} onOpenChange={handleOpenChange}>
+        <DialogTrigger asChild>
+          <Button variant="secondary">
+            <Upload className="size-4" aria-hidden="true" />
+            Import CSV
+          </Button>
+        </DialogTrigger>
+        <DialogContent
+          title="Import students from CSV"
+          description="A CSV with name and email columns. Students are created without a photo (pending) — add each reference photo afterwards to enroll their face."
+        >
+          {phase === "pick" ? (
+            <div className="flex flex-col gap-4">
+              <p className="text-body-sm text-ink-secondary">
+                The first row may be a header (<code>name,email</code>); otherwise the first
+                column is the name and the second is the email.
+              </p>
+              <label
+                className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-button border border-dashed border-hairline-strong bg-surface px-4 py-10 text-center transition-colors hover:bg-surface-2 focus-within:outline-none focus-within:ring-2 focus-within:ring-ring"
+              >
+                <Upload className="size-6 text-ink-muted" aria-hidden="true" />
+                <span className="text-body-sm text-ink-secondary">
+                  Choose a <span className="font-medium text-accent-hover">.csv</span> file
+                </span>
+                <input
+                  ref={inputRef}
+                  type="file"
+                  accept=".csv,text/csv"
+                  className="sr-only"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) void onFile(f);
+                    // Clear so re-picking the SAME file after a rejected parse still fires.
+                    e.target.value = "";
+                  }}
+                />
+              </label>
+            </div>
+          ) : phase === "preview" ? (
+            <div className="flex flex-col gap-4">
+              <p role="status" className="text-body-sm text-ink-secondary">
+                {rows.length} {rows.length === 1 ? "student" : "students"} ready to import.
+                Duplicate or invalid rows are skipped and reported.
+              </p>
+              <div className="max-h-64 overflow-y-auto rounded-card border border-hairline">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Name</TableHead>
+                      <TableHead>Email</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                  </TableHeader>
+                  <TableBody>
+                    {rows.map((r, i) => (
+                      <TableRow key={i}>
+                        <TableCell>{r.name || "—"}</TableCell>
+                        <TableCell>{r.email || "—"}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+              <div className="mt-1 flex justify-end gap-2">
+                <Button type="button" variant="secondary" onClick={reset} disabled={submitting}>
+                  Choose another file
+                </Button>
+                <Button type="button" onClick={submit} loading={submitting}>
+                  Import {rows.length} {rows.length === 1 ? "student" : "students"}
+                </Button>
+              </div>
             </div>
-            <div className="mt-1 flex justify-end gap-2">
-              <Button type="button" variant="secondary" onClick={reset} disabled={submitting}>
-                Choose another file
-              </Button>
-              <Button type="button" onClick={submit} loading={submitting}>
-                Import {rows.length} {rows.length === 1 ? "student" : "students"}
-              </Button>
-            </div>
-          </div>
-        ) : (
-          <div className="flex flex-col gap-4">
-            <p role="status" className="text-body-sm text-ink-secondary">
-              {createdCount} created
-              {results.length - createdCount > 0
-                ? `, ${results.length - createdCount} skipped`
-                : ""}
-              . Download the temporary passwords now — they won&apos;t be shown again. Add
-              each student&apos;s photo afterwards to enroll their face.
-            </p>
-            <div className="max-h-64 overflow-y-auto rounded-card border border-hairline">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Email</TableHead>
-                    <TableHead>Result</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {results.map((r, i) => (
-                    <TableRow key={i}>
-                      <TableCell>{r.email || "—"}</TableCell>
-                      <TableCell>
-                        <StatusPill tone={RESULT_TONE[r.status]}>
-                          {RESULT_LABEL[r.status]}
-                        </StatusPill>
-                      </TableCell>
+          ) : (
+            <div className="flex flex-col gap-4">
+              <p role="status" className="text-body-sm text-ink-secondary">
+                {createdCount} created
+                {results.length - createdCount > 0
+                  ? `, ${results.length - createdCount} skipped`
+                  : ""}
+                . Download the temporary passwords now — they won&apos;t be shown again. Add
+                each student&apos;s photo afterwards to enroll their face.
+              </p>
+              <div className="max-h-64 overflow-y-auto rounded-card border border-hairline">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Email</TableHead>
+                      <TableHead>Result</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                  </TableHeader>
+                  <TableBody>
+                    {results.map((r, i) => (
+                      <TableRow key={i}>
+                        <TableCell>{r.email || "—"}</TableCell>
+                        <TableCell>
+                          <StatusPill tone={RESULT_TONE[r.status]}>
+                            {RESULT_LABEL[r.status]}
+                          </StatusPill>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+              {/* Download is the emphasized action — the temp passwords are shown once. */}
+              <div className="mt-1 flex justify-end gap-2">
+                <DialogClose asChild>
+                  <Button type="button" variant="secondary">
+                    Done
+                  </Button>
+                </DialogClose>
+                {createdCount > 0 ? (
+                  <Button type="button" onClick={downloadCredentials}>
+                    <Download className="size-4" aria-hidden="true" />
+                    Download credentials
+                  </Button>
+                ) : null}
+              </div>
             </div>
-            {/* Download is the emphasized action — the temp passwords are shown once. */}
-            <div className="mt-1 flex justify-end gap-2">
-              <DialogClose asChild>
-                <Button type="button" variant="secondary">
-                  Done
-                </Button>
-              </DialogClose>
-              {createdCount > 0 ? (
-                <Button type="button" onClick={downloadCredentials}>
-                  <Download className="size-4" aria-hidden="true" />
-                  Download credentials
-                </Button>
-              ) : null}
-            </div>
-          </div>
-        )}
-      </DialogContent>
-    </Dialog>
+          )}
+        </DialogContent>
+      </Dialog>
+      <ConfirmDialog
+        open={confirmClose}
+        onOpenChange={setConfirmClose}
+        title="Close without downloading?"
+        description="You haven't downloaded the temporary passwords. They won't be shown again — you'd have to send each student a new one individually."
+        confirmLabel="Close anyway"
+        onConfirm={forceClose}
+      />
+    </>
   );
 }

@@ -148,6 +148,19 @@ class OnboardingService:
         )
         if user.status is status:  # idempotent no-op — return current state
             return user
+        # BP18b: refuse to disable a school's last ACTIVE admin — that would lock everyone
+        # out of managing the school. Only the admin-disable path (a teacher going dark locks
+        # no one out); defense-in-depth (the FE also blocks the obvious single-admin case).
+        if (
+            role is Role.SCHOOL_ADMIN
+            and status is UserStatus.DISABLED
+            and user.status is UserStatus.ACTIVE
+            and await self._users.count_active_by_school_and_role(
+                school_id, Role.SCHOOL_ADMIN
+            )
+            <= 1
+        ):
+            raise ValidationError("can't disable the school's only active administrator")
         await self._users.set_status(user_id, status=status)
         refreshed = await self._users.get(user_id)
         # The row was just updated; a read-miss is anomalous — reflect the new status.

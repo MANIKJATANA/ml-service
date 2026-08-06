@@ -17,6 +17,7 @@ from backend.api.schemas.auth import (
     TokenResponse,
 )
 from backend.api.schemas.users import UserResponse
+from backend.domain.models import Role
 
 router = APIRouter(prefix="/v1/auth", tags=["auth"])
 
@@ -52,5 +53,13 @@ async def change_password(
 
 
 @router.get("/me", response_model=UserResponse)
-async def me(user: CurrentUser) -> UserResponse:
-    return UserResponse.from_user(user)
+async def me(user: CurrentUser, container: ContainerDep) -> UserResponse:
+    # BP18b: surface the student's display name on /me (the shell shows it). The name lives on
+    # the students profile, not the users row, so resolve it for a student; staff/platform have
+    # no name (null), and a student with no profile row (orphan login) also yields null — never
+    # a 500. Tenant-safe: the lookup is scoped to the user's own school + user_id.
+    name: str | None = None
+    if user.role is Role.STUDENT and user.school_id is not None:
+        student = await container.student_repo().get_by_user_id(user.school_id, user.id)
+        name = student.name if student is not None else None
+    return UserResponse.from_user(user, name=name)

@@ -20,6 +20,7 @@ export interface UserResponse {
   status: UserStatus;
   must_change_password: boolean;
   created_at: string; // BP2: staff "added" date + admin roster
+  name: string | null; // BP18b: the student's display name on /me; null for staff/platform
 }
 
 /** A provisioned/re-invited staff or admin account + its ONE-TIME temp password (BP7c).

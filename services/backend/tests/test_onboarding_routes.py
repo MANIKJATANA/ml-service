@@ -250,6 +250,9 @@ def test_platform_admin_disables_and_reinvites_a_school_admin() -> None:
         users=[
             _user(id="adm", role=Role.PLATFORM_ADMIN, school_id=None),
             _user(id="sa", role=Role.SCHOOL_ADMIN, school_id="s1"),
+            # BP18b: a second active admin so disabling `sa` isn't blocked by the new
+            # last-active-admin guard (which has its own dedicated tests).
+            _user(id="sa2", role=Role.SCHOOL_ADMIN, school_id="s1"),
         ],
         schools=[make_school(id="s1", max_teachers=5)],
     )
@@ -266,3 +269,20 @@ def test_platform_admin_disables_and_reinvites_a_school_admin() -> None:
     assert client.patch(
         "/v1/schools/s2/admins/sa", json={"status": "disabled"}, headers=_auth(token)
     ).status_code == 404
+
+
+def test_cannot_disable_a_schools_only_admin_over_http() -> None:
+    # BP18b: the last-active-admin guard surfaces as a 400 through the platform router — a
+    # school can't be left with no one who can manage it.
+    client = _build(
+        users=[
+            _user(id="adm", role=Role.PLATFORM_ADMIN, school_id=None),
+            _user(id="sa", role=Role.SCHOOL_ADMIN, school_id="s1"),
+        ],
+        schools=[make_school(id="s1", max_teachers=5)],
+    )
+    token = _token(client, "adm")
+    resp = client.patch(
+        "/v1/schools/s1/admins/sa", json={"status": "disabled"}, headers=_auth(token)
+    )
+    assert resp.status_code == 400, resp.text

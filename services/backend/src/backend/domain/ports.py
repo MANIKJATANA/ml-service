@@ -95,6 +95,12 @@ class UserRepository(Protocol):
         called on token refresh (not an interactive sign-in)."""
         ...
     async def count_by_school_and_role(self, school_id: str, role: Role) -> int: ...
+    async def count_active_by_school_and_role(
+        self, school_id: str, role: Role
+    ) -> int:
+        """Count only ``active`` users of a role in a school (BP18b last-admin guard) —
+        distinct from ``count_by_school_and_role``, which counts regardless of status."""
+        ...
     async def count_signed_in_by_school_and_role(
         self, school_id: str, role: Role
     ) -> int:

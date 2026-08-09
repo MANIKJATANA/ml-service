@@ -1,6 +1,6 @@
 "use client";
 
-import { UserPlus } from "lucide-react";
+import { Ban, Pencil, Play, UserPlus } from "lucide-react";
 import { useParams } from "next/navigation";
 import { type FormEvent, useState } from "react";
 import { useSWRConfig } from "swr";
@@ -25,9 +25,10 @@ import {
   createSchoolAdmin,
   resendSchoolAdminInvite,
   setSchoolAdminStatus,
+  updateSchool,
 } from "@/lib/api/endpoints";
 import { isApiError } from "@/lib/api/errors";
-import type { UserResponse } from "@/lib/api/types";
+import type { SchoolStatus, SchoolWithRollup, UserResponse } from "@/lib/api/types";
 import { useSchool, useSchoolAdmins } from "@/lib/hooks/use-schools";
 import { formatDate } from "@/lib/utils";
 
@@ -112,6 +113,155 @@ function AddAdminDialog({
         </form>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** Rename a school or change its teacher cap (BP18c). Prefilled from the current school;
+ *  re-prefills on open (the record may have changed since mount). */
+function EditSchoolDialog({
+  school,
+  onSaved,
+}: {
+  school: SchoolWithRollup;
+  onSaved: () => void;
+}) {
+  const { toast } = useToast();
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState(school.name);
+  const [maxTeachers, setMaxTeachers] = useState(String(school.max_teachers));
+  const [submitting, setSubmitting] = useState(false);
+
+  function handleOpenChange(next: boolean) {
+    setOpen(next);
+    if (next) {
+      setName(school.name);
+      setMaxTeachers(String(school.max_teachers));
+    }
+  }
+
+  async function onSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const count = Number.parseInt(maxTeachers, 10);
+    if (!Number.isInteger(count) || count < 1 || count > 100000) {
+      toast("Max teachers must be a whole number from 1 to 100,000.", "error");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await updateSchool(school.id, { name: name.trim(), max_teachers: count });
+      toast("School updated.", "success");
+      onSaved();
+      setOpen(false);
+    } catch (err) {
+      toast(isApiError(err) ? err.message : "Something went wrong", "error");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <DialogTrigger asChild>
+        <Button variant="secondary">
+          <Pencil className="size-4" aria-hidden="true" />
+          Edit school
+        </Button>
+      </DialogTrigger>
+      <DialogContent title="Edit school" description="Rename the school or change its teacher limit.">
+        <form onSubmit={onSubmit} className="flex flex-col gap-4">
+          <Field label="Name" htmlFor="edit-school-name">
+            <Input
+              id="edit-school-name"
+              required
+              autoFocus
+              maxLength={200}
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+            />
+          </Field>
+          <Field label="Max teachers" htmlFor="edit-max-teachers" hint="Between 1 and 100,000.">
+            <Input
+              id="edit-max-teachers"
+              type="number"
+              inputMode="numeric"
+              min={1}
+              max={100000}
+              step={1}
+              required
+              value={maxTeachers}
+              onChange={(e) => setMaxTeachers(e.target.value)}
+            />
+          </Field>
+          <div className="mt-2 flex justify-end gap-2">
+            <DialogClose asChild>
+              <Button type="button" variant="secondary">
+                Cancel
+              </Button>
+            </DialogClose>
+            <Button type="submit" loading={submitting}>
+              Save changes
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** Suspend or reactivate a school (BP18c). Suspending blocks new student/teacher provisioning
+ *  downstream, so it confirms first; reactivating is safe and immediate. */
+function SchoolLifecycleButton({
+  school,
+  onChanged,
+}: {
+  school: SchoolWithRollup;
+  onChanged: () => void;
+}) {
+  const { toast } = useToast();
+  const [busy, setBusy] = useState(false);
+  const [confirmSuspend, setConfirmSuspend] = useState(false);
+  const isSuspended = school.status === "suspended";
+
+  async function setStatus(status: SchoolStatus) {
+    setBusy(true);
+    try {
+      await updateSchool(school.id, { status });
+      toast(status === "suspended" ? "School suspended." : "School reactivated.", "success");
+      onChanged();
+    } catch (err) {
+      toast(isApiError(err) ? err.message : "Something went wrong", "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (isSuspended) {
+    return (
+      <Button variant="secondary" onClick={() => void setStatus("active")} loading={busy}>
+        <Play className="size-4" aria-hidden="true" />
+        Reactivate
+      </Button>
+    );
+  }
+  return (
+    <>
+      <Button variant="secondary" onClick={() => setConfirmSuspend(true)} loading={busy}>
+        <Ban className="size-4" aria-hidden="true" />
+        Suspend
+      </Button>
+      <ConfirmDialog
+        open={confirmSuspend}
+        onOpenChange={setConfirmSuspend}
+        title="Suspend this school?"
+        description="While suspended, staff can't add students or teachers. You can reactivate it anytime."
+        confirmLabel="Suspend school"
+        destructive
+        onConfirm={() => {
+          setConfirmSuspend(false);
+          void setStatus("suspended");
+        }}
+      />
+    </>
   );
 }
 
@@ -336,19 +486,23 @@ export default function SchoolDetailPage() {
           <PageHeader
             title={school.name}
             actions={
-              <AddAdminDialog
-                schoolId={school.id}
-                onAdded={() =>
-                  // The roster is now paginated (keys carry a query + page suffix), so
-                  // revalidate every page of it with a key-prefix matcher (BP9).
-                  mutateKey(
-                    (key) =>
-                      typeof key === "string" &&
-                      key.startsWith(`schools/${school.id}/admins`),
-                  )
-                }
-                onInvited={setInvite}
-              />
+              <div className="flex flex-wrap gap-2">
+                <EditSchoolDialog school={school} onSaved={() => void mutate()} />
+                <SchoolLifecycleButton school={school} onChanged={() => void mutate()} />
+                <AddAdminDialog
+                  schoolId={school.id}
+                  onAdded={() =>
+                    // The roster is now paginated (keys carry a query + page suffix), so
+                    // revalidate every page of it with a key-prefix matcher (BP9).
+                    mutateKey(
+                      (key) =>
+                        typeof key === "string" &&
+                        key.startsWith(`schools/${school.id}/admins`),
+                    )
+                  }
+                  onInvited={setInvite}
+                />
+              </div>
             }
           />
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -367,7 +521,7 @@ export default function SchoolDetailPage() {
                 <dt className="text-body-sm text-ink-muted">Status</dt>
                 <dd>
                   <StatusPill tone={school.status === "active" ? "success" : "warning"}>
-                    {school.status}
+                    {school.status === "active" ? "Active" : "Suspended"}
                   </StatusPill>
                 </dd>
               </div>

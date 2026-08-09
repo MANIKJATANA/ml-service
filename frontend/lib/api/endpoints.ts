@@ -32,6 +32,7 @@ import type {
   SchoolAnalyticsResponse,
   SchoolListPageResponse,
   SchoolResponse,
+  SchoolStatus,
   SchoolWithRollup,
   SortDir,
   StudentInEventResponse,
@@ -138,6 +139,18 @@ export function createSchool(name: string, maxTeachers: number): Promise<SchoolR
   return bffFetch<SchoolResponse>("/api/v1/schools", {
     method: "POST",
     body: JSON.stringify({ name, max_teachers: maxTeachers }),
+  });
+}
+
+/** Edit a school's mutable fields (BP18c) — rename / teacher cap / suspend-reactivate.
+ *  Only the provided fields change; an unknown school → 404. */
+export function updateSchool(
+  schoolId: string,
+  patch: { name?: string; max_teachers?: number; status?: SchoolStatus },
+): Promise<SchoolResponse> {
+  return bffFetch<SchoolResponse>(`/api/v1/schools/${encodeURIComponent(schoolId)}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
   });
 }
 

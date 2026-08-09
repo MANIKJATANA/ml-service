@@ -24,6 +24,7 @@ from backend.api.schemas.schools import (
     SchoolListPageResponse,
     SchoolResponse,
     SchoolWithRollupResponse,
+    UpdateSchoolRequest,
 )
 from backend.api.schemas.users import (
     CreateUserRequest,
@@ -75,6 +76,21 @@ async def get_school(
 ) -> SchoolWithRollupResponse:
     listing = await container.listing_service().get_school(school_id=school_id)
     return SchoolWithRollupResponse.from_listing(listing)
+
+
+@router.patch("/{school_id}", response_model=SchoolResponse)
+async def update_school(
+    school_id: str, body: UpdateSchoolRequest, container: ContainerDep
+) -> SchoolResponse:
+    """Rename a school, change its teacher cap, or suspend/reactivate it (BP18c). Only the
+    provided fields change; an unknown school -> 404. Platform-only (the router gate)."""
+    school = await container.onboarding_service().update_school(
+        school_id=school_id,
+        name=body.name,
+        max_teachers=body.max_teachers,
+        status=body.status,
+    )
+    return SchoolResponse.from_school(school)
 
 
 @router.get("/{school_id}/admins", response_model=UserListPageResponse)

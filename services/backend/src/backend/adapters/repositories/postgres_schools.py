@@ -115,3 +115,29 @@ class PostgresSchoolRepository:
                 select(SchoolRow).where(SchoolRow.id.in_(ids))
             )
             return [_to_school(r) for r in result.scalars().all()]
+
+    async def update(
+        self,
+        school_id: str,
+        *,
+        name: str | None = None,
+        max_teachers: int | None = None,
+        status: SchoolStatus | None = None,
+    ) -> School | None:
+        key = opt_uuid(school_id)
+        if key is None:
+            return None
+        async with self._sessionmaker() as session, session.begin():
+            row = await session.get(SchoolRow, key)
+            if row is None:
+                return None
+            # Only the provided fields change; `updated_at`'s onupdate trips on any write.
+            if name is not None:
+                row.name = name
+            if max_teachers is not None:
+                row.max_teachers = max_teachers
+            if status is not None:
+                row.status = status.value
+            await session.flush()
+            await session.refresh(row)
+            return _to_school(row)

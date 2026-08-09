@@ -37,6 +37,7 @@ from backend.domain.models import (
     Role,
     School,
     SchoolSort,
+    SchoolStatus,
     SignedUpload,
     Student,
     StudentAppearanceCounts,
@@ -71,6 +72,17 @@ class SchoolRepository(Protocol):
     async def list_by_ids(self, school_ids: Sequence[str]) -> list[School]:
         """Bulk-load schools by id (BP9 count-sort page hydration). Platform-wide (no
         tenant); malformed ids are dropped. Order not guaranteed."""
+        ...
+    async def update(
+        self,
+        school_id: str,
+        *,
+        name: str | None = None,
+        max_teachers: int | None = None,
+        status: SchoolStatus | None = None,
+    ) -> School | None:
+        """Update a school's mutable fields (BP18c) — only the provided (non-None) fields
+        change. Returns the updated School, or None if no such school."""
         ...
 
 

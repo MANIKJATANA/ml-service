@@ -286,3 +286,58 @@ def test_cannot_disable_a_schools_only_admin_over_http() -> None:
         "/v1/schools/s1/admins/sa", json={"status": "disabled"}, headers=_auth(token)
     )
     assert resp.status_code == 400, resp.text
+
+
+def test_platform_admin_edits_and_suspends_a_school() -> None:
+    # BP18c: rename + cap change, then suspend + reactivate over HTTP; a partial patch
+    # leaves the other fields untouched.
+    client = _build(
+        users=[_user(id="adm", role=Role.PLATFORM_ADMIN, school_id=None)],
+        schools=[make_school(id="s1", name="Old", max_teachers=5)],
+    )
+    token = _token(client, "adm")
+    edited = client.patch(
+        "/v1/schools/s1", json={"name": "New Name", "max_teachers": 12}, headers=_auth(token)
+    )
+    assert edited.status_code == 200, edited.text
+    assert edited.json()["name"] == "New Name" and edited.json()["max_teachers"] == 12
+    suspended = client.patch(
+        "/v1/schools/s1", json={"status": "suspended"}, headers=_auth(token)
+    )
+    assert suspended.status_code == 200 and suspended.json()["status"] == "suspended"
+    assert suspended.json()["name"] == "New Name"  # partial patch kept the rename
+    reactivated = client.patch(
+        "/v1/schools/s1", json={"status": "active"}, headers=_auth(token)
+    )
+    assert reactivated.status_code == 200 and reactivated.json()["status"] == "active"
+
+
+def test_update_unknown_school_is_404() -> None:
+    client = _build(
+        users=[_user(id="adm", role=Role.PLATFORM_ADMIN, school_id=None)],
+        schools=[make_school(id="s1")],
+    )
+    token = _token(client, "adm")
+    resp = client.patch("/v1/schools/s2", json={"name": "X"}, headers=_auth(token))
+    assert resp.status_code == 404, resp.text
+
+
+def test_update_school_bad_input_is_422() -> None:
+    # The schema rejects a garbage status / an out-of-range cap BEFORE the service runs.
+    client = _build(
+        users=[_user(id="adm", role=Role.PLATFORM_ADMIN, school_id=None)],
+        schools=[make_school(id="s1")],
+    )
+    token = _token(client, "adm")
+    assert (
+        client.patch(
+            "/v1/schools/s1", json={"status": "deleted"}, headers=_auth(token)
+        ).status_code
+        == 422
+    )
+    assert (
+        client.patch(
+            "/v1/schools/s1", json={"max_teachers": 0}, headers=_auth(token)
+        ).status_code
+        == 422
+    )

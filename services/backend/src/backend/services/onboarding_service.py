@@ -74,6 +74,35 @@ class OnboardingService:
         await self._categories.seed_defaults(school.id, DEFAULT_EVENT_CATEGORIES)
         return school
 
+    async def update_school(
+        self,
+        *,
+        school_id: str,
+        name: str | None = None,
+        max_teachers: int | None = None,
+        status: SchoolStatus | None = None,
+    ) -> School:
+        """Rename a school, change its teacher cap, or suspend/reactivate it (BP18c) — the
+        platform operator's lifecycle for the write-once record. Only the provided fields
+        change; an unknown school -> 404. Name + max_teachers reuse ``create_school``'s
+        validation. Lowering ``max_teachers`` below the current teacher count is allowed — it
+        blocks *new* teacher creates (the cap is only checked at create time) but never removes
+        anyone. Suspending is intentional and reversible (it blocks new teacher/student
+        provisioning downstream), so — unlike disabling the last admin — it needs no guard."""
+        clean_name: str | None = None
+        if name is not None:
+            clean_name = name.strip()
+            if not clean_name or len(clean_name) > _MAX_NAME_LEN:
+                raise ValidationError("school name must be 1-200 characters")
+        if max_teachers is not None and max_teachers < 1:
+            raise ValidationError("max_teachers must be >= 1")
+        updated = await self._schools.update(
+            school_id, name=clean_name, max_teachers=max_teachers, status=status
+        )
+        if updated is None:
+            raise NotFoundError(f"school not found: {school_id}")
+        return updated
+
     async def list_schools(self) -> list[School]:
         return await self._schools.list_all()
 

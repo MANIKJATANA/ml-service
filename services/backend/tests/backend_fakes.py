@@ -587,6 +587,28 @@ class FakeSchoolRepo:
     async def get(self, school_id: str) -> School | None:
         return self._by_id.get(school_id)
 
+    async def update(
+        self,
+        school_id: str,
+        *,
+        name: str | None = None,
+        max_teachers: int | None = None,
+        status: SchoolStatus | None = None,
+    ) -> School | None:
+        school = self._by_id.get(school_id)
+        if school is None:
+            return None
+        changes: dict[str, object] = {}
+        if name is not None:
+            changes["name"] = name
+        if max_teachers is not None:
+            changes["max_teachers"] = max_teachers
+        if status is not None:
+            changes["status"] = status
+        updated = replace(school, **changes)  # type: ignore[arg-type]
+        self._by_id[school_id] = updated
+        return updated
+
     async def list_all(self) -> list[School]:
         return list(self._by_id.values())
 

@@ -61,6 +61,45 @@ async def test_list_schools() -> None:
     assert len(await svc.list_schools()) == 2
 
 
+# ---- update-school (BP18c) ---------------------------------------------
+
+
+async def test_update_school_renames_and_changes_cap() -> None:
+    svc, srepo, _ = _svc(schools=[make_school(id="s1", name="Old", max_teachers=5)])
+    updated = await svc.update_school(school_id="s1", name="  New Name ", max_teachers=20)
+    assert updated.name == "New Name" and updated.max_teachers == 20  # trimmed
+    stored = await srepo.get("s1")
+    assert stored is not None and stored.name == "New Name" and stored.max_teachers == 20
+
+
+async def test_update_school_suspends_and_reactivates() -> None:
+    svc, _, _ = _svc(schools=[make_school(id="s1")])
+    suspended = await svc.update_school(school_id="s1", status=SchoolStatus.SUSPENDED)
+    assert suspended.status is SchoolStatus.SUSPENDED
+    active = await svc.update_school(school_id="s1", status=SchoolStatus.ACTIVE)
+    assert active.status is SchoolStatus.ACTIVE
+
+
+async def test_update_school_partial_leaves_other_fields() -> None:
+    svc, _, _ = _svc(schools=[make_school(id="s1", name="Keep", max_teachers=7)])
+    updated = await svc.update_school(school_id="s1", status=SchoolStatus.SUSPENDED)
+    assert updated.name == "Keep" and updated.max_teachers == 7  # only status changed
+
+
+async def test_update_school_missing_is_404() -> None:
+    svc, _, _ = _svc(schools=[])
+    with pytest.raises(NotFoundError):
+        await svc.update_school(school_id="nope", name="X")
+
+
+async def test_update_school_rejects_bad_input() -> None:
+    svc, _, _ = _svc(schools=[make_school(id="s1")])
+    with pytest.raises(ValidationError):
+        await svc.update_school(school_id="s1", name="   ")  # empty after strip
+    with pytest.raises(ValidationError):
+        await svc.update_school(school_id="s1", max_teachers=0)
+
+
 async def test_create_school_admin_provisions_temp_password_account() -> None:
     svc, _, _ = _svc(schools=[make_school(id="s1", max_teachers=1)])
     prov = await svc.create_school_admin(school_id="s1", email="Admin@X.io")

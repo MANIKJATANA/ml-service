@@ -16,6 +16,14 @@ class CreateSchoolRequest(BaseModel):
     max_teachers: int = Field(ge=1, le=100_000)
 
 
+class UpdateSchoolRequest(BaseModel):
+    """Edit a school's mutable fields (BP18c) — all optional; an omitted field is unchanged."""
+
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    max_teachers: int | None = Field(default=None, ge=1, le=100_000)
+    status: SchoolStatus | None = None
+
+
 class SchoolResponse(BaseModel):
     id: str
     name: str

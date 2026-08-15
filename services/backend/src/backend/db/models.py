@@ -363,7 +363,7 @@ class Event(Base):
         ),
         CheckConstraint(
             "processing_status IN "
-            "('not_started', 'queued', 'processing', 'completed')",
+            "('not_started', 'queued', 'processing', 'completed', 'failed')",
             name="ck_events_processing_status",
         ),
     )

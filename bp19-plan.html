@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BP19 — Pipeline resilience & stall visibility</title>
+<style>
+  :root{
+    --ink:#0d1729; --ink-2:#5a6578; --ink-3:#7b8494;
+    --canvas:#f8f9fa; --surface:#fff; --hairline:#e3e8ef;
+    --accent:#4f46e5; --accent-soft:#eef2ff;
+    --crit:#dc2626; --crit-soft:#fef2f2;
+    --high:#b45309; --high-soft:#fffbeb;
+    --med:#0369a1; --med-soft:#f0f9ff;
+    --ok:#15803d; --ok-soft:#f0fdf4;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:ui-sans-serif,system-ui,"Segoe UI",Roboto,sans-serif;background:var(--canvas);color:var(--ink);line-height:1.55;padding:48px 20px}
+  .wrap{max-width:880px;margin:0 auto}
+  h1{font-size:29px;letter-spacing:-.02em;margin-bottom:6px}
+  h2{font-size:18px;letter-spacing:-.01em;margin:42px 0 13px}
+  .sub{color:var(--ink-2);font-size:14.5px;margin-bottom:8px}
+  .meta{font-size:12.5px;color:var(--ink-3);margin-bottom:30px}
+  .meta code{background:var(--surface);border:1px solid var(--hairline);border-radius:4px;padding:1px 5px;font-size:11.5px}
+  .card{background:var(--surface);border:1px solid var(--hairline);border-radius:12px;padding:18px 20px;margin-bottom:14px}
+  .chip{display:inline-block;font-size:11px;font-weight:600;padding:2px 9px;border-radius:999px;white-space:nowrap}
+  .chip.crit{background:var(--crit-soft);color:var(--crit)}
+  .chip.ok{background:var(--ok-soft);color:var(--ok)}
+  .chip.acc{background:var(--accent-soft);color:var(--accent)}
+  .problem{background:var(--crit-soft);border:1px solid #f3d0d0;border-radius:12px;padding:16px 20px;margin-bottom:14px;font-size:14px;line-height:1.6}
+  .problem b{color:var(--crit)}
+  .problem .chain{margin-top:8px;font-size:13px;color:var(--ink-2)}
+  .problem .chain b{color:var(--ink)}
+  .ord{background:var(--accent-soft);border:1px solid #dfe3ff;border-radius:10px;padding:13px 16px;margin-bottom:14px;font-size:13px;color:var(--ink);line-height:1.55}
+  .ord b{color:var(--accent)}
+  .ord .seq{font-variant-numeric:tabular-nums;font-weight:600;color:var(--accent)}
+  .slice{background:var(--surface);border:1px solid var(--hairline);border-radius:11px;padding:14px 18px;margin-bottom:11px}
+  .slice .top{display:flex;align-items:baseline;gap:9px;flex-wrap:wrap;margin-bottom:6px}
+  .slice .bp{font-weight:700;font-size:15px;letter-spacing:-.01em}
+  .slice .nm{font-size:14px;color:var(--ink)}
+  .slice .tags{margin-left:auto;display:flex;gap:5px;align-items:center;flex-wrap:wrap}
+  .slice .tag{font-size:10.5px;color:var(--ink-2);background:var(--canvas);border:1px solid var(--hairline);border-radius:5px;padding:1px 7px;white-space:nowrap}
+  .slice .tag.mig{color:var(--high);background:var(--high-soft);border-color:#f3e2c0}
+  .slice .tag.nomig{color:var(--ok);background:var(--ok-soft);border-color:#c6ecd2}
+  .exp{margin:7px 0 1px}
+  .exp > div{font-size:13.5px;line-height:1.55;color:var(--ink);margin-bottom:4px}
+  .exp .k{font-weight:700;font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;margin-right:7px}
+  .exp .now .k{color:var(--crit)}
+  .exp .aft .k{color:var(--ok)}
+  .how{font-size:11.5px;color:var(--ink-3);margin-top:7px;line-height:1.55}
+  .how b{color:var(--ink-2);font-weight:600}
+  ol.steps{margin:0 0 0 20px;font-size:13.5px;line-height:1.7}
+  ol.steps b{color:var(--ink)}
+  .verify{font-size:13.5px;line-height:1.6;color:var(--ink-2)}
+  .verify b{color:var(--ink)}
+  .foot{margin-top:38px;padding-top:16px;border-top:1px solid var(--hairline);font-size:13px;color:var(--ink-2)}
+  .foot code{background:var(--surface);border:1px solid var(--hairline);border-radius:4px;padding:1px 5px;font-size:11.5px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>BP19 — Pipeline resilience &amp; stall visibility</h1>
+  <p class="sub">The second build off the Round-3 roadmap. It fixes <b>Critical #2</b> — an event that can silently get stuck forever — and the "we can't see it going wrong" gaps around it.</p>
+  <p class="meta">Plan: <code>C:\Users\…\plans\…jolly-peach.md</code> (approved) · findings: <code>product/06</code> theme K · roadmap: <code>product/07</code> BP19 · this is the explainer to verify <b>before</b> any code · four slices, built and approved one at a time</p>
+
+  <h2>The problem we're fixing</h2>
+  <div class="problem">
+    Today, <b>if a batch of photos hits a snag while processing, the event can get stuck saying "Distribution is running" — forever — and nobody can tell or fix it in the app.</b>
+    <div class="chain">
+      The chain, step by step: the worker tries a batch, hits an error it can't get past (e.g. the face-recognition index is out of date), <b>retries 5 times, gives up, and quietly sets the job aside in a "failed jobs" bin that nothing ever reads</b>. → The event is left marked "processing". → The screen keeps saying "Distribution is running — this updates automatically" and spins <b>forever</b>; the Process button is hidden while it "runs"; pressing anything is blocked with "already processing". → <b>No button, no CLI, no signal — the only way to unstick it is editing the database by hand.</b> The students in those photos never get them, and staff never even know something broke. On top of that: the failure side of the pipeline reports <b>zero metrics</b>, a slow-but-healthy event looks identical to a dead one, new photos added to a finished event go unnoticed, "All processed" is shown even when some photos failed, and a long upload has <b>no</b> "you're still uploading" guard.
+    </div>
+  </div>
+
+  <h2>What we're building — four slices</h2>
+
+  <div class="slice">
+    <div class="top"><span class="bp">BP19a</span><span class="nm">Unstick it — a visible "Failed" event you can retry</span>
+      <span class="tags"><span class="chip crit">kills Critical #2</span><span class="tag">backend + worker</span><span class="tag mig">1 migration</span></span></div>
+    <div class="exp">
+      <div class="now"><span class="k">Now</span>A dead job disappears into a bin nothing reads; the event spins on "Distribution is running" forever, the Process button is hidden, and the API refuses to let you try again. Only a hand-edit of the database can rescue it.</div>
+      <div class="aft"><span class="k">After</span>A dead job <b>flips the event to a clear "Failed" state within seconds</b>, and a <b>Retry</b> button appears. As a safety net, if an event has been "running" far too long (past a set time), Process is re-enabled anyway — so even a job that vanished entirely can always be restarted. No hand-edits, ever.</div>
+    </div>
+    <div class="how"><b>How:</b> this mirrors exactly what we already did for stuck <i>photos</i> (BP8a) — one small database change to allow a "failed" state on events, the worker writes that state by <b>reading the failed-jobs bin</b> (the "consumer" that was missing), and the "you can't press Process" rule is relaxed for a failed or long-overdue event. <b>The one migration in this whole phase.</b></div>
+  </div>
+
+  <div class="slice">
+    <div class="top"><span class="bp">BP19b</span><span class="nm">Measure the failures — so alerts can actually fire</span>
+      <span class="tags"><span class="chip acc">reliability</span><span class="tag">worker only</span><span class="tag nomig">no migration</span></span></div>
+    <div class="exp">
+      <div class="now"><span class="k">Now</span>When jobs fail, there are no numbers — just a log line that no monitor can watch. There's no count of failed jobs, no size of the failed-jobs bin, no "oldest thing still waiting" gauge, no failed-photos count. In fact the worker doesn't publish <i>any</i> metrics at all today.</div>
+      <div class="aft"><span class="k">After</span>The worker publishes real numbers a dashboard/alert can watch: <b>failed jobs (by reason)</b>, <b>failed photos</b>, <b>how many jobs are stuck in the failed bin</b>, and <b>how long the oldest waiting job has been waiting</b>. Now "something is wrong" can page someone instead of hiding in the logs.</div>
+    </div>
+    <div class="how"><b>How:</b> give the worker its own tiny metrics endpoint (it never had one — this also switches on the counters it <i>already</i> records but nobody could read), add the four new failure numbers, and wire the port through Docker/CI. No database change, no app-screen change.</div>
+  </div>
+
+  <div class="slice">
+    <div class="top"><span class="bp">BP19c</span><span class="nm">Show the stall — age, the second batch, and failed photos</span>
+      <span class="tags"><span class="chip acc">visibility</span><span class="tag">backend + frontend</span><span class="tag nomig">no migration</span></span></div>
+    <div class="exp">
+      <div class="now"><span class="k">Now</span>A stuck event looks identical to a healthy one ("updates automatically", no clock). If you add new photos to a finished event, the events <b>list</b> still says "Completed" and the dashboard doesn't nudge you. And the dashboard says "All processed" even when photos actually failed.</div>
+      <div class="aft"><span class="k">After</span>The event shows <b>"Processing since 2:14 PM"</b> and, past a threshold, <b>"this is taking longer than usual — you can retry"</b>. The events list and dashboard notice a <b>second batch of unprocessed photos</b> on a finished event. And the dashboard surfaces <b>"N photos failed processing"</b> instead of falsely saying all is well.</div>
+    </div>
+    <div class="how"><b>How:</b> the "processing since" time is <i>already</i> sent to the screen — we just show it. The list pill and the dashboard alert start counting unprocessed/failed photos the way the detail page already does. Small, mostly front-end, no database change.</div>
+  </div>
+
+  <div class="slice">
+    <div class="top"><span class="bp">BP19d</span><span class="nm">Don't lose an upload in progress</span>
+      <span class="tags"><span class="chip acc">upload safety</span><span class="tag">frontend only</span><span class="tag nomig">no migration</span></span></div>
+    <div class="exp">
+      <div class="now"><span class="k">Now</span>If some files fail mid-upload, there's no "Retry failed" — you'd re-add them by hand. And if you close the tab or click away while photos are still uploading, they're gone with <b>no warning at all</b>.</div>
+      <div class="aft"><span class="k">After</span>A <b>"Retry failed (N)"</b> button re-sends just the ones that failed, and the browser warns <b>"you're still uploading — leave anyway?"</b> if you try to close or navigate away mid-upload.</div>
+    </div>
+    <div class="how"><b>How:</b> the uploader keeps hold of the failed files for a one-click retry (same pattern as the bulk-photo tool), plus a small reusable "you have work in progress" guard on the upload page. Front-end only, nothing new to install.</div>
+  </div>
+
+  <h2>Build order &amp; how we'll work</h2>
+  <div class="ord">
+    <b>Order</b> &nbsp;<span class="seq">BP19a → BP19b → BP19c → BP19d</span> &nbsp;— the actual unstick first (the Critical), then the numbers to watch it, then the on-screen visibility, then upload safety.<br>
+    <b>Process</b> — you're reading step 2 now. Each slice is then built on its own, run through the full check (types + lint + tests + build) and a <b>2× self-review</b>, and brought back to you to review. Nothing is committed until you say so. We do them <b>one by one</b>, not all at once.
+  </div>
+
+  <h2>How we'll prove BP19a actually works</h2>
+  <div class="card verify">
+    The whole point is "no event can strand invisibly", so the key test walks exactly that:
+    <ol class="steps" style="margin-top:8px">
+      <li>Force an event's job to fail permanently (the version-mismatch case) so it lands in the failed-jobs bin.</li>
+      <li>The worker's new reader <b>flips that event to "Failed"</b> — it's no longer spinning "Distribution is running".</li>
+      <li>The API now <b>allows</b> Process again (it used to reject with an error), and the screen shows a <b>Retry</b> button.</li>
+      <li>Pressing Retry re-queues the event — once the underlying cause is fixed, it completes and the students get their photos.</li>
+    </ol>
+    <p style="margin-top:8px">Plus: the one migration is tested up-and-down on a <b>throwaway</b> database (never your real dev data), the worker's "mark failed" write is checked against a real Postgres, and every slice passes the full backend + frontend checks and the 2× review before it reaches you.</p>
+  </div>
+
+  <p class="foot">Not in this build (noted honestly): reaping the leftover storage objects of an event's media (a small, separate cleanup — recorded as a known minor leak), and resumable / whole-folder uploads (a bigger ask, still deferred). The rest of the Round-3 roadmap (<code>BP20–BP25</code>) stays as-is in <code>product/07</code>.</p>
+
+</div>
+</body>
+</html>

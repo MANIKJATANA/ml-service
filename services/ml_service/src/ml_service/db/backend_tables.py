@@ -38,8 +38,9 @@ events = Table(
     backend_metadata,
     Column("id", UUID(as_uuid=True), nullable=False),
     Column("school_id", UUID(as_uuid=True), nullable=False),  # tenant-scope the writes
-    # 'not_started' | 'queued' | 'processing' | 'completed' — the worker writes the
-    # last two (must stay in lockstep with the backend's EventProcessingStatus).
+    # 'not_started' | 'queued' | 'processing' | 'completed' | 'failed' — the worker writes
+    # 'processing'/'completed' and (BP19a, the DLQ consumer) 'failed'; must stay in lockstep
+    # with the backend's EventProcessingStatus + ck_events_processing_status.
     Column("processing_status", String, nullable=False),
     Column("completed_at", DateTime(timezone=True), nullable=True),
 )

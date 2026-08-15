@@ -149,7 +149,12 @@ export interface UploadUrlResponse {
 }
 
 export type EventStatus = "active" | "archived";
-export type EventProcessingStatus = "not_started" | "queued" | "processing" | "completed";
+export type EventProcessingStatus =
+  | "not_started"
+  | "queued"
+  | "processing"
+  | "completed"
+  | "failed"; // BP19a: the job dead-lettered — visible + retryable, never stuck "processing"
 export type MediaType = "image" | "video";
 export type MediaProcessingStatus = "pending" | "completed";
 

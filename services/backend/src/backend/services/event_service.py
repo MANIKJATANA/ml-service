@@ -11,7 +11,7 @@ deletes) an event.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import UTC, date, datetime, timedelta
 
 from backend.domain.errors import NotFoundError, ValidationError
 from backend.domain.models import (
@@ -49,12 +49,16 @@ class EventService:
         producer: EventJobProducer,
         categories: EventCategoryRepository,
         groups: StudentGroupRepository,
+        inflight_stale_s: int = 1800,
     ) -> None:
         self._events = events
         self._media = media
         self._producer = producer
         self._categories = categories
         self._groups = groups
+        # BP19a: an event in-flight longer than this is treated as stuck (the "Process" guard
+        # re-allows a retry — the fallback for a job that dead-lettered/was lost).
+        self._inflight_stale_s = inflight_stale_s
 
     # ---- CRUD -----------------------------------------------------------
 
@@ -165,33 +169,42 @@ class EventService:
         Sets the event to `queued`; the ML worker then flips it to `processing` on pickup
         and `completed` when done (it owns those writes — decisions/0027).
 
-        A job is enqueued only when the event is **not already in flight**: if it is
-        `queued` or `processing`, this refuses — the same event must never be XADD'd twice
-        (a stuck in-flight event is recovered by the queue's `XAUTOCLAIM` reclaim, not by a
-        manual re-add). "Redistribute" therefore applies to a `completed` event that still
-        has `pending` **or `failed`** photos (a run finished but some couldn't be
-        processed): re-pressing re-enqueues and the ML worker skips the already-`completed`
-        photos and re-attempts the rest — so `pending` and `failed` (BP8a) leftovers are
-        re-done, idempotent. Enqueue first, then flip status — a failed enqueue (Redis down
-        → `UpstreamError`→502) leaves the prior status intact.
+        A job is enqueued only when the event is **not already genuinely in flight**: if it
+        is `queued`/`processing` and was enqueued recently, this refuses — the same event
+        must never be XADD'd twice. BP19a widens this so an event can never strand: a
+        `failed` event (the DLQ consumer's terminal state) re-enqueues (the "Retry" path),
+        and an event stuck in-flight past `inflight_stale_s` (a job that dead-lettered
+        without being consumed, or was lost with the stream) re-enqueues too (the
+        stuck-too-long fallback). "Redistribute" also applies to a `completed` event that
+        still has `pending` **or `failed`** photos: re-pressing re-enqueues and the ML worker
+        skips the already-`completed` photos and re-attempts the rest — so `pending` and
+        `failed` (BP8a) leftovers are re-done, idempotent. Enqueue first, then flip status —
+        a failed enqueue (Redis down → `UpstreamError`→502) leaves the prior status intact.
         """
         event = await self.get_event(school_id=school_id, event_id=event_id)
         if event.status is not EventStatus.ACTIVE:
             raise ValidationError("event is archived")
-        if event.processing_status in (
-            EventProcessingStatus.QUEUED,
-            EventProcessingStatus.PROCESSING,
+        if (
+            event.processing_status
+            in (EventProcessingStatus.QUEUED, EventProcessingStatus.PROCESSING)
+            and not self._is_stale_in_flight(event)
         ):
-            # Already on the stream / being worked — never enqueue a duplicate job.
+            # Genuinely in flight (recently enqueued) — never enqueue a duplicate job. A
+            # `failed` event, or one stuck in-flight past the stale threshold, falls through
+            # here and re-enqueues (BP19a's unstick).
             raise ValidationError("event is already queued or processing")
 
         counts = await self._media.status_counts(school_id, event_id)
         # Anything not yet `completed` is re-attempted — pending photos OR failed ones
-        # (BP8a's "Retry failed"). Only refuse when there's genuinely nothing to do.
+        # (BP8a's "Retry failed"). Only refuse when there's genuinely nothing to do — EXCEPT a
+        # `failed` event is always retryable (BP19a): even with every photo already `completed`
+        # (a job that dead-lettered after the last per-photo write but before finalizing), a
+        # retry re-runs, skips the completed roster, and self-heals the event to `completed` —
+        # so the "Processing failed" pill can always be cleared.
         outstanding = counts.get(MediaProcessingStatus.PENDING, 0) + counts.get(
             MediaProcessingStatus.FAILED, 0
         )
-        if outstanding == 0:
+        if outstanding == 0 and event.processing_status is not EventProcessingStatus.FAILED:
             raise ValidationError("no photos to process")
 
         await self._producer.enqueue(EventJob(school_id=school_id, event_id=event_id))
@@ -199,6 +212,18 @@ class EventService:
             event_id, status=EventProcessingStatus.QUEUED
         )
         return await self.get_event(school_id=school_id, event_id=event_id)
+
+    def _is_stale_in_flight(self, event: Event) -> bool:
+        """A queued/processing event whose enqueue is older than the stale threshold — treated
+        as stuck so Process can re-enqueue it (BP19a's fallback for a job that dead-lettered
+        without a consumer, or was lost with the stream). A missing `enqueued_at` (anomalous
+        for an in-flight event) counts as stale so it can never be permanently un-retryable."""
+        enqueued_at = event.enqueued_at
+        if enqueued_at is None:
+            return True
+        if enqueued_at.tzinfo is None:  # defensive: treat a naive stamp as UTC
+            enqueued_at = enqueued_at.replace(tzinfo=UTC)
+        return datetime.now(UTC) - enqueued_at >= timedelta(seconds=self._inflight_stale_s)
 
     async def event_status(
         self, *, school_id: str, event_id: str

@@ -450,6 +450,7 @@ class Container:
                         self.event_job_producer(),
                         self.event_category_repo(),
                         self.student_group_repo(),
+                        inflight_stale_s=self._s.event_inflight_stale_s,
                     )
         return self._event_service
 

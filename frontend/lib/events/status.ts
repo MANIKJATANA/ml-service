@@ -25,10 +25,12 @@ export const PROCESSING_TONE: Record<EventProcessingStatus, Tone> = {
   queued: "neutral",
   processing: "info",
   completed: "success",
+  failed: "error", // BP19a: the job dead-lettered — a visible, retryable failure
 };
 export const PROCESSING_LABEL: Record<EventProcessingStatus, string> = {
   not_started: "Not started",
   queued: "Queued",
   processing: "Processing",
   completed: "Completed",
+  failed: "Processing failed",
 };

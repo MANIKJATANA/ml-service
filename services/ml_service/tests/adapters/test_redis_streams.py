@@ -42,3 +42,29 @@ async def test_enqueue_consume_ack_roundtrip(client) -> None:  # type: ignore[no
     await q.ack(lease)
     # after ack the stream entry is deleted
     assert await client.xlen("ml:test:jobs") == 0
+
+
+async def test_drain_and_remove_dead_letters(client) -> None:  # type: ignore[no-untyped-def]
+    # BP19a: the DLQ consumer's queue-side behavior against real Redis. drain_dead_letters
+    # returns the actionable entries (reason + receipt) WITHOUT removing them (mark-before-
+    # remove crash-safety), drops a malformed entry in place, and remove_dead_letter deletes
+    # a drained entry.
+    q = RedisStreamsJobQueue(client, stream="ml:test:jobs", group="g1", consumer="c1")
+    dead = "ml:test:jobs:dead"
+    await client.xadd(
+        dead,
+        {"school_id": "s1", "event_id": "e1", "_dlq_reason": "max_deliveries_exceeded"},
+    )
+    await client.xadd(dead, {"school_id": "s1", "_dlq_reason": "malformed"})  # no event_id
+
+    drained = await q.drain_dead_letters()
+    assert len(drained) == 1  # only the actionable one; the malformed is dropped
+    assert drained[0].job == JOB
+    assert drained[0].reason == "max_deliveries_exceeded"
+    assert drained[0].receipt  # the stream id used to remove it
+    # the malformed entry was removed in place; the actionable one persists until removed
+    assert await client.xlen(dead) == 1
+
+    await q.remove_dead_letter(drained[0].receipt)
+    assert await client.xlen(dead) == 0
+    assert await q.drain_dead_letters() == []  # a second drain is a no-op

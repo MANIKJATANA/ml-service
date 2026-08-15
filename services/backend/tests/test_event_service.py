@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 from backend.domain.errors import NotFoundError, UpstreamError, ValidationError
@@ -141,6 +141,29 @@ async def test_process_retries_a_failed_only_event() -> None:
     assert len(prod.jobs) == 1
 
 
+async def test_process_failed_event_retryable_even_with_all_photos_completed() -> None:
+    # BP19a: a job that dead-lettered after every photo completed (but before finalizing)
+    # leaves a `failed` event with 0 outstanding media. Retry must STILL work — it re-runs,
+    # skips the completed roster, and self-heals the event to `completed`, so the "failed"
+    # pill can always be cleared. (A `completed` event with 0 outstanding is still refused.)
+    svc, _, _, prod = _svc(
+        events=[
+            make_event(
+                id=_E1, school_id=_S1, processing_status=EventProcessingStatus.FAILED
+            )
+        ],
+        media=[
+            make_media(
+                id="m1", school_id=_S1, event_id=_E1,
+                processing_status=MediaProcessingStatus.COMPLETED,
+            )
+        ],
+    )
+    event = await svc.process_event(school_id=_S1, event_id=_E1)
+    assert event.processing_status is EventProcessingStatus.QUEUED
+    assert len(prod.jobs) == 1
+
+
 async def test_process_empty_event_rejected() -> None:
     svc, _, _, prod = _svc(events=[make_event(id=_E1, school_id=_S1)])
     with pytest.raises(ValidationError):
@@ -165,15 +188,54 @@ async def test_process_missing_event_raises() -> None:
 
 
 async def test_process_while_in_flight_rejected_no_duplicate_job() -> None:
-    # An event already queued/processing must NOT be XADD'd again (0027).
+    # An event already queued/processing AND recently enqueued must NOT be XADD'd again (0027).
+    fresh = datetime.now(UTC)
     for status in (EventProcessingStatus.QUEUED, EventProcessingStatus.PROCESSING):
         svc, _, _, prod = _svc(
-            events=[make_event(id=_E1, school_id=_S1, processing_status=status)],
+            events=[
+                make_event(
+                    id=_E1, school_id=_S1, processing_status=status, enqueued_at=fresh
+                )
+            ],
             media=[make_media(id="m1", school_id=_S1, event_id=_E1)],  # pending
         )
         with pytest.raises(ValidationError):
             await svc.process_event(school_id=_S1, event_id=_E1)
         assert prod.jobs == []
+
+
+async def test_process_stale_in_flight_event_is_retryable() -> None:
+    # BP19a unstick fallback: an event stuck in-flight past the stale threshold (a job that
+    # dead-lettered without a consumer, or was lost with the stream) can be re-processed.
+    stale = datetime.now(UTC) - timedelta(hours=1)  # >> the 1800s default
+    for status in (EventProcessingStatus.QUEUED, EventProcessingStatus.PROCESSING):
+        svc, _, _, prod = _svc(
+            events=[
+                make_event(
+                    id=_E1, school_id=_S1, processing_status=status, enqueued_at=stale
+                )
+            ],
+            media=[make_media(id="m1", school_id=_S1, event_id=_E1)],  # pending
+        )
+        event = await svc.process_event(school_id=_S1, event_id=_E1)
+        assert event.processing_status is EventProcessingStatus.QUEUED
+        assert len(prod.jobs) == 1
+
+
+async def test_process_failed_event_is_retryable() -> None:
+    # BP19a: the DLQ consumer marked the event `failed` — Retry re-enqueues (the primary
+    # unstick). The media stayed `pending` (the version-mismatch marked nothing failed).
+    svc, _, _, prod = _svc(
+        events=[
+            make_event(
+                id=_E1, school_id=_S1, processing_status=EventProcessingStatus.FAILED
+            )
+        ],
+        media=[make_media(id="m1", school_id=_S1, event_id=_E1)],  # pending
+    )
+    event = await svc.process_event(school_id=_S1, event_id=_E1)
+    assert event.processing_status is EventProcessingStatus.QUEUED
+    assert len(prod.jobs) == 1
 
 
 async def test_redistribute_completed_event_with_leftover_pending() -> None:

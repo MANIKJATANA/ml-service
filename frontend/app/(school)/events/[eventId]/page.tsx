@@ -387,11 +387,15 @@ export default function EventDetailPage() {
   const isArchived = event?.status === "archived";
   const proc = status?.processing_status ?? event?.processing_status ?? "not_started";
   const inFlight = proc === "queued" || proc === "processing";
+  // BP19a: the job dead-lettered — a terminal, visible failure the operator can retry.
+  const isFailed = proc === "failed";
   // The pill must not contradict the counts: after a completed run + new uploads the
   // backend keeps processing_status="completed" while pending > 0. When nothing is in
-  // flight and we have counts, reflect the outstanding work rather than the stale status.
+  // flight and we have counts, reflect the outstanding work rather than the stale status —
+  // but never override a `failed` event (its media stay pending, which would read as
+  // "not started" and hide the failure).
   let pillStatus: EventProcessingStatus = proc;
-  if (!inFlight && status) {
+  if (!inFlight && !isFailed && status) {
     pillStatus = status.total > 0 && status.pending === 0 ? "completed" : "not_started";
   }
 
@@ -565,14 +569,16 @@ export default function EventDetailPage() {
                       <Upload className="size-4" aria-hidden="true" />
                       {status.total === 0 ? "Upload photos" : "Add more photos"}
                     </Link>
-                    {!inFlight && (status.pending > 0 || status.failed > 0) ? (
+                    {!inFlight && (status.pending > 0 || status.failed > 0 || isFailed) ? (
                       <Button onClick={onProcess} loading={processing}>
                         <Play className="size-4" aria-hidden="true" />
-                        {status.pending > 0
-                          ? proc === "completed"
-                            ? "Redistribute"
-                            : "Process photos"
-                          : "Retry failed"}
+                        {isFailed
+                          ? "Retry"
+                          : status.pending > 0
+                            ? proc === "completed"
+                              ? "Redistribute"
+                              : "Process photos"
+                            : "Retry failed"}
                       </Button>
                     ) : null}
                   </div>
@@ -584,15 +590,24 @@ export default function EventDetailPage() {
                       Distribution is running — this updates automatically.
                     </p>
                   ) : null}
-                  {!isArchived && !inFlight && status.failed > 0 ? (
+                  {/* BP19a: the whole job dead-lettered (not just some photos) — a terminal,
+                      retryable failure. Retry re-runs it once the cause is fixed. */}
+                  {!isArchived && isFailed ? (
+                    <p className="text-body-sm text-error-strong">
+                      Processing couldn&apos;t finish — the job stopped before completing. This is
+                      usually temporary; retry to run it again. If it keeps failing, an
+                      administrator may need to check the processing service.
+                    </p>
+                  ) : null}
+                  {!isArchived && !inFlight && !isFailed && status.failed > 0 ? (
                     <p className="text-body-sm text-warning-strong">
                       {status.failed} {status.failed === 1 ? "photo" : "photos"} couldn&apos;t
                       be processed. Retry — if it keeps failing, the file may be corrupt or
                       unreadable, so replace it.
                     </p>
                   ) : null}
-                  {!isArchived && !inFlight && status.total > 0 && status.pending === 0 &&
-                  status.failed === 0 ? (
+                  {!isArchived && !inFlight && !isFailed && status.total > 0 &&
+                  status.pending === 0 && status.failed === 0 ? (
                     <p className="text-body-sm text-success-strong">All photos processed.</p>
                   ) : null}
                 </div>

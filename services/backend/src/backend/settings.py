@@ -75,6 +75,12 @@ class Settings(BaseSettings):
     # TTL of the short-lived signed download URLs the galleries mint on demand.
     download_url_ttl_s: int = 3600  # 1 hour
 
+    # --- event processing (BP19a, decisions/0069) ------------------------
+    # An event in-flight (queued/processing) longer than this is treated as stuck: the
+    # "Process" guard re-allows a retry (the stuck-too-long fallback for a job that never
+    # reached the DLQ). The DLQ consumer normally flips a dead job to `failed` far sooner.
+    event_inflight_stale_s: int = 1800  # 30 minutes
+
     # --- list pagination (BP9, decisions/0055) ---------------------------
     # Server-side pagination on every list/gallery endpoint. default = the page size the FE
     # requests; max = the hard ceiling the Query(le=) enforces (a bigger ?limit= 422s).

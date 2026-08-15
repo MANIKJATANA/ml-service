@@ -174,6 +174,12 @@ class InferenceService:
             embedding_model_version=self._embedder.version,
         )
 
+    async def mark_event_failed(self, job: EventJob) -> None:
+        """Flip a dead-lettered event to ``failed`` (BP19a) — the worker's DLQ consumer calls
+        this so a stranded event stops looking like it's "processing" forever and becomes
+        retryable. Idempotent (the same event can be drained/marked more than once)."""
+        await self._backend_store.mark_event_failed(job.school_id, job.event_id)
+
     @staticmethod
     def _to_photo_job(job: EventJob, media: BackendMedia) -> InferenceJob:
         return InferenceJob(

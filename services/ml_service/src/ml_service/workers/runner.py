@@ -16,6 +16,7 @@ replace-by-media; matches higher-confidence-wins), so redelivery is safe (NFR-5)
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from collections.abc import Callable
@@ -57,19 +58,28 @@ class WorkerRunner:
         service: InferenceService,
         *,
         on_outcome: OutcomeSink = log_outcome,
+        dlq_poll_s: float = 30.0,
     ) -> None:
         self._queue = queue
         self._service = service
         self._on_outcome = on_outcome
+        # BP19a: how often the DLQ consumer sweeps the dead-letter stream to flip stranded
+        # events to `failed`. A dead-lettered event surfaces within ~this interval.
+        self._dlq_poll_s = dlq_poll_s
 
     async def run(self) -> None:
-        """Consume and process event jobs until cancelled.
+        """Consume+process event jobs AND drain the dead-letter stream, concurrently, until
+        cancelled (BP19a).
 
-        A failure in ``handle`` (including a transient ack/nack error from the queue) is
-        logged and the loop continues, so one bad job or infra hiccup never kills the
-        consumer. Cancellation (``CancelledError``, a ``BaseException``) still propagates
-        and stops the loop cleanly.
+        Each loop swallows its own per-item errors and continues, so one bad job, a DLQ
+        hiccup, or an infra blip never kills the worker. Cancellation propagates through the
+        ``TaskGroup`` and stops both loops cleanly.
         """
+        async with asyncio.TaskGroup() as tg:
+            tg.create_task(self._consume_loop())
+            tg.create_task(self._dlq_loop())
+
+    async def _consume_loop(self) -> None:
         async for lease in self._queue.consume():
             try:
                 await self.handle(lease)
@@ -78,6 +88,32 @@ class WorkerRunner:
                     "unrecoverable error handling lease; continuing",
                     extra={"event_id": lease.job.event_id},
                 )
+
+    async def _dlq_loop(self) -> None:
+        """BP19a — the DLQ consumer that was missing: periodically drain the dead-letter
+        stream and flip each dead-lettered event to ``failed`` (visible + retryable), so a
+        stranded job never leaves its event stuck on "processing" forever."""
+        while True:
+            try:
+                await self._drain_dead_letters_once()
+            except Exception:
+                log.exception("dead-letter drain failed; continuing")
+            await asyncio.sleep(self._dlq_poll_s)
+
+    async def _drain_dead_letters_once(self) -> None:
+        for dead in await self._queue.drain_dead_letters():
+            # Mark the event failed BEFORE removing the entry: a crash between the two just
+            # re-marks idempotently on the next drain, never losing the failure (mark-safe).
+            await self._service.mark_event_failed(dead.job)
+            await self._queue.remove_dead_letter(dead.receipt)
+            log.warning(
+                "event job dead-lettered; marked failed",
+                extra={
+                    "event_id": dead.job.event_id,
+                    "school_id": dead.job.school_id,
+                    "reason": dead.reason,
+                },
+            )
 
     async def handle(self, lease: JobLease) -> None:
         """Process one leased event job with ack/nack (public for tests)."""

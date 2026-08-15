@@ -35,7 +35,9 @@ async def _run(container: Container) -> None:
     queue = container.job_queue()
     # Loading the models blocks — keep it off the loop during startup.
     service = await asyncio.to_thread(container.inference_service)
-    runner = WorkerRunner(queue, service, on_outcome=_emit_outcome)
+    runner = WorkerRunner(
+        queue, service, on_outcome=_emit_outcome, dlq_poll_s=settings.dlq_poll_s
+    )
     log.info(
         "inference worker starting",
         extra={"stream": settings.queue_stream, "consumer": settings.queue_consumer},

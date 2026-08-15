@@ -21,11 +21,20 @@ from ml_service.db.backend_tables import events as backend_events
 from ml_service.db.backend_tables import media as backend_media
 from ml_service.domain.models import BackendMedia, MediaType
 
-# Contract with the backend's status CHECK constraints (decisions/0027, BP8a/0049).
+# Contract with the backend's status CHECK constraints (decisions/0027, BP8a/0049, BP19a/0069).
+_EVENT_QUEUED = "queued"
 _EVENT_PROCESSING = "processing"
 _EVENT_COMPLETED = "completed"
+_EVENT_FAILED = "failed"
 _MEDIA_COMPLETED = "completed"
 _MEDIA_FAILED = "failed"
+
+# BP19a: mark_event_failed may only flip a NON-terminal event. A stale dead-letter entry can
+# survive a crash-between-mark-and-remove and be re-drained AFTER the operator retried and the
+# event reached `completed`; without this guard the re-mark would clobber a genuinely-done
+# event back to `failed` and strand it. So a `completed` (or `not_started`) event is never
+# re-marked failed; a `failed` re-mark stays idempotent.
+_FAILABLE_EVENT_STATES = (_EVENT_QUEUED, _EVENT_PROCESSING, _EVENT_FAILED)
 
 
 def _opt_uuid(value: str) -> uuid.UUID | None:
@@ -117,8 +126,28 @@ class PostgresBackendEventStore:
             school_id, event_id, status=_EVENT_COMPLETED, stamp_completed=True
         )
 
+    async def mark_event_failed(self, school_id: str, event_id: str) -> None:
+        # BP19a: the event's job dead-lettered (retries exhausted). The worker's DLQ consumer
+        # writes `failed` so the event stops looking like it's "processing" forever and becomes
+        # retryable (the backend's Process guard allows a `failed` event). No completed_at — it
+        # never completed. Tenant-scoped like every write (NFR-3). ``only_from`` keeps a stale
+        # re-drain from clobbering an event that has since reached `completed`.
+        await self._set_event(
+            school_id,
+            event_id,
+            status=_EVENT_FAILED,
+            stamp_completed=False,
+            only_from=_FAILABLE_EVENT_STATES,
+        )
+
     async def _set_event(
-        self, school_id: str, event_id: str, *, status: str, stamp_completed: bool
+        self,
+        school_id: str,
+        event_id: str,
+        *,
+        status: str,
+        stamp_completed: bool,
+        only_from: tuple[str, ...] | None = None,
     ) -> None:
         sid = _opt_uuid(school_id)
         key = _opt_uuid(event_id)
@@ -127,9 +156,12 @@ class PostgresBackendEventStore:
         values: dict[str, object] = {"processing_status": status}
         if stamp_completed:
             values["completed_at"] = func.now()
+        stmt = update(backend_events).where(
+            backend_events.c.id == key, backend_events.c.school_id == sid
+        )
+        if only_from is not None:
+            # Only transition FROM one of these states (a no-op otherwise) — used by
+            # mark_event_failed to never clobber a `completed` event back to `failed`.
+            stmt = stmt.where(backend_events.c.processing_status.in_(only_from))
         async with self._sessionmaker() as session, session.begin():
-            await session.execute(
-                update(backend_events)
-                .where(backend_events.c.id == key, backend_events.c.school_id == sid)
-                .values(**values)
-            )
+            await session.execute(stmt.values(**values))

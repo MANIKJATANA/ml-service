@@ -7,7 +7,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncIterator
 
-from ml_service.domain.models import EventJob, JobLease
+from ml_service.domain.models import DeadLetter, EventJob, JobLease
 
 
 class InProcJobQueue:
@@ -32,3 +32,11 @@ class InProcJobQueue:
     async def nack(self, lease: JobLease) -> None:
         self._queue.task_done()
         await self._queue.put(lease.job)  # redeliver
+
+    async def drain_dead_letters(self) -> list[DeadLetter]:
+        # This dev/test queue never dead-letters — nack redelivers forever (no DLQ). So there
+        # is nothing for the worker's DLQ consumer to drain (BP19a).
+        return []
+
+    async def remove_dead_letter(self, receipt: str) -> None:
+        return None

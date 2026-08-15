@@ -15,9 +15,14 @@ from typing import Any, cast
 from redis.asyncio import Redis
 from redis.exceptions import ResponseError
 
-from ml_service.domain.models import EventJob, JobLease
+from ml_service.domain.models import DeadLetter, EventJob, JobLease
 
 _JOB_FIELDS = ("school_id", "event_id")
+
+# BP19a: cap how many dead-letter entries one drain sweep loads, so a mass dead-letter event
+# (e.g. a persistent version mismatch DLQ'ing many schools) can't balloon a single sweep's
+# memory/work. Any overflow is drained on the next sweep — bounded latency, bounded footprint.
+_DLQ_DRAIN_MAX = 256
 
 
 def _as_str(value: Any) -> str:
@@ -86,6 +91,27 @@ class RedisStreamsJobQueue:
         # Leave the message pending; XAUTOCLAIM redelivers it after the idle window
         # (and routes it to the dead-letter stream once max_deliveries is exceeded).
         return None
+
+    async def drain_dead_letters(self) -> list[DeadLetter]:
+        # BP19a: read the current dead-letter entries so the worker can flip each event to
+        # `failed`. Actionable entries are returned (with their id) but NOT removed here — the
+        # worker removes them only after marking (mark-before-remove). A malformed DLQ entry
+        # names no event, so there's nothing to mark: drop it in place so it can't accumulate.
+        entries: Any = await self._redis.xrange(self._dlq, count=_DLQ_DRAIN_MAX)
+        drained: list[DeadLetter] = []
+        for msg_id, fields in entries:
+            job = self._decode(fields)
+            if job is None:
+                await self._redis.xdel(self._dlq, _as_str(msg_id))
+                continue
+            reason = _decode_fields(fields).get("_dlq_reason", "unknown")
+            drained.append(
+                DeadLetter(job=job, reason=reason, receipt=_as_str(msg_id))
+            )
+        return drained
+
+    async def remove_dead_letter(self, receipt: str) -> None:
+        await self._redis.xdel(self._dlq, receipt)
 
     # ---- internals ------------------------------------------------------
 

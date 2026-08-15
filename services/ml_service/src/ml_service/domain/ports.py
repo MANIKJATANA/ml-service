@@ -15,6 +15,7 @@ from typing import Protocol
 from ml_service.domain.models import (
     BackendMedia,
     Candidate,
+    DeadLetter,
     Embedding,
     EventJob,
     FaceBox,
@@ -140,6 +141,8 @@ class BackendEventStore(Protocol):
     async def mark_media_failed(self, school_id: str, media_id: str) -> None: ...
     async def mark_event_processing(self, school_id: str, event_id: str) -> None: ...
     async def mark_event_completed(self, school_id: str, event_id: str) -> None: ...
+    # BP19a: the event's job dead-lettered — mark it `failed` (visible + retryable).
+    async def mark_event_failed(self, school_id: str, event_id: str) -> None: ...
 
 
 class ThresholdProvider(Protocol):
@@ -170,3 +173,17 @@ class JobQueue(Protocol):
     async def ack(self, lease: JobLease) -> None: ...
 
     async def nack(self, lease: JobLease) -> None: ...
+
+    async def drain_dead_letters(self) -> list[DeadLetter]:
+        """Read the currently-accumulated dead-letter entries (BP19a) — WITHOUT removing the
+        actionable ones (a malformed entry, which names no event, is dropped in place).
+
+        The worker's DLQ consumer marks each returned event ``failed`` and then calls
+        ``remove_dead_letter`` — mark-before-remove, so a crash mid-drain re-marks the same
+        events idempotently on the next drain rather than losing the failure. Reading (not
+        acking) is safe because ``mark_event_failed`` is idempotent."""
+        ...
+
+    async def remove_dead_letter(self, receipt: str) -> None:
+        """Remove one dead-letter entry after its event has been marked ``failed`` (BP19a)."""
+        ...

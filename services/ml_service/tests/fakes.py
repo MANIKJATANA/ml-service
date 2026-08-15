@@ -207,6 +207,7 @@ class StubBackendEventStore:
         self.list_calls: list[tuple[str, str]] = []
         self.media_completed: list[str] = []
         self.media_failed: list[str] = []
+        self.event_failed: list[str] = []  # BP19a: events the DLQ consumer marked failed
         self.event_status: dict[str, str] = {}
 
     async def list_event_media(
@@ -226,6 +227,10 @@ class StubBackendEventStore:
 
     async def mark_event_completed(self, school_id: str, event_id: str) -> None:
         self.event_status[event_id] = "completed"
+
+    async def mark_event_failed(self, school_id: str, event_id: str) -> None:
+        self.event_status[event_id] = "failed"
+        self.event_failed.append(event_id)
 
 
 class StubThresholdProvider:

@@ -56,13 +56,17 @@ class EventProcessingStatus(StrEnum):
     """The single event-level status the FE reads in one DB call (decisions/0027).
 
     The backend sets ``queued`` on Process; the **ML worker** flips it to ``processing``
-    on pickup and ``completed`` when the whole event is done. The backend never derives
-    it from per-photo rows."""
+    on pickup, ``completed`` when the whole event is done, and — BP19a — ``failed`` when
+    the job dead-letters (via the worker's DLQ consumer). The backend never derives it
+    from per-photo rows."""
 
     NOT_STARTED = "not_started"  # media may be uploaded, but Process not pressed yet
     QUEUED = "queued"  # backend enqueued the event job; ML hasn't picked it up
     PROCESSING = "processing"  # ML picked the event up and is working through its photos
     COMPLETED = "completed"  # ML finished every photo in the event
+    # BP19a: the job dead-lettered (retries exhausted, e.g. a stale index) — the worker's DLQ
+    # consumer writes this so a stranded event is visible + retryable, never stuck "processing".
+    FAILED = "failed"
 
 
 class MediaType(StrEnum):

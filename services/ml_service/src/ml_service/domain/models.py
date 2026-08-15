@@ -271,6 +271,21 @@ class JobLease:
 
 
 @dataclass(frozen=True, slots=True)
+class DeadLetter:
+    """A job that exhausted its retries and was routed to the dead-letter stream (BP19a).
+
+    ``reason`` is the queue's dead-letter cause (e.g. ``max_deliveries_exceeded`` /
+    ``malformed``); the worker's DLQ consumer marks the event ``failed`` and (BP19b) counts
+    the failure by reason. ``receipt`` is the dead-letter entry's opaque id — the worker
+    removes the entry (``remove_dead_letter``) only **after** marking the event, so a crash
+    mid-drain just re-marks idempotently on the next drain (never loses the failure)."""
+
+    job: EventJob
+    reason: str
+    receipt: str
+
+
+@dataclass(frozen=True, slots=True)
 class JobOutcome:
     """Per-photo metrics returned by the inference pipeline (req §13)."""
 

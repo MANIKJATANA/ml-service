@@ -306,6 +306,41 @@ async def test_backend_event_store_reads_roster_and_writes_status() -> None:
         assert statuses[str(m1)] == "completed"
         assert statuses[str(m2)] == "failed"  # writes through the widened CHECK (0009)
         assert event_status == "completed"
+
+        # BP19a: mark_event_failed only flips a NON-terminal event. `event` is already
+        # `completed`, so a (stale re-drain) mark must be a NO-OP — never clobber a done event
+        # back to `failed`. This is the crash-window correctness guard.
+        await store.mark_event_failed(str(school), str(event))
+        async with sm() as session:
+            still_completed = (
+                await session.execute(
+                    select(backend_events.c.processing_status).where(
+                        backend_events.c.id == event
+                    )
+                )
+            ).scalar_one()
+        assert still_completed == "completed"  # NOT clobbered
+
+        # A genuinely-in-flight (`processing`) event IS marked `failed` — idempotent, and a
+        # foreign school never flips it (write-seam tenant scope).
+        ev2 = uuid.uuid4()
+        async with sm() as session, session.begin():
+            await session.execute(
+                insert(backend_events),
+                [{"id": ev2, "school_id": school, "processing_status": "processing"}],
+            )
+        await store.mark_event_failed(str(school), str(ev2))
+        await store.mark_event_failed(str(school), str(ev2))  # idempotent
+        await store.mark_event_failed(str(uuid.uuid4()), str(ev2))  # foreign — no-op
+        async with sm() as session:
+            ev2_status = (
+                await session.execute(
+                    select(backend_events.c.processing_status).where(
+                        backend_events.c.id == ev2
+                    )
+                )
+            ).scalar_one()
+        assert ev2_status == "failed"
     finally:
         async with engine.begin() as conn:
             await conn.run_sync(backend_metadata.drop_all)

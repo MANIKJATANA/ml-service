@@ -107,6 +107,9 @@ class Settings(BaseSettings):
     queue_group: str = "inference-workers"
     queue_consumer: str = Field(default_factory=_default_consumer)
     queue_dead_letter_stream: str = ""  # empty -> adapter derives "{stream}:dead"
+    # BP19a: how often (seconds) the worker's DLQ consumer sweeps the dead-letter stream to
+    # flip a stranded event to `failed`. A dead-lettered event surfaces within ~this interval.
+    dlq_poll_s: float = 30.0
 
     # --- readiness probe (/readyz) --------------------------------------
     readiness_timeout_s: float = 5.0

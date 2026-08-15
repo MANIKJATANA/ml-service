@@ -45,6 +45,7 @@ from backend.domain.models import (
     EventRollup,
     EventSort,
     EventStatus,
+    MediaProcessingStatus,
 )
 
 # Processing states that count as "currently distributing" for the dashboard rollup.
@@ -421,22 +422,26 @@ class PostgresEventRepository:
             total=total, active=active, archived=archived, processing=processing
         )
 
-    async def count_not_started_with_media(self, school_id: str) -> int:
-        """Active events that have >=1 photo but were never distributed (BP1 alert).
+    async def count_active_with_pending_media(self, school_id: str) -> int:
+        """Active, not-in-flight events that have >=1 still-``pending`` photo (BP1 alert,
+        widened in BP19c).
 
-        The "you uploaded photos but didn't press Process" signal: ``processing_status``
-        still ``not_started`` yet a ``media`` row exists. **Archived events are excluded**
-        — you can't Process an archived event (the route 400s), so surfacing one as
-        "ready to distribute" would point staff at an un-actionable event. One correlated
-        ``EXISTS`` query; both sides are tenant-scoped by ``school_id``."""
+        The "you have photos that need processing" signal. BP19c widens the old
+        never-processed-only predicate (``processing_status == not_started``) to catch a
+        **second batch** too — new photos on an already-``completed`` (or ``failed``) event —
+        by keying on **pending media** rather than the event's status. In-flight events
+        (``queued``/``processing``) are excluded (already being worked), as are **archived**
+        events (you can't Process one — the route 400s). One correlated ``EXISTS`` on pending
+        media; both sides tenant-scoped by ``school_id``."""
         sid = opt_uuid(school_id)
         if sid is None:
             return 0
-        has_media = (
+        has_pending_media = (
             select(MediaRow.id)
             .where(
                 MediaRow.event_id == EventRow.id,
                 MediaRow.school_id == sid,
+                MediaRow.processing_status == MediaProcessingStatus.PENDING.value,
             )
             .exists()
         )
@@ -447,9 +452,8 @@ class PostgresEventRepository:
                 .where(
                     EventRow.school_id == sid,
                     EventRow.status == EventStatus.ACTIVE.value,
-                    EventRow.processing_status
-                    == EventProcessingStatus.NOT_STARTED.value,
-                    has_media,
+                    EventRow.processing_status.not_in(_IN_FLIGHT),
+                    has_pending_media,
                 )
             )
             return int(result.scalar_one())

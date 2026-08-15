@@ -33,6 +33,7 @@ import { categoryColor } from "@/lib/events/categories";
 import {
   EVENT_STATUS_LABEL,
   EVENT_STATUS_TONE,
+  derivePillStatus,
   PROCESSING_LABEL,
   PROCESSING_TONE,
 } from "@/lib/events/status";
@@ -531,7 +532,15 @@ export default function EventsPage() {
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {items.map((event) => (
+                        {items.map((event) => {
+                          // BP19c: derive the pill from counts (like the detail page) so a
+                          // "second batch" of new pending photos on a completed event reads as
+                          // unfinished, not a stale "Completed".
+                          const pill = derivePillStatus(event.processing_status, {
+                            total: event.media_count,
+                            pending: event.pending,
+                          });
+                          return (
                           <TableRow key={event.id} className="transition-colors hover:bg-surface">
                             <TableCell>
                               <input
@@ -587,12 +596,13 @@ export default function EventsPage() {
                               </div>
                             </TableCell>
                             <TableCell>
-                              <StatusPill tone={PROCESSING_TONE[event.processing_status]}>
-                                {PROCESSING_LABEL[event.processing_status]}
+                              <StatusPill tone={PROCESSING_TONE[pill]}>
+                                {PROCESSING_LABEL[pill]}
                               </StatusPill>
                             </TableCell>
                           </TableRow>
-                        ))}
+                          );
+                        })}
                       </TableBody>
                     </Table>
                   </Card>

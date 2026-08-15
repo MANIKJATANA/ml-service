@@ -12,6 +12,7 @@ from backend.domain.models import (
     Appearance,
     Event,
     Media,
+    MediaProcessingStatus,
     Role,
     School,
     Student,
@@ -78,6 +79,24 @@ async def test_list_events_carries_photo_and_match_counts() -> None:
     # e2: nothing yet — all zero, still present in the list.
     assert (listings["e2"].media_count, listings["e2"].matched_students,
             listings["e2"].needs_review) == (0, 0, 0)
+    # BP19c: both e1 photos are pending (make_media default); e2 has none.
+    assert listings["e1"].pending == 2 and listings["e2"].pending == 0
+
+
+async def test_list_events_pending_flags_a_second_batch() -> None:
+    # BP19c: the events list must be able to tell an already-completed event apart from one
+    # with a second batch of new (pending) photos — via the per-event pending count.
+    svc = _svc(
+        events=[make_event(id="e1", school_id=_S1)],
+        media=[
+            make_media(id="done", school_id=_S1, event_id="e1",
+                       processing_status=MediaProcessingStatus.COMPLETED),
+            make_media(id="new", school_id=_S1, event_id="e1",
+                       processing_status=MediaProcessingStatus.PENDING),
+        ],
+    )
+    listing = (await svc.list_events(school_id=_S1))[0]
+    assert listing.media_count == 2 and listing.pending == 1
 
 
 # ---- students + counts -------------------------------------------------

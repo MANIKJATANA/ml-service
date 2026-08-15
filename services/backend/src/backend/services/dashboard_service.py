@@ -55,6 +55,7 @@ class SchoolDashboard:
     # photos
     photos_total: int
     photos_pending: int
+    photos_failed: int  # BP19c: photos the worker couldn't process
     # needs-attention signals
     events_undistributed: int
     needs_review: int
@@ -91,7 +92,7 @@ class DashboardService:
         enrollment = await self._students.enrollment_counts(school_id)
         events = await self._events.status_counts(school_id)
         photos = await self._media.school_status_counts(school_id)
-        undistributed = await self._events.count_not_started_with_media(school_id)
+        undistributed = await self._events.count_active_with_pending_media(school_id)
         # Unresolved needs-review (BP5): raw ambiguous matches minus those staff have
         # confirmed/rejected — so the alert drops as the review lane is worked. Clamped ≥ 0
         # (re-inference churn can leave a resolved match's flag stale); an approximation.
@@ -139,6 +140,7 @@ def _to_dashboard(
         events_processing=events.processing,
         photos_total=sum(photos.values()),
         photos_pending=photos[MediaProcessingStatus.PENDING],
+        photos_failed=photos[MediaProcessingStatus.FAILED],
         events_undistributed=undistributed,
         needs_review=needs_review,
         has_staff=has_staff,

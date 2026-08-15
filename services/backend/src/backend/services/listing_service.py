@@ -63,6 +63,9 @@ class EventListing:
     media_count: int
     matched_students: int
     needs_review: int
+    # BP19c: still-`pending` photos — lets the list pill flag a "second batch" (new photos on
+    # an already-`completed` event) that the raw event processing_status would read "Completed".
+    pending: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -121,6 +124,7 @@ def _event_listing(
     event: Event,
     media_counts: dict[str, int],
     match_counts: dict[str, EventMatchCounts],
+    pending_counts: dict[str, int],
 ) -> EventListing:
     m = match_counts.get(event.id)
     return EventListing(
@@ -128,6 +132,7 @@ def _event_listing(
         media_count=media_counts.get(event.id, 0),
         matched_students=m.matched_students if m else 0,
         needs_review=m.needs_review if m else 0,
+        pending=pending_counts.get(event.id, 0),
     )
 
 
@@ -153,8 +158,11 @@ class ListingService:
     async def list_events(self, *, school_id: str) -> list[EventListing]:
         events = await self._events.list_by_school(school_id)
         media_counts = await self._media.counts_by_event(school_id)
+        pending_counts = await self._media.pending_counts_by_event(school_id)
         match_counts = await self._reader.event_match_counts(school_id)
-        return [_event_listing(e, media_counts, match_counts) for e in events]
+        return [
+            _event_listing(e, media_counts, match_counts, pending_counts) for e in events
+        ]
 
     async def list_events_page(
         self,
@@ -180,6 +188,7 @@ class ListingService:
         filters to one class; ``scope_group_ids`` is a teacher's focus (their classes + untagged
         events) — all threaded through both paths."""
         media_counts = await self._media.counts_by_event(school_id)
+        pending_counts = await self._media.pending_counts_by_event(school_id)
         match_counts = await self._reader.event_match_counts(school_id)
         if sort in EVENT_COUNT_SORTS:
             ids = await self._events.list_ids(
@@ -241,7 +250,9 @@ class ListingService:
                 student_group_id=student_group_id,
                 scope_group_ids=scope_group_ids,
             )
-        items = [_event_listing(e, media_counts, match_counts) for e in events]
+        items = [
+            _event_listing(e, media_counts, match_counts, pending_counts) for e in events
+        ]
         return Page(items=items, total=total, limit=limit, offset=offset)
 
     async def list_students(self, *, school_id: str) -> list[StudentListing]:

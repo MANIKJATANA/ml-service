@@ -31,14 +31,16 @@ class EventsSummary(BaseModel):
 class MediaSummary(BaseModel):
     total: int
     pending: int
+    failed: int = 0  # BP19c: photos the worker couldn't process
 
 
 class NeedsAttention(BaseModel):
     """The dashboard's "do something" signals — each renders as an actionable alert."""
 
-    events_undistributed: int  # have photos but Process was never pressed
+    events_undistributed: int  # active events with photos still to process (BP19c: + 2nd batch)
     enrollment_failures: int  # students whose ML enrollment failed
     needs_review: int  # ambiguous matches staff may want to triage
+    photos_failed: int = 0  # BP19c: photos that failed processing (was hidden by "All processed")
 
 
 class SetupChecklist(BaseModel):
@@ -79,7 +81,9 @@ class DashboardResponse(BaseModel):
                 archived=d.events_archived,
                 processing=d.events_processing,
             ),
-            media=MediaSummary(total=d.photos_total, pending=d.photos_pending),
+            media=MediaSummary(
+                total=d.photos_total, pending=d.photos_pending, failed=d.photos_failed
+            ),
             setup_checklist=SetupChecklist(
                 has_staff=d.has_staff,
                 has_enrolled_student=d.students_enrolled > 0,
@@ -91,5 +95,6 @@ class DashboardResponse(BaseModel):
                 events_undistributed=d.events_undistributed,
                 enrollment_failures=d.students_failed,
                 needs_review=d.needs_review,
+                photos_failed=d.photos_failed,
             ),
         )

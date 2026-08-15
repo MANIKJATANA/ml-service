@@ -51,14 +51,17 @@ function plural(n: number, one: string, many: string): string {
 /** The needs-attention + live-status signals, in priority order — only the non-zero ones. */
 function buildAlerts(d: DashboardResponse): DashAlert[] {
   const alerts: DashAlert[] = [];
-  const { events_undistributed, enrollment_failures, needs_review } = d.needs_attention;
+  const { events_undistributed, enrollment_failures, needs_review, photos_failed } =
+    d.needs_attention;
   if (events_undistributed > 0) {
     alerts.push({
       key: "undistributed",
       tone: "warning",
       icon: <Send className="size-4" aria-hidden="true" />,
-      title: `${plural(events_undistributed, "event", "events")} ready to distribute`,
-      description: "Photos are uploaded but haven't been sent to students yet.",
+      // BP19c: the predicate now catches a "second batch" too (new photos on an already-
+      // distributed event), so the copy must be true for both — "to process", not "not sent".
+      title: `${plural(events_undistributed, "event", "events")} with photos to process`,
+      description: "Photos are uploaded but haven't been processed yet.",
       href: "/events",
       cta: "Review events",
     });
@@ -72,6 +75,17 @@ function buildAlerts(d: DashboardResponse): DashAlert[] {
       description: "These students won't appear in any photos until re-enrolled.",
       href: "/students",
       cta: "Fix enrollments",
+    });
+  }
+  if (photos_failed > 0) {
+    alerts.push({
+      key: "photos-failed",
+      tone: "error",
+      icon: <AlertTriangle className="size-4" aria-hidden="true" />,
+      title: `${plural(photos_failed, "photo", "photos")} failed processing`,
+      description: "Some photos couldn't be processed — open the event to retry them.",
+      href: "/events",
+      cta: "Review events",
     });
   }
   if (needs_review > 0) {
@@ -114,7 +128,11 @@ function eventsHint(d: DashboardResponse): string {
 
 function photosHint(d: DashboardResponse): string {
   if (d.media.total === 0) return "No photos yet";
-  return d.media.pending > 0 ? `${d.media.pending} awaiting processing` : "All processed";
+  // BP19c: never say "All processed" over failures — surface pending + failed.
+  const parts: string[] = [];
+  if (d.media.pending > 0) parts.push(`${d.media.pending} awaiting processing`);
+  if (d.media.failed > 0) parts.push(`${d.media.failed} failed`);
+  return parts.length > 0 ? parts.join(" · ") : "All processed";
 }
 
 export default function DashboardPage() {

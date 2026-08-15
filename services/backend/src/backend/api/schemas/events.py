@@ -136,6 +136,9 @@ class EventListItem(EventResponse):
     media_count: int
     matched_students: int
     needs_review: int
+    # BP19c: still-pending photos on this event — lets the list pill flag a "second batch"
+    # (new photos on an already-completed event) instead of reading a stale "Completed".
+    pending: int = 0
 
     @classmethod
     def from_listing(cls, listing: EventListing) -> EventListItem:
@@ -144,6 +147,7 @@ class EventListItem(EventResponse):
             media_count=listing.media_count,
             matched_students=listing.matched_students,
             needs_review=listing.needs_review,
+            pending=listing.pending,
         )
 
 

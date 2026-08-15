@@ -153,6 +153,54 @@ async def test_archived_not_started_event_with_media_is_not_flagged() -> None:
     assert d.events_undistributed == 0
 
 
+async def test_in_flight_event_with_pending_media_is_not_flagged() -> None:
+    # BP19c: an event currently being worked (queued/processing) with pending media must NOT
+    # surface as "photos to process" — it's already in flight. Guards the fake's in_flight skip.
+    for st in (EventProcessingStatus.QUEUED, EventProcessingStatus.PROCESSING):
+        svc = _svc(
+            events=[make_event(id="e1", school_id=_S1, processing_status=st)],
+            media=[make_media(id="m1", school_id=_S1, event_id="e1",
+                              processing_status=MediaProcessingStatus.PENDING)],
+        )
+        d = await svc.school_summary(school_id=_S1)
+        assert d.events_undistributed == 0
+
+
+async def test_completed_event_with_a_second_batch_is_flagged() -> None:
+    # BP19c widening: a completed event that got NEW pending photos (a second batch) is now
+    # surfaced — the old never-processed-only predicate missed it.
+    svc = _svc(
+        events=[make_event(id="e1", school_id=_S1,
+                           processing_status=EventProcessingStatus.COMPLETED)],
+        media=[
+            make_media(id="done", school_id=_S1, event_id="e1",
+                       processing_status=MediaProcessingStatus.COMPLETED),
+            make_media(id="new", school_id=_S1, event_id="e1",
+                       processing_status=MediaProcessingStatus.PENDING),
+        ],
+    )
+    d = await svc.school_summary(school_id=_S1)
+    assert d.events_undistributed == 1
+
+
+async def test_dashboard_surfaces_failed_photos_not_all_processed() -> None:
+    # BP19c: failed photos are counted (no more "All processed" over them). A completed event
+    # with only completed+failed media (0 pending) is NOT a "photos to process" alert.
+    svc = _svc(
+        events=[make_event(id="e1", school_id=_S1,
+                           processing_status=EventProcessingStatus.COMPLETED)],
+        media=[
+            make_media(id="ok", school_id=_S1, event_id="e1",
+                       processing_status=MediaProcessingStatus.COMPLETED),
+            make_media(id="bad", school_id=_S1, event_id="e1",
+                       processing_status=MediaProcessingStatus.FAILED),
+        ],
+    )
+    d = await svc.school_summary(school_id=_S1)
+    assert d.photos_failed == 1
+    assert d.events_undistributed == 0
+
+
 async def test_needs_review_subtracts_resolved_corrections_and_clamps() -> None:
     # BP5: the "needs review" signal is raw flagged matches MINUS resolved corrections,
     # clamped at 0 (so review-churn can never drive it negative).

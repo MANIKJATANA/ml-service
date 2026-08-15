@@ -200,6 +200,27 @@ class PostgresMediaRepository:
             )
             return {str(event_id): n for event_id, n in result.all()}
 
+    async def pending_counts_by_event(self, school_id: str) -> dict[str, int]:
+        """Still-``pending`` photo count per event for one school (BP19c events list).
+
+        Lets the list flag a "second batch" — new photos on an already-``completed`` event —
+        that the raw event ``processing_status`` misses. One grouped scan of the tenant's
+        ``media`` slice; keys are canonical UUID strings (only events WITH pending media appear).
+        """
+        sid = opt_uuid(school_id)
+        if sid is None:
+            return {}
+        async with self._sessionmaker() as session:
+            result = await session.execute(
+                select(MediaRow.event_id, func.count())
+                .where(
+                    MediaRow.school_id == sid,
+                    MediaRow.processing_status == MediaProcessingStatus.PENDING.value,
+                )
+                .group_by(MediaRow.event_id)
+            )
+            return {str(event_id): n for event_id, n in result.all()}
+
     async def monthly_upload_counts(self, school_id: str) -> dict[str, int]:
         """Photos/videos uploaded per calendar month for a school (BP14 trend), keyed
         ``'YYYY-MM'``.

@@ -104,11 +104,12 @@ def test_admin_gets_own_school_rollup() -> None:
     assert body["school_name"] == "Springfield"
     assert body["students"] == {"total": 1, "enrolled": 1, "pending": 0, "failed": 0}
     assert body["events"]["total"] == 1
-    assert body["media"] == {"total": 1, "pending": 1}
+    assert body["media"] == {"total": 1, "pending": 1, "failed": 0}
     assert body["needs_attention"] == {
         "events_undistributed": 1,
         "enrollment_failures": 0,
         "needs_review": 1,
+        "photos_failed": 0,
     }
     # Setup checklist (BP7a): s1 has a teacher, an enrolled student, an event, and a
     # photo — but its only event was never announced (not_started, no completion).

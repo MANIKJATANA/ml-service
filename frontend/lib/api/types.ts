@@ -198,6 +198,9 @@ export interface EventListItem extends EventResponse {
   media_count: number;
   matched_students: number;
   needs_review: number;
+  // BP19c: still-pending photos — lets the list pill flag a "second batch" (new photos on an
+  // already-completed event) instead of reading a stale "Completed".
+  pending: number;
 }
 
 /** One uploaded event photo + its per-photo processing state (decisions/0027). */
@@ -342,7 +345,7 @@ export interface DashboardResponse {
   school_name: string;
   students: { total: number; enrolled: number; pending: number; failed: number };
   events: { total: number; active: number; archived: number; processing: number };
-  media: { total: number; pending: number };
+  media: { total: number; pending: number; failed: number };
   /** First-run onboarding progress (BP7a, decisions/0044) — five booleans the dashboard
    *  renders as a guided checklist that retires once the school has distributed. */
   setup_checklist: {
@@ -356,6 +359,7 @@ export interface DashboardResponse {
     events_undistributed: number;
     enrollment_failures: number;
     needs_review: number;
+    photos_failed: number; // BP19c: photos that failed processing (no more "All processed" over them)
   };
 }
 

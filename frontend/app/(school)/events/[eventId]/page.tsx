@@ -3,7 +3,7 @@
 import { Archive, Images, Pencil, Play, RotateCcw, Send, Upload } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useEffect, useState } from "react";
 import { mutate as globalMutate } from "swr";
 
 import { Breadcrumb } from "@/components/ui/breadcrumb";
@@ -25,6 +25,8 @@ import { notifyStudents, processEvent, updateEvent } from "@/lib/api/endpoints";
 import { isApiError } from "@/lib/api/errors";
 import type { EventProcessingStatus, EventResponse } from "@/lib/api/types";
 import {
+  derivePillStatus,
+  EVENT_INFLIGHT_STALE_MS,
   EVENT_STATUS_LABEL,
   EVENT_STATUS_TONE,
   PROCESSING_LABEL,
@@ -36,7 +38,7 @@ import { useEvent } from "@/lib/hooks/use-events";
 import { useEventCategories } from "@/lib/hooks/use-event-categories";
 import { useEventNotifications } from "@/lib/hooks/use-event-notifications";
 import { useEventStatus } from "@/lib/hooks/use-event-status";
-import { cn, formatDate } from "@/lib/utils";
+import { cn, formatDate, formatDateTime } from "@/lib/utils";
 
 function EditEventDialog({
   event,
@@ -389,15 +391,27 @@ export default function EventDetailPage() {
   const inFlight = proc === "queued" || proc === "processing";
   // BP19a: the job dead-lettered — a terminal, visible failure the operator can retry.
   const isFailed = proc === "failed";
-  // The pill must not contradict the counts: after a completed run + new uploads the
-  // backend keeps processing_status="completed" while pending > 0. When nothing is in
-  // flight and we have counts, reflect the outstanding work rather than the stale status —
-  // but never override a `failed` event (its media stay pending, which would read as
-  // "not started" and hide the failure).
-  let pillStatus: EventProcessingStatus = proc;
-  if (!inFlight && !isFailed && status) {
-    pillStatus = status.total > 0 && status.pending === 0 ? "completed" : "not_started";
-  }
+  // The pill must not contradict the counts (a "second batch" of new photos on a completed
+  // event should read as unfinished). Shared with the events list via derivePillStatus so
+  // both agree; a `failed` event is never overridden (BP19c).
+  const pillStatus: EventProcessingStatus = status
+    ? derivePillStatus(proc, { total: status.total, pending: status.pending })
+    : proc;
+  // BP19c staleness (R3-S1-03): a stuck event was indistinguishable from a healthy one. Show
+  // how long it's been processing, and past the threshold (19a's guard) escalate + offer Retry.
+  // `nowMs` is refreshed in an effect (not read in render — Date.now() is impure there), and
+  // ticks every 30s while in-flight so the escalation appears once the threshold is crossed.
+  const enqueuedAt = event?.enqueued_at ? new Date(event.enqueued_at) : null;
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    if (!inFlight) return;
+    const id = setInterval(() => setNowMs(Date.now()), 30_000);
+    return () => clearInterval(id);
+  }, [inFlight]);
+  const staleInFlight =
+    inFlight &&
+    enqueuedAt !== null &&
+    nowMs - enqueuedAt.getTime() >= EVENT_INFLIGHT_STALE_MS;
 
   return (
     <div className="flex flex-col gap-6">
@@ -569,10 +583,11 @@ export default function EventDetailPage() {
                       <Upload className="size-4" aria-hidden="true" />
                       {status.total === 0 ? "Upload photos" : "Add more photos"}
                     </Link>
-                    {!inFlight && (status.pending > 0 || status.failed > 0 || isFailed) ? (
+                    {(!inFlight && (status.pending > 0 || status.failed > 0 || isFailed)) ||
+                    staleInFlight ? (
                       <Button onClick={onProcess} loading={processing}>
                         <Play className="size-4" aria-hidden="true" />
-                        {isFailed
+                        {isFailed || staleInFlight
                           ? "Retry"
                           : status.pending > 0
                             ? proc === "completed"
@@ -585,9 +600,23 @@ export default function EventDetailPage() {
                 )}
 
                 <div aria-live="polite">
+                  {/* BP19c: show how long it's been processing (a stuck event was
+                      indistinguishable from a healthy one), and escalate past the threshold. */}
                   {!isArchived && inFlight ? (
-                    <p className="text-body-sm text-ink-secondary">
-                      Distribution is running — this updates automatically.
+                    <p
+                      className={
+                        staleInFlight
+                          ? "text-body-sm text-warning-strong"
+                          : "text-body-sm text-ink-secondary"
+                      }
+                    >
+                      {enqueuedAt
+                        ? `Processing since ${formatDateTime(event.enqueued_at as string)}`
+                        : "Processing"}{" "}
+                      — this updates automatically.
+                      {staleInFlight
+                        ? " This is taking longer than usual; you can retry below."
+                        : ""}
                     </p>
                   ) : null}
                   {/* BP19a: the whole job dead-lettered (not just some photos) — a terminal,

@@ -513,41 +513,51 @@ async def test_event_status_counts_and_undistributed_alert(
         )
         return ev.id
 
-    e1 = await mk(a.id, "not_started+media")  # active, not_started, has media
+    e1 = await mk(a.id, "not_started+media")  # active, not_started, has pending media
     await mk(a.id, "not_started, no media")  # active, not_started, no media
     e3 = await mk(a.id, "processing")  # active, processing, has media
     e4 = await mk(a.id, "archived+completed")  # archived, completed
     e5 = await mk(a.id, "archived not_started+media")  # archived, not_started, has media
+    e6 = await mk(a.id, "completed+second-batch")  # active, completed, has NEW pending media
     await mk(b.id, "B-noise")  # other school
 
     await events.set_processing(e3, status=EventProcessingStatus.PROCESSING)
     await events.update(a.id, e4, status=EventStatus.ARCHIVED)
     await events.set_processing(e4, status=EventProcessingStatus.COMPLETED)
     await events.update(a.id, e5, status=EventStatus.ARCHIVED)
+    await events.set_processing(e6, status=EventProcessingStatus.COMPLETED)
 
-    for ev_id, path in ((e1, "p1.jpg"), (e3, "p3.jpg"), (e5, "p5.jpg")):
+    for ev_id, path in ((e1, "p1.jpg"), (e3, "p3.jpg"), (e5, "p5.jpg"), (e6, "p6.jpg")):
         await media.create(
             school_id=a.id, event_id=ev_id, storage_path=path,
             media_type=MediaType.IMAGE,
-        )
+        )  # media.create defaults to processing_status='pending'
 
     rollup = await events.status_counts(a.id)
-    # 5 events: e1/e2/e3 active, e4/e5 archived; only e3 in-flight.
+    # 6 events: e1/e2/e3/e6 active, e4/e5 archived; only e3 in-flight.
     assert (rollup.total, rollup.active, rollup.archived, rollup.processing) == (
-        5, 3, 2, 1,
+        6, 4, 2, 1,
     )
 
-    # Only e1 is active AND not_started AND has ≥1 photo. e5 is not_started with media
-    # but ARCHIVED (can't be Processed), so it's excluded; e3 isn't not_started.
-    assert await events.count_not_started_with_media(a.id) == 1
-    assert await events.count_not_started_with_media("not-a-uuid") == 0
+    # BP19c: active, not-in-flight events with >=1 PENDING photo. e1 (not_started+pending)
+    # AND e6 (completed but a NEW pending batch — the widening) both count. e3 is in-flight;
+    # e5 is archived; e2 has no media → all excluded.
+    assert await events.count_active_with_pending_media(a.id) == 2
+    assert await events.count_active_with_pending_media("not-a-uuid") == 0
+
+    # BP19c: pending photos per event (status-agnostic — every event with pending media
+    # appears; the list derives the pill, the alert filters by event status). All four created
+    # media are pending, so e1/e3/e5/e6 each read 1 (the no-media event is absent).
+    pending_by_event = await media.pending_counts_by_event(a.id)
+    assert pending_by_event.get(e1) == 1 and pending_by_event.get(e6) == 1
+    assert set(pending_by_event) == {e1, e3, e5, e6}
 
     # count_distributed (BP7a): "announced" = a manual notified_at OR (auto_notify —
-    # server-defaults true — AND completed_at). e4 is ARCHIVED + completed -> still
-    # announced via the auto path (distribution is status-agnostic); mark e1 notified too.
-    # e2/e3/e5 are neither completed nor notified -> excluded.
+    # server-defaults true — AND completed_at). e4 (ARCHIVED + completed) and e6 (completed)
+    # are both announced via the auto path (distribution is status-agnostic); mark e1 notified
+    # too. e2/e3/e5 are neither completed nor notified -> excluded.
     await events.mark_notified(e1)
-    assert await events.count_distributed(a.id) == 2
+    assert await events.count_distributed(a.id) == 3
     assert await events.count_distributed(b.id) == 0
     assert await events.count_distributed("not-a-uuid") == 0
 

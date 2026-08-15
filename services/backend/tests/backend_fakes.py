@@ -1130,8 +1130,8 @@ class FakeEventRepo:
     def __init__(self, events: list[Event] | None = None) -> None:
         self._by_id: dict[str, Event] = {e.id: e for e in (events or [])}
         self._seq = 0
-        # Optionally linked to a FakeMediaRepo so count_not_started_with_media can see
-        # which events actually have photos (mirrors the real EXISTS join).
+        # Optionally linked to a FakeMediaRepo so count_active_with_pending_media can see
+        # which events have pending photos (mirrors the real EXISTS-on-pending-media join).
         self._media_repo: FakeMediaRepo | None = None
         # Resolves a category name by id — mirrors the event_categories LEFT JOIN (BP11b).
         self._category_name_of: Callable[[str], str | None] = lambda _cid: None
@@ -1365,19 +1365,27 @@ class FakeEventRepo:
             total=total, active=active, archived=archived, processing=processing
         )
 
-    async def count_not_started_with_media(self, school_id: str) -> int:
+    async def count_active_with_pending_media(self, school_id: str) -> int:
+        # BP19c: active, not-in-flight events with >=1 pending photo (catches a second batch,
+        # not just never-processed events). Mirrors the real EXISTS-on-pending-media predicate.
+        in_flight = (
+            EventProcessingStatus.QUEUED,
+            EventProcessingStatus.PROCESSING,
+        )
         n = 0
         for event in self._by_id.values():
             if (
                 event.school_id != school_id
                 or event.status is not EventStatus.ACTIVE  # archived can't be Processed
-                or event.processing_status is not EventProcessingStatus.NOT_STARTED
+                or event.processing_status in in_flight  # already being worked
             ):
                 continue
-            if self._media_repo is not None and await self._media_repo.list_by_event(
-                school_id, event.id
-            ):
-                n += 1
+            if self._media_repo is not None:
+                media = await self._media_repo.list_by_event(school_id, event.id)
+                if any(
+                    m.processing_status is MediaProcessingStatus.PENDING for m in media
+                ):
+                    n += 1
         return n
 
     async def count_distributed(self, school_id: str) -> int:
@@ -1767,6 +1775,16 @@ class FakeMediaRepo:
         counts: dict[str, int] = {}
         for m in self._by_id.values():
             if m.school_id == school_id:
+                counts[m.event_id] = counts.get(m.event_id, 0) + 1
+        return counts
+
+    async def pending_counts_by_event(self, school_id: str) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for m in self._by_id.values():
+            if (
+                m.school_id == school_id
+                and m.processing_status is MediaProcessingStatus.PENDING
+            ):
                 counts[m.event_id] = counts.get(m.event_id, 0) + 1
         return counts
 

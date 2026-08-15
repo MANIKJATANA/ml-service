@@ -138,6 +138,11 @@ services:
       context: .
       dockerfile: services/ml_service/Dockerfile
     command: ["python", "-m", "ml_service.workers.inference_worker"]
+    # BP19b: the worker exposes its Prometheus metrics (job-outcome + failure counters +
+    # DLQ-depth/in-flight-age gauges) at /metrics. Scale-out note: give each replica on one
+    # host a distinct ML_WORKER_METRICS_PORT + host mapping.
+    ports:
+      - "9100:9100"
     env_file:
       - path: .env
         required: false

@@ -24,6 +24,7 @@ from collections.abc import Callable
 from ml_service.domain.errors import EmbeddingVersionMismatch
 from ml_service.domain.models import EventJob, EventOutcome, JobLease
 from ml_service.domain.ports import JobQueue
+from ml_service.observability import metrics
 from ml_service.observability.tracing import span
 from ml_service.orchestration.inference import InferenceService
 
@@ -92,13 +93,29 @@ class WorkerRunner:
     async def _dlq_loop(self) -> None:
         """BP19a — the DLQ consumer that was missing: periodically drain the dead-letter
         stream and flip each dead-lettered event to ``failed`` (visible + retryable), so a
-        stranded job never leaves its event stuck on "processing" forever."""
+        stranded job never leaves its event stuck on "processing" forever. BP19b: also refresh
+        the DLQ-depth + oldest-in-flight-age gauges each sweep."""
         while True:
+            # Drain FIRST, in its own guard: the DLQ drain is core recovery (BP19a), the gauge
+            # refresh is "not core" observability — a persistent gauge-read failure must never
+            # starve the drain and re-strand events. So they never share a try.
             try:
                 await self._drain_dead_letters_once()
             except Exception:
                 log.exception("dead-letter drain failed; continuing")
+            try:
+                await self._refresh_queue_gauges()
+            except Exception:
+                log.exception("queue-gauge refresh failed; continuing")
             await asyncio.sleep(self._dlq_poll_s)
+
+    async def _refresh_queue_gauges(self) -> None:
+        # BP19b: worker-observed queue health — how deep is the DLQ, and how long has the
+        # oldest in-flight job been waiting (the stuck-worker / queue-lag signal).
+        metrics.set_queue_gauges(
+            dlq_depth=await self._queue.dead_letter_depth(),
+            oldest_pending_age_ms=await self._queue.oldest_pending_age_ms(),
+        )
 
     async def _drain_dead_letters_once(self) -> None:
         for dead in await self._queue.drain_dead_letters():
@@ -106,6 +123,7 @@ class WorkerRunner:
             # re-marks idempotently on the next drain, never losing the failure (mark-safe).
             await self._service.mark_event_failed(dead.job)
             await self._queue.remove_dead_letter(dead.receipt)
+            metrics.record_job_failed(dead.reason)  # BP19b: count the terminal failure
             log.warning(
                 "event job dead-lettered; marked failed",
                 extra={
@@ -134,6 +152,7 @@ class WorkerRunner:
                 "embedding-model version mismatch; index is stale — ALERT",
                 extra={"event_id": job.event_id, "school_id": job.school_id},
             )
+            metrics.record_version_mismatch(job.school_id)  # BP19b: the ALERT, now countable
             await self._queue.nack(lease)
             return
         except Exception:

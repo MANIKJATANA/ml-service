@@ -40,3 +40,9 @@ class InProcJobQueue:
 
     async def remove_dead_letter(self, receipt: str) -> None:
         return None
+
+    async def dead_letter_depth(self) -> int:
+        return 0  # no DLQ in the in-process queue (BP19b)
+
+    async def oldest_pending_age_ms(self) -> float | None:
+        return None  # no pending-list introspection in the in-process queue (BP19b)

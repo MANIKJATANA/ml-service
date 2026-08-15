@@ -187,3 +187,12 @@ class JobQueue(Protocol):
     async def remove_dead_letter(self, receipt: str) -> None:
         """Remove one dead-letter entry after its event has been marked ``failed`` (BP19a)."""
         ...
+
+    async def dead_letter_depth(self) -> int:
+        """How many entries are in the dead-letter stream right now (BP19b — a gauge)."""
+        ...
+
+    async def oldest_pending_age_ms(self) -> float | None:
+        """Age (ms) of the oldest in-flight (pending, unacked) job, or ``None`` if the stream
+        is idle (BP19b — a gauge; the queue-lag / stuck-worker signal)."""
+        ...

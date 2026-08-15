@@ -9,6 +9,7 @@ reclaimed and redelivered.
 
 from __future__ import annotations
 
+import time
 from collections.abc import AsyncIterator
 from typing import Any, cast
 
@@ -112,6 +113,27 @@ class RedisStreamsJobQueue:
 
     async def remove_dead_letter(self, receipt: str) -> None:
         await self._redis.xdel(self._dlq, receipt)
+
+    async def dead_letter_depth(self) -> int:
+        # BP19b: gauge — how many jobs are sitting dead in the DLQ right now.
+        return int(await self._redis.xlen(self._dlq))
+
+    async def oldest_pending_age_ms(self) -> float | None:
+        # BP19b: gauge — age of the oldest in-flight (pending, unacked) job. Redis stream ids
+        # are `<ms>-<seq>`, so the oldest pending id's ms prefix gives its enqueue time; the
+        # age is now - that. None when nothing is pending (an idle stream).
+        await self._ensure_group()
+        summary: Any = await self._redis.xpending(self._stream, self._group)
+        if not isinstance(summary, dict):
+            return None
+        oldest = summary.get("min")
+        if not summary.get("pending") or oldest is None:
+            return None
+        try:
+            enqueued_ms = int(_as_str(oldest).split("-")[0])
+        except (ValueError, IndexError):
+            return None
+        return max(0.0, time.time() * 1000.0 - enqueued_ms)
 
     # ---- internals ------------------------------------------------------
 

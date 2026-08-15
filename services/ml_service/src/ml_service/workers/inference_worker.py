@@ -57,6 +57,17 @@ async def _amain(container: Container) -> None:
 def main() -> None:
     configure_logging(settings.log_level, json_output=settings.log_json)
     configure_tracing(settings.service_name, otlp_endpoint=settings.otel_exporter_otlp_endpoint)
+    # BP19b: the worker has no API of its own, so expose the default registry (job-outcome +
+    # failure metrics) at its own /metrics. A bind failure (e.g. port already used by a second
+    # worker on the same host) is logged but never kills the worker — metrics are not core.
+    try:
+        metrics.start_metrics_server(settings.worker_metrics_port)
+        log.info("worker metrics server started", extra={"port": settings.worker_metrics_port})
+    except OSError as exc:  # pragma: no cover - depends on host port availability
+        log.warning(
+            "worker metrics server failed to start; continuing without it",
+            extra={"error": str(exc)},
+        )
     container = Container(settings)
     try:
         asyncio.run(_amain(container))

@@ -17,8 +17,13 @@ from ml_service.adapters.queue.inproc_queue import InProcJobQueue
 from ml_service.domain.errors import EmbeddingVersionMismatch
 from ml_service.domain.models import DeadLetter, EventJob, EventOutcome, JobLease
 from ml_service.domain.ports import JobQueue
+from ml_service.observability import metrics
 from ml_service.orchestration.inference import InferenceService
 from ml_service.workers.runner import WorkerRunner
+
+
+def _counter(metric: object, **labels: str) -> float:
+    return float(metric.labels(**labels)._value.get())  # type: ignore[attr-defined]
 
 JOB = EventJob(school_id="school-1", event_id="ev-1")
 OUTCOME = EventOutcome(
@@ -43,12 +48,16 @@ class _RecordingQueue:
         *,
         dead_letters: list[DeadLetter] | None = None,
         order: list[str] | None = None,
+        depth: int = 0,
+        oldest_age: float | None = None,
     ) -> None:
         self.acks: list[JobLease] = []
         self.nacks: list[JobLease] = []
         self._dead = list(dead_letters or [])
         self.removed: list[str] = []
         self._order = order
+        self._depth = depth
+        self._oldest_age = oldest_age
 
     async def ack(self, lease: JobLease) -> None:
         self.acks.append(lease)
@@ -66,6 +75,12 @@ class _RecordingQueue:
         if self._order is not None:
             self._order.append(f"remove:{receipt}")
         self.removed.append(receipt)
+
+    async def dead_letter_depth(self) -> int:
+        return self._depth
+
+    async def oldest_pending_age_ms(self) -> float | None:
+        return self._oldest_age
 
 
 class _ScriptedService:
@@ -150,6 +165,36 @@ def test_dlq_drain_is_a_noop_when_empty() -> None:
     asyncio.run(_runner(q, svc)._drain_dead_letters_once())
     asyncio.run(_runner(q, svc)._drain_dead_letters_once())  # nothing left to drain
     assert svc.failed == [JOB] and q.removed == ["9-0"]
+
+
+def test_version_mismatch_increments_metric() -> None:
+    # BP19b: the stale-index ALERT is now a countable signal (fires from the runner, not just
+    # a log line). JOB.school_id == "school-1".
+    q = _RecordingQueue()
+    svc = _ScriptedService(raises=EmbeddingVersionMismatch("stale index"))
+    before = _counter(metrics.EMBEDDING_VERSION_MISMATCH, school_id="school-1")
+    asyncio.run(_runner(q, svc).handle(JobLease(JOB, "r1")))
+    assert _counter(metrics.EMBEDDING_VERSION_MISMATCH, school_id="school-1") - before == 1
+
+
+def test_dead_letter_increments_jobs_failed_metric() -> None:
+    # BP19b: a dead-lettered job increments jobs_failed_total{reason} (the reason threaded
+    # through from the DeadLetter), fired from the DLQ consumer.
+    dl = DeadLetter(job=JOB, reason="max_deliveries_exceeded", receipt="1-0")
+    q = _RecordingQueue(dead_letters=[dl])
+    svc = _ScriptedService(outcome=OUTCOME)
+    before = _counter(metrics.JOBS_FAILED, reason="max_deliveries_exceeded")
+    asyncio.run(_runner(q, svc)._drain_dead_letters_once())
+    assert _counter(metrics.JOBS_FAILED, reason="max_deliveries_exceeded") - before == 1
+
+
+def test_refresh_queue_gauges_pushes_queue_stats() -> None:
+    # BP19b: each DLQ sweep pushes the worker-observed queue gauges from the queue stats.
+    q = _RecordingQueue(depth=3, oldest_age=1500.0)
+    svc = _ScriptedService(outcome=OUTCOME)
+    asyncio.run(_runner(q, svc)._refresh_queue_gauges())
+    assert metrics.DLQ_DEPTH._value.get() == 3
+    assert metrics.INFLIGHT_OLDEST_AGE_MS._value.get() == 1500.0
 
 
 def test_run_loop_consumes_from_inproc_queue() -> None:

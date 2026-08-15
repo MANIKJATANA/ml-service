@@ -111,6 +111,12 @@ class Settings(BaseSettings):
     # flip a stranded event to `failed`. A dead-lettered event surfaces within ~this interval.
     dlq_poll_s: float = 30.0
 
+    # --- worker metrics (BP19b) -----------------------------------------
+    # The inference worker exposes the Prometheus default registry (job-outcome + failure
+    # metrics) at http://<worker>:<port>/metrics. Give each worker on the SAME host a distinct
+    # port (like ML_QUEUE_CONSUMER); the ML API keeps its own /metrics on port 8000.
+    worker_metrics_port: int = 9100
+
     # --- readiness probe (/readyz) --------------------------------------
     readiness_timeout_s: float = 5.0
 

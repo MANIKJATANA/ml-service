@@ -68,3 +68,24 @@ async def test_drain_and_remove_dead_letters(client) -> None:  # type: ignore[no
     await q.remove_dead_letter(drained[0].receipt)
     assert await client.xlen(dead) == 0
     assert await q.drain_dead_letters() == []  # a second drain is a no-op
+
+
+async def test_queue_stats_gauges(client) -> None:  # type: ignore[no-untyped-def]
+    # BP19b: the DLQ-depth + oldest-in-flight-age gauges read from real Redis.
+    q = RedisStreamsJobQueue(client, stream="ml:test:jobs", group="g1", consumer="c1")
+    # idle: nothing dead, nothing pending
+    assert await q.dead_letter_depth() == 0
+    assert await q.oldest_pending_age_ms() is None
+
+    await client.xadd(
+        "ml:test:jobs:dead", {"school_id": "s1", "event_id": "e1", "_dlq_reason": "x"}
+    )
+    assert await q.dead_letter_depth() == 1
+
+    # a consumed-but-unacked job is "in flight" (pending) with a measurable age
+    await q.enqueue(JOB)
+    lease = await anext(q.consume())
+    age = await q.oldest_pending_age_ms()
+    assert age is not None and age >= 0
+    await q.ack(lease)
+    assert await q.oldest_pending_age_ms() is None  # acked -> no longer pending

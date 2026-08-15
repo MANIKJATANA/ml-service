@@ -152,11 +152,27 @@ async def test_user_must_change_password_and_set_password(
     assert temp.must_change_password is True
 
     # set_password rewrites the hash and clears the flag.
+    assert temp.token_version == 0  # a fresh account starts at 0 (server default)
     await users.set_password(temp.id, password_hash="h2-new", must_change_password=False)
     reloaded = await users.get(temp.id)
     assert reloaded is not None
     assert reloaded.password_hash == "h2-new"
     assert reloaded.must_change_password is False
+
+    # BP18d: a password change bumps token_version (revoking previously-issued tokens);
+    # a transparent rehash-on-login (revoke_sessions=False) does NOT — else the token just
+    # issued at that same login would be invalidated instantly.
+    assert reloaded.token_version == temp.token_version + 1
+    await users.set_password(
+        temp.id,
+        password_hash="h2-rehash",
+        must_change_password=False,
+        revoke_sessions=False,
+    )
+    rehashed = await users.get(temp.id)
+    assert rehashed is not None
+    assert rehashed.password_hash == "h2-rehash"
+    assert rehashed.token_version == reloaded.token_version  # unchanged by a rehash
 
     # A missing user is a NotFoundError, not a silent no-op.
     with pytest.raises(NotFoundError):
@@ -909,6 +925,39 @@ async def test_student_get_by_user_id_is_tenant_scoped(
     # A foreign school never resolves the profile; a garbage id is None (not an error).
     assert await students.get_by_user_id("other-not-uuid", login.id) is None
     assert await students.get_by_user_id(school.id, str(_MISSING_UUID)) is None
+
+
+async def test_student_read_model_reflects_login_status(
+    sm: async_sessionmaker[AsyncSession],
+) -> None:
+    # BP18d: the student read model carries the linked login's status off the users JOIN —
+    # so disabling the login surfaces on the student's own reads (get/get_by_user_id/list),
+    # which is what the FE shows + toggles. Written to the USER row; read on the student JOIN.
+    schools = PostgresSchoolRepository(sm)
+    users = PostgresUserRepository(sm)
+    students = PostgresStudentRepository(sm)
+    school = await schools.create(name="A", max_teachers=5)
+    login = await users.create(
+        school_id=school.id, email="s@x.io", password_hash="h", role=Role.STUDENT
+    )
+    created = await students.create(
+        school_id=school.id, user_id=login.id, name="Bart",
+        reference_photo_path="reference-photos/a/p.jpg",
+    )
+    assert created.status is UserStatus.ACTIVE  # fresh login is active
+
+    await users.set_status(login.id, status=UserStatus.DISABLED)
+    # Every read path reflects the disable (get / get_by_user_id / list_page).
+    got = await students.get(school.id, created.id)
+    assert got is not None and got.status is UserStatus.DISABLED
+    by_user = await students.get_by_user_id(school.id, login.id)
+    assert by_user is not None and by_user.status is UserStatus.DISABLED
+    page = await students.list_page(school.id, limit=10, offset=0)
+    assert [s.status for s in page if s.id == created.id] == [UserStatus.DISABLED]
+
+    await users.set_status(login.id, status=UserStatus.ACTIVE)
+    reenabled = await students.get(school.id, created.id)
+    assert reenabled is not None and reenabled.status is UserStatus.ACTIVE
 
 
 # ---- BP9: paginated list SQL (decisions/0055) -----------------------------

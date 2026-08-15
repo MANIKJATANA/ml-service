@@ -1,11 +1,13 @@
 import { type NextRequest, NextResponse } from "next/server";
 
-import { BACKEND_ORIGIN } from "@/lib/auth/backend";
-import { ACCESS_COOKIE } from "@/lib/auth/cookies";
+import { type AuthResponse, BACKEND_ORIGIN } from "@/lib/auth/backend";
+import { ACCESS_COOKIE, setAuthCookies } from "@/lib/auth/cookies";
 
 /**
  * POST /api/auth/change-password — forward the change with the access-token Bearer.
- * The backend clears `must_change_password`; the client then re-fetches /me.
+ * The backend clears `must_change_password` AND (BP18d) re-issues a fresh token pair — its
+ * token_version bump revoked the old one — which we store as the new cookies so the user isn't
+ * logged out of their own session by their own password change.
  */
 export async function POST(request: NextRequest): Promise<NextResponse> {
   const access = request.cookies.get(ACCESS_COOKIE)?.value;
@@ -26,9 +28,22 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ detail: "Auth service unreachable" }, { status: 502 });
   }
 
-  if (backendRes.status === 204) {
-    return new NextResponse(null, { status: 204 });
+  const data = (await backendRes.json().catch(() => null)) as
+    | (Partial<AuthResponse> & { detail?: string })
+    | null;
+
+  if (!backendRes.ok || !data?.access_token || !data.refresh_token) {
+    return NextResponse.json(
+      { detail: data?.detail ?? "Change password failed" },
+      { status: backendRes.ok ? 502 : backendRes.status },
+    );
   }
-  const data = await backendRes.json().catch(() => ({ detail: "Change password failed" }));
-  return NextResponse.json(data, { status: backendRes.status });
+
+  // BP18d: swap in the re-issued tokens so the acting session survives the password change.
+  const res = NextResponse.json(
+    { must_change_password: Boolean(data.must_change_password) },
+    { status: 200 },
+  );
+  setAuthCookies(res, data.access_token, data.refresh_token, data.expires_in ?? 900);
+  return res;
 }

@@ -55,6 +55,9 @@ export interface StudentResponse {
   // BP11a: the class this student belongs to (null = un-classed); name denormalized for display.
   student_group_id: string | null;
   student_group_name: string | null;
+  // BP18d: the linked login's status. Staff show + toggle a non-destructive kill-switch — a
+  // disabled student can't sign in but keeps all history (unlike delete).
+  status: UserStatus;
   created_at: string;
   updated_at: string;
 }

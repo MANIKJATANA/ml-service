@@ -7,7 +7,7 @@ response. Domain errors (`AuthenticationError` → 401, etc.) are mapped central
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Response, status
+from fastapi import APIRouter
 
 from backend.api.deps import ContainerDep, CurrentUser
 from backend.api.schemas.auth import (
@@ -40,16 +40,21 @@ async def refresh(body: RefreshRequest, container: ContainerDep) -> TokenRespons
     )
 
 
-@router.post("/change-password", status_code=status.HTTP_204_NO_CONTENT)
+@router.post("/change-password", response_model=TokenResponse)
 async def change_password(
     body: ChangePasswordRequest, user: CurrentUser, container: ContainerDep
-) -> Response:
-    await container.auth_service().change_password(
+) -> TokenResponse:
+    # BP18d: changing a password bumps the user's token_version, revoking the caller's own
+    # tokens too — so re-issue a fresh pair here (the BFF swaps the cookies) and the user is
+    # not logged out of their own session mid-change.
+    result = await container.auth_service().change_password(
         user_id=user.id,
         current_password=body.current_password,
         new_password=body.new_password,
     )
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
+    return TokenResponse.from_pair(
+        result.tokens, must_change_password=result.user.must_change_password
+    )
 
 
 @router.get("/me", response_model=UserResponse)

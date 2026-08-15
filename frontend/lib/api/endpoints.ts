@@ -259,6 +259,18 @@ export function resendStudentInvite(
   );
 }
 
+/** Enable/disable a student's login (BP18d) — a non-destructive kill-switch. A disabled
+ *  student can't sign in but keeps all history (unlike delete). */
+export function setStudentStatus(
+  studentId: string,
+  status: UserStatus,
+): Promise<StudentResponse> {
+  return bffFetch<StudentResponse>(
+    `/api/v1/students/${encodeURIComponent(studentId)}/status`,
+    { method: "PATCH", body: JSON.stringify({ status }) },
+  );
+}
+
 /** Mint a signed target for the reference photo (bytes go browser→Supabase). */
 export function studentUploadUrl(): Promise<UploadUrlResponse> {
   return bffFetch<UploadUrlResponse>("/api/v1/students/upload-url", { method: "POST" });

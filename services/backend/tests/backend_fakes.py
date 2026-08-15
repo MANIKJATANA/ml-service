@@ -131,6 +131,7 @@ def make_user(
     role: Role = Role.TEACHER,
     status: UserStatus = UserStatus.ACTIVE,
     must_change_password: bool = False,
+    token_version: int = 0,
 ) -> User:
     return User(
         id=id,
@@ -142,6 +143,7 @@ def make_user(
         must_change_password=must_change_password,
         created_at=_NOW,
         updated_at=_NOW,
+        token_version=token_version,
     )
 
 
@@ -175,6 +177,7 @@ def make_student(
     enrollment_failure_reason: EnrollmentFailureReason | None = None,
     student_group_id: str | None = None,
     student_group_name: str | None = None,
+    status: UserStatus = UserStatus.ACTIVE,
 ) -> Student:
     return Student(
         id=id,
@@ -188,6 +191,7 @@ def make_student(
         enrollment_failure_reason=enrollment_failure_reason,
         student_group_id=student_group_id,
         student_group_name=student_group_name,
+        status=status,
         created_at=_NOW,
         updated_at=_NOW,
     )
@@ -446,17 +450,34 @@ class FakeUserRepo:
         user = self._by_id.get(user_id)
         return user.email if user is not None else ""
 
+    def status_of(self, user_id: str) -> UserStatus:
+        """Sync helper: the login status for a user_id — mirrors the repo JOIN (BP18d).
+        Lets the student read model reflect a disable the moment ``set_status`` writes it."""
+        user = self._by_id.get(user_id)
+        return user.status if user is not None else UserStatus.ACTIVE
+
     async def get_by_email(self, email: str) -> User | None:
         return self._by_email.get(normalize_email(email))
 
     async def set_password(
-        self, user_id: str, *, password_hash: str, must_change_password: bool
+        self,
+        user_id: str,
+        *,
+        password_hash: str,
+        must_change_password: bool,
+        revoke_sessions: bool = True,
     ) -> None:
         self.set_calls.append((user_id, password_hash, must_change_password))
         if user_id not in self._by_id:
             raise NotFoundError(user_id)
+        # BP18d: a real change/reset bumps token_version (revokes old sessions); a rehash
+        # (revoke_sessions=False) leaves it — the password didn't change.
+        tv = self._by_id[user_id].token_version + (1 if revoke_sessions else 0)
         self.mutate(
-            user_id, password_hash=password_hash, must_change_password=must_change_password
+            user_id,
+            password_hash=password_hash,
+            must_change_password=must_change_password,
+            token_version=tv,
         )
 
     async def set_status(self, user_id: str, *, status: UserStatus) -> None:
@@ -653,12 +674,24 @@ class FakeStudentRepo:
         # Resolves a class name by group_id — mirrors the repo's student_groups LEFT JOIN
         # (BP11a). Wired to the FakeStudentGroupRepo in tests; defaults to None (un-classed).
         self._group_name_of: Callable[[str], str | None] = lambda _gid: None
+        # Resolves a login status by user_id — mirrors the repo's users JOIN (BP18d). Unlike
+        # email/class, status is written to the USER row (set_status), so it must be resolved
+        # on every read (not snapshotted at create) for a disable to surface. Defaults active.
+        self._status_of: Callable[[str], UserStatus] = lambda _uid: UserStatus.ACTIVE
 
     def link_users(self, resolver: Callable[[str], str]) -> None:
         self._email_of = resolver
 
+    def link_user_status(self, resolver: Callable[[str], UserStatus]) -> None:
+        self._status_of = resolver
+
     def link_groups(self, resolver: Callable[[str], str | None]) -> None:
         self._group_name_of = resolver
+
+    def _hydrate(self, student: Student) -> Student:
+        """Reflect the linked login's CURRENT status on the read model — mirrors the users
+        JOIN. Email/class are snapshotted on write; status must be resolved on read (BP18d)."""
+        return replace(student, status=self._status_of(student.user_id))
 
     async def create(
         self,
@@ -683,23 +716,25 @@ class FakeStudentRepo:
             enrollment_status=EnrollmentStatus.PENDING,
         )
         self._by_id[student.id] = student
-        return student
+        return self._hydrate(student)
 
     async def get(self, school_id: str, student_id: str) -> Student | None:
         student = self._by_id.get(student_id)
         # Tenant-scoped: a foreign school never sees the row (mirrors the query).
         if student is None or student.school_id != school_id:
             return None
-        return student
+        return self._hydrate(student)
 
     async def get_by_user_id(self, school_id: str, user_id: str) -> Student | None:
         for student in self._by_id.values():
             if student.user_id == user_id and student.school_id == school_id:
-                return student
+                return self._hydrate(student)
         return None
 
     async def list_by_school(self, school_id: str) -> list[Student]:
-        return [s for s in self._by_id.values() if s.school_id == school_id]
+        return [
+            self._hydrate(s) for s in self._by_id.values() if s.school_id == school_id
+        ]
 
     def _match(
         self,
@@ -740,13 +775,14 @@ class FakeStudentRepo:
             for s in self._by_id.values()
             if self._match(s, school_id, q, status, student_group_id, scope_group_ids)
         ]
-        return _page(
+        page = _page(
             rows,
             key=_STUDENT_SORT_KEYS.get(sort, _STUDENT_SORT_KEYS[StudentSort.CREATED_AT]),
             descending=descending,
             offset=offset,
             limit=limit,
         )
+        return [self._hydrate(s) for s in page]
 
     async def count_page(
         self,
@@ -783,7 +819,7 @@ class FakeStudentRepo:
     ) -> list[Student]:
         wanted = set(student_ids)
         return [
-            s
+            self._hydrate(s)
             for s in self._by_id.values()
             if s.school_id == school_id and s.id in wanted
         ]
@@ -793,7 +829,7 @@ class FakeStudentRepo:
     ) -> list[Student]:
         wanted = {e.lower() for e in emails}
         return [
-            s
+            self._hydrate(s)
             for s in self._by_id.values()
             if s.school_id == school_id and s.email.lower() in wanted
         ]
@@ -2086,6 +2122,8 @@ class SeededContainer(Container):
         ):
             self._seed_users.link_cascade(self._seed_students.remove_by_user)
             self._seed_students.link_users(self._seed_users.email_of)
+            # BP18d: the student read model reflects the linked login's status (disable).
+            self._seed_students.link_user_status(self._seed_users.status_of)
         # Wire the class↔student links (BP11a): the student read carries its class name, the
         # classes list shows member counts, and deleting a class un-assigns its students —
         # and (BP11c) un-tags its events (both students.student_group_id + events.student_group_id

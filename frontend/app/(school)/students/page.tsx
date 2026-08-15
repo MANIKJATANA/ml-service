@@ -496,6 +496,12 @@ export default function StudentsPage() {
                                 {ENROLL_FAILURE_SHORT[student.enrollment_failure_reason]}
                               </span>
                             ) : null}
+                            {/* BP18d: a disabled login is a distinct axis from enrollment —
+                                surface it (labelled "Login disabled" so it never reads as an
+                                enrollment state) so staff can spot a locked-out student at a glance. */}
+                            {student.status === "disabled" ? (
+                              <StatusPill tone="neutral">Login disabled</StatusPill>
+                            ) : null}
                           </div>
                         </TableCell>
                       </TableRow>

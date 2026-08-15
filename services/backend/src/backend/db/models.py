@@ -97,6 +97,12 @@ class User(Base):
     last_login_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # Bumped on every password change/reset (migration 0017, BP18d) to revoke a user's older
+    # sessions: the `tv` claim in each JWT is compared to this on every request + refresh, so a
+    # changed/reset password invalidates all previously-issued tokens.
+    token_version: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0")
+    )
 
     __table_args__ = (
         UniqueConstraint("email", name="uq_users_email"),

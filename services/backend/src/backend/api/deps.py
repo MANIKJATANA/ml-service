@@ -50,6 +50,10 @@ async def get_current_user(
     user = await container.user_repo().get(claims.subject)
     if user is None or user.status is not UserStatus.ACTIVE:
         raise AuthenticationError("account is not active")
+    # BP18d: a password change/reset bumps the user's token_version — reject any token minted
+    # before it (revokes all older sessions on the next request).
+    if claims.token_version != user.token_version:
+        raise AuthenticationError("session expired; please sign in again")
     return user
 
 

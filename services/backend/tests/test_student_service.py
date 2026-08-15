@@ -17,6 +17,7 @@ from backend.domain.models import (
     SchoolStatus,
     Student,
     User,
+    UserStatus,
 )
 from backend.services.student_service import StudentService
 from backend.services.thumbnails import thumb_key
@@ -48,6 +49,7 @@ def _svc(
     strepo = FakeStudentRepo()
     urepo.link_cascade(strepo.remove_by_user)  # mirror the FK cascade
     strepo.link_users(urepo.email_of)  # mirror the users JOIN (email on student reads)
+    strepo.link_user_status(urepo.status_of)  # BP18d: status on student reads (disable)
     ml = ml_client or FakeMlClient()
     svc = StudentService(
         strepo,
@@ -173,6 +175,68 @@ async def test_resend_invite_is_tenant_scoped() -> None:
     with pytest.raises(NotFoundError):
         await svc.resend_invite(school_id="s2", student_id=student.id)
     assert ml.delete_calls == []
+
+
+# ---- disable / enable (BP18d) ------------------------------------------
+
+
+async def test_set_status_disables_and_reenables_the_students_login() -> None:
+    # BP18d: a non-destructive kill-switch. Disabling flips the linked login's status (auth
+    # then rejects a sign-in) AND surfaces on the student read model via the users JOIN; the
+    # student — profile, enrollment, matches — is untouched. Re-enabling restores access.
+    svc, strepo, urepo, ml = _svc()
+    student = await _create(
+        svc, school_id=_S1, name="Amy", email="amy@x.io", reference_photo_path=_PATH,
+    )
+    assert student.status is UserStatus.ACTIVE
+
+    disabled = await svc.set_status(
+        school_id=_S1, student_id=student.id, status=UserStatus.DISABLED
+    )
+    assert disabled.status is UserStatus.DISABLED
+    user = await urepo.get(student.user_id)
+    assert user is not None and user.status is UserStatus.DISABLED
+    # Nothing destroyed: the student still exists and ML delete was never called.
+    assert await strepo.get(_S1, student.id) is not None
+    assert ml.delete_calls == []
+
+    reenabled = await svc.set_status(
+        school_id=_S1, student_id=student.id, status=UserStatus.ACTIVE
+    )
+    assert reenabled.status is UserStatus.ACTIVE
+    user = await urepo.get(student.user_id)
+    assert user is not None and user.status is UserStatus.ACTIVE
+
+
+async def test_set_status_is_idempotent() -> None:
+    # Setting the current status is a no-op re-read (never a spurious write).
+    svc, _, urepo, _ = _svc()
+    student = await _create(
+        svc, school_id=_S1, name="Amy", email="amy@x.io", reference_photo_path=_PATH,
+    )
+    again = await svc.set_status(
+        school_id=_S1, student_id=student.id, status=UserStatus.ACTIVE
+    )
+    assert again.status is UserStatus.ACTIVE
+    user = await urepo.get(student.user_id)
+    assert user is not None and user.status is UserStatus.ACTIVE
+
+
+async def test_set_status_is_tenant_scoped() -> None:
+    # A student_id from another school resolves to 404 — never a cross-tenant disable.
+    svc, _, urepo, _ = _svc(
+        schools=[make_school(id=_S1, max_teachers=5), make_school(id="s2", max_teachers=5)]
+    )
+    student = await _create(
+        svc, school_id=_S1, name="Amy", email="amy@x.io", reference_photo_path=_PATH,
+    )
+    with pytest.raises(NotFoundError):
+        await svc.set_status(
+            school_id="s2", student_id=student.id, status=UserStatus.DISABLED
+        )
+    # The user's status is untouched by the rejected cross-tenant call.
+    user = await urepo.get(student.user_id)
+    assert user is not None and user.status is UserStatus.ACTIVE
 
 
 async def test_path_outside_tenant_prefix_rejected_before_any_write() -> None:

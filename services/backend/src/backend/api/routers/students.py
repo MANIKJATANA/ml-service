@@ -40,6 +40,7 @@ from backend.api.schemas.students import (
     UpdateStudentRequest,
     UploadUrlResponse,
 )
+from backend.api.schemas.users import UpdateUserStatusRequest
 from backend.domain.models import (
     EnrollmentStatus,
     MediaVariant,
@@ -222,6 +223,22 @@ async def resend_student_invite(
         school_id=tenant_of(actor), student_id=student_id
     )
     return ProvisionedStudentResponse.from_provisioned(prov)
+
+
+@router.patch("/{student_id}/status", response_model=StudentResponse)
+async def set_student_status(
+    student_id: str,
+    body: UpdateUserStatusRequest,
+    container: ContainerDep,
+    actor: StudentManager,
+) -> StudentResponse:
+    """Enable/disable a student's login (BP18d) — a non-destructive kill-switch. Tenant from
+    the token (a foreign student → 404); a disabled student can't sign in but keeps every
+    photo + match row (unlike delete). Idempotent."""
+    student = await container.student_service().set_status(
+        school_id=tenant_of(actor), student_id=student_id, status=body.status
+    )
+    return StudentResponse.from_student(student)
 
 
 @router.put("/{student_id}/reference-photo", response_model=StudentResponse)

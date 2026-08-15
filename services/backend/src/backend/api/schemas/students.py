@@ -18,6 +18,7 @@ from backend.domain.models import (
     EnrollmentStatus,
     SignedUpload,
     Student,
+    UserStatus,
 )
 from backend.services.listing_service import StudentListing
 from backend.services.pagination import Page
@@ -98,6 +99,9 @@ class StudentResponse(BaseModel):
     # denormalized for list/detail display; the FE shows a class badge + drives the filter.
     student_group_id: str | None = None
     student_group_name: str | None = None
+    # BP18d: the linked login's status (active/disabled). Staff show + toggle a student's
+    # non-destructive login kill-switch; a disabled student can't sign in but keeps all history.
+    status: UserStatus = UserStatus.ACTIVE
     created_at: datetime
     updated_at: datetime
 
@@ -114,6 +118,7 @@ class StudentResponse(BaseModel):
             enrollment_failure_reason=student.enrollment_failure_reason,
             student_group_id=student.student_group_id,
             student_group_name=student.student_group_name,
+            status=student.status,
             created_at=student.created_at,
             updated_at=student.updated_at,
         )

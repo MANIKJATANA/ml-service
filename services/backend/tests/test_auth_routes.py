@@ -141,13 +141,44 @@ def test_change_password_flow() -> None:
         json={"current_password": "pw", "new_password": "a-brand-new-pw"},
         headers=headers,
     )
-    assert resp.status_code == 204
+    # BP18d: change-password re-issues a fresh token pair (200) so the caller stays logged in.
+    assert resp.status_code == 200, resp.text
+    reissued = resp.json()
+    assert reissued["access_token"] and reissued["must_change_password"] is False
 
-    # Old password no longer works; the new one does.
+    # The OLD access token is now revoked (token_version bumped); the re-issued one works.
+    assert client.get("/v1/auth/me", headers=headers).status_code == 401
+    assert (
+        client.get(
+            "/v1/auth/me",
+            headers={"Authorization": f"Bearer {reissued['access_token']}"},
+        ).status_code
+        == 200
+    )
+
+    # Old password no longer works at login; the new one does.
     assert client.post(
         "/v1/auth/login", json={"email": "u1@x.io", "password": "pw"}
     ).status_code == 401
     _login(client, "u1@x.io", "a-brand-new-pw")
+
+
+def test_change_password_revokes_the_old_refresh_token() -> None:
+    # BP18d: the honest-limit gap BP18a left — a pre-change refresh token can no longer mint
+    # new access tokens (token_version revokes it, not just the password at login).
+    client = _client([_user(id="u1", role=Role.TEACHER, password="pw", school_id="s1")])
+    tokens = _login(client, "u1@x.io", "pw")
+    client.post(
+        "/v1/auth/change-password",
+        json={"current_password": "pw", "new_password": "a-brand-new-pw"},
+        headers={"Authorization": f"Bearer {tokens['access_token']}"},
+    )
+    assert (
+        client.post(
+            "/v1/auth/refresh", json={"refresh_token": tokens["refresh_token"]}
+        ).status_code
+        == 401
+    )
 
 
 def test_change_password_wrong_current_is_401() -> None:

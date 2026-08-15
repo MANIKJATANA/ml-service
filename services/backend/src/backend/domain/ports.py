@@ -99,8 +99,17 @@ class UserRepository(Protocol):
     async def get(self, user_id: str) -> User | None: ...
     async def get_by_email(self, email: str) -> User | None: ...
     async def set_password(
-        self, user_id: str, *, password_hash: str, must_change_password: bool
-    ) -> None: ...
+        self,
+        user_id: str,
+        *,
+        password_hash: str,
+        must_change_password: bool,
+        revoke_sessions: bool = True,
+    ) -> None:
+        """Set a user's password hash. ``revoke_sessions`` (default True) bumps
+        ``token_version`` so all older tokens are rejected (BP18d) — pass False only for a
+        transparent rehash where the password is unchanged."""
+        ...
     async def set_status(self, user_id: str, *, status: UserStatus) -> None: ...
     async def touch_last_login(self, user_id: str) -> None:
         """Stamp ``last_login_at = now()`` on a successful login (BP14). Best-effort; not

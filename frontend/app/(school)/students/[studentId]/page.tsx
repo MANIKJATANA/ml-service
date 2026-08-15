@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, ImagePlus, KeyRound, RefreshCw, Trash2 } from "lucide-react";
+import { AlertTriangle, Ban, CircleCheck, ImagePlus, KeyRound, RefreshCw, Trash2 } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
 import { type FormEvent, useState } from "react";
 import { mutate as globalMutate } from "swr";
@@ -28,9 +28,10 @@ import {
   resendStudentInvite,
   setStudentClass,
   setStudentReferencePhoto,
+  setStudentStatus,
 } from "@/lib/api/endpoints";
 import { isApiError } from "@/lib/api/errors";
-import type { EnrollmentFailureReason, StudentResponse } from "@/lib/api/types";
+import type { EnrollmentFailureReason, StudentResponse, UserStatus } from "@/lib/api/types";
 import { uploadReferencePhoto } from "@/lib/api/upload";
 import { useClasses } from "@/lib/hooks/use-classes";
 import { useStudentEvents, useStudentMedia } from "@/lib/hooks/use-galleries";
@@ -282,6 +283,8 @@ export default function StudentDetailPage() {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [sending, setSending] = useState(false);
+  const [statusSaving, setStatusSaving] = useState(false);
+  const [disableConfirmOpen, setDisableConfirmOpen] = useState(false);
   const [invite, setInvite] = useState<Invite | null>(null);
 
   const notFound = isApiError(error) && error.status === 404;
@@ -316,6 +319,23 @@ export default function StudentDetailPage() {
       toast(isApiError(err) ? err.message : "Something went wrong", "error");
     } finally {
       setSending(false);
+    }
+  }
+
+  async function onToggleStatus(next: UserStatus) {
+    setStatusSaving(true);
+    try {
+      // BP18d: a non-destructive kill-switch — a disabled student can't sign in but keeps
+      // every photo + match row (unlike delete). Reversible: re-enable restores access.
+      const updated = await setStudentStatus(studentId, next);
+      await mutate(updated, { revalidate: false });
+      void globalMutate("students"); // keep the list in sync
+      toast(next === "disabled" ? "Login disabled." : "Login enabled.", "success");
+    } catch (err) {
+      toast(isApiError(err) ? err.message : "Something went wrong", "error");
+    } finally {
+      setStatusSaving(false);
+      setDisableConfirmOpen(false);
     }
   }
 
@@ -400,15 +420,38 @@ export default function StudentDetailPage() {
                   variant="secondary"
                   onClick={onResend}
                   loading={sending}
-                  disabled={reenrolling || deleting}
+                  disabled={reenrolling || deleting || statusSaving}
                 >
                   <KeyRound className="size-4" aria-hidden="true" />
                   Send new password
                 </Button>
+                {/* BP18d: a non-destructive kill-switch — disable a student's login without
+                    deleting them (delete erases their photo history). Enabling is direct;
+                    disabling asks first (it locks the student out until re-enabled). */}
+                {student.status === "disabled" ? (
+                  <Button
+                    variant="secondary"
+                    onClick={() => onToggleStatus("active")}
+                    loading={statusSaving}
+                    disabled={reenrolling || sending || deleting}
+                  >
+                    <CircleCheck className="size-4" aria-hidden="true" />
+                    Enable login
+                  </Button>
+                ) : (
+                  <Button
+                    variant="secondary"
+                    onClick={() => setDisableConfirmOpen(true)}
+                    disabled={reenrolling || sending || deleting || statusSaving}
+                  >
+                    <Ban className="size-4" aria-hidden="true" />
+                    Disable login
+                  </Button>
+                )}
                 <Button
                   variant="destructive"
                   onClick={() => setConfirmOpen(true)}
-                  disabled={reenrolling || sending}
+                  disabled={reenrolling || sending || statusSaving}
                 >
                   <Trash2 className="size-4" aria-hidden="true" />
                   Delete
@@ -435,6 +478,14 @@ export default function StudentDetailPage() {
                   <dd>
                     <StatusPill tone={ENROLL_TONE[student.enrollment_status]}>
                       {ENROLL_LABEL[student.enrollment_status]}
+                    </StatusPill>
+                  </dd>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <dt className="text-body-sm text-ink-muted">Login</dt>
+                  <dd>
+                    <StatusPill tone={student.status === "disabled" ? "neutral" : "success"}>
+                      {student.status === "disabled" ? "Disabled" : "Active"}
                     </StatusPill>
                   </dd>
                 </div>
@@ -473,6 +524,16 @@ export default function StudentDetailPage() {
         destructive
         loading={deleting}
         onConfirm={onDelete}
+      />
+
+      <ConfirmDialog
+        open={disableConfirmOpen}
+        onOpenChange={setDisableConfirmOpen}
+        title="Disable this student's login?"
+        description="They won't be able to sign in until you re-enable it. Their photos and history are kept — nothing is deleted."
+        confirmLabel="Disable login"
+        loading={statusSaving}
+        onConfirm={() => onToggleStatus("disabled")}
       />
 
       <InviteResultDialog invite={invite} onClose={() => setInvite(null)} />

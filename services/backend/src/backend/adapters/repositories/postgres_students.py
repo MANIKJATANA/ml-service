@@ -30,6 +30,7 @@ from backend.domain.models import (
     EnrollmentStatus,
     Student,
     StudentSort,
+    UserStatus,
 )
 
 # Row-native sort columns (BP9). Count-column sorts (appearance/event) never reach the
@@ -41,7 +42,12 @@ _SORT_COLS = {
 }
 
 
-def _to_student(row: StudentRow, email: str, group_name: str | None = None) -> Student:
+def _to_student(
+    row: StudentRow,
+    email: str,
+    status: str = UserStatus.ACTIVE.value,
+    group_name: str | None = None,
+) -> Student:
     return Student(
         id=str(row.id),
         school_id=str(row.school_id),
@@ -62,6 +68,9 @@ def _to_student(row: StudentRow, email: str, group_name: str | None = None) -> S
             str(row.student_group_id) if row.student_group_id is not None else None
         ),
         student_group_name=group_name,
+        # BP18d: the linked login's status, off the users JOIN (default active for a fresh
+        # create()). A student never sees another's status — this is a staff-only read.
+        status=UserStatus(status),
     )
 
 
@@ -72,13 +81,14 @@ class PostgresStudentRepository:
         self._sessionmaker = sessionmaker
 
     @staticmethod
-    def _select_with_email_and_class() -> Select[tuple[StudentRow, str, str]]:
-        """The base read: student + login email (INNER) + class name (LEFT, nullable).
+    def _select_with_email_and_class() -> Select[tuple[StudentRow, str, str, str]]:
+        """The base read: student + login email + status (INNER) + class name (LEFT, nullable).
 
-        Returned rows are ``(StudentRow, email, group_name)`` — ``group_name`` is ``None``
-        for an un-classed student (the LEFT JOIN miss)."""
+        Returned rows are ``(StudentRow, email, status, group_name)`` — ``status`` is the
+        linked login's active/disabled state (BP18d) and ``group_name`` is ``None`` for an
+        un-classed student (the LEFT JOIN miss)."""
         return (
-            select(StudentRow, UserRow.email, StudentGroupRow.name)
+            select(StudentRow, UserRow.email, UserRow.status, StudentGroupRow.name)
             .join(UserRow, StudentRow.user_id == UserRow.id)
             .outerjoin(
                 StudentGroupRow, StudentRow.student_group_id == StudentGroupRow.id
@@ -127,7 +137,7 @@ class PostgresStudentRepository:
                 )
             )
             row = result.one_or_none()
-            return _to_student(row[0], row[1], row[2]) if row is not None else None
+            return _to_student(row[0], row[1], row[2], row[3]) if row is not None else None
 
     async def get_by_user_id(self, school_id: str, user_id: str) -> Student | None:
         """The student profile linked to a login account (decisions/0028).
@@ -145,7 +155,7 @@ class PostgresStudentRepository:
                 )
             )
             row = result.one_or_none()
-            return _to_student(row[0], row[1], row[2]) if row is not None else None
+            return _to_student(row[0], row[1], row[2], row[3]) if row is not None else None
 
     async def list_by_school(self, school_id: str) -> list[Student]:
         sid = opt_uuid(school_id)
@@ -157,7 +167,7 @@ class PostgresStudentRepository:
                 .where(StudentRow.school_id == sid)
                 .order_by(StudentRow.created_at, StudentRow.id)  # stable on ties
             )
-            return [_to_student(r[0], r[1], r[2]) for r in result.all()]
+            return [_to_student(r[0], r[1], r[2], r[3]) for r in result.all()]
 
     def _filtered(
         self,
@@ -227,7 +237,7 @@ class PostgresStudentRepository:
                 .offset(offset)
                 .limit(limit)
             )
-            return [_to_student(r[0], r[1], r[2]) for r in result.all()]
+            return [_to_student(r[0], r[1], r[2], r[3]) for r in result.all()]
 
     async def count_page(
         self,
@@ -285,7 +295,7 @@ class PostgresStudentRepository:
                 .where(StudentRow.school_id == sid, StudentRow.id.in_(ids))
                 .order_by(StudentRow.created_at, StudentRow.id)  # stable on ties
             )
-            return [_to_student(r[0], r[1], r[2]) for r in result.all()]
+            return [_to_student(r[0], r[1], r[2], r[3]) for r in result.all()]
 
     async def resolve_by_emails(
         self, school_id: str, emails: Sequence[str]
@@ -306,7 +316,7 @@ class PostgresStudentRepository:
                     func.lower(UserRow.email).in_(lowered),
                 )
             )
-            return [_to_student(r[0], r[1], r[2]) for r in result.all()]
+            return [_to_student(r[0], r[1], r[2], r[3]) for r in result.all()]
 
     async def enrollment_counts(self, school_id: str) -> dict[EnrollmentStatus, int]:
         """Students grouped by enrollment status for one school (BP1 dashboard).

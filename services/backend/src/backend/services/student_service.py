@@ -29,6 +29,7 @@ from backend.domain.models import (
     SignedDownload,
     SignedUpload,
     Student,
+    UserStatus,
 )
 from backend.domain.ports import (
     MlEnrollmentClient,
@@ -358,6 +359,23 @@ class StudentService:
             must_change_password=True,
         )
         return ProvisionedStudent(student, temp_password)
+
+    async def set_status(
+        self, *, school_id: str, student_id: str, status: UserStatus
+    ) -> Student:
+        """Enable/disable a student's login (BP18d) — a non-destructive kill-switch.
+
+        Tenant-scoped: ``get_student`` resolves a foreign/missing student to 404 BEFORE any
+        write. A disabled student can't sign in — auth rejects at login, refresh, AND the
+        per-request ``get_current_user`` reload (0024) — but keeps every profile/photo/match
+        row, unlike delete (BP8e). No last-admin guard (unlike ``set_staff_status``): a
+        student's status locks out no one but themselves. Idempotent — setting the current
+        status skips the write; the return is a re-read so ``status`` reflects the users row.
+        """
+        student = await self.get_student(school_id=school_id, student_id=student_id)
+        if student.status is not status:
+            await self._users.set_status(student.user_id, status=status)
+        return await self.get_student(school_id=school_id, student_id=student_id)
 
     async def _require_active_school(self, school_id: str) -> School:
         school = await self._schools.get(school_id)

@@ -8,7 +8,7 @@ same generic `AuthenticationError` so callers cannot enumerate accounts.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import structlog
 
@@ -63,11 +63,14 @@ class AuthService:
         user = await self._users.get(claims.subject)
         if user is None or user.status is not UserStatus.ACTIVE:
             raise AuthenticationError("refresh token no longer valid")
+        # BP18d: a password change/reset revokes older refresh tokens too.
+        if claims.token_version != user.token_version:
+            raise AuthenticationError("refresh token no longer valid")
         return LoginResult(tokens=self._tokens.issue_pair(user), user=user)
 
     async def change_password(
         self, *, user_id: str, current_password: str, new_password: str
-    ) -> None:
+    ) -> LoginResult:
         user = await self._users.get(user_id)
         # The caller is already authenticated; a missing/disabled user here means the
         # account changed under them — treat as an auth failure, not a 404.
@@ -80,6 +83,19 @@ class AuthService:
             password_hash=self._hasher.hash(new_password),
             must_change_password=False,
         )
+        # BP18d: set_password bumped token_version, invalidating every outstanding token —
+        # including the caller's own. Reload and issue a fresh pair (new tv) so the acting
+        # session continues seamlessly; the BFF swaps in the new cookies. (The fallback keeps
+        # the issued token in lockstep with the DB even on an anomalous read-miss.)
+        refreshed = await self._users.get(user_id)
+        current = (
+            refreshed
+            if refreshed is not None
+            else replace(
+                user, must_change_password=False, token_version=user.token_version + 1
+            )
+        )
+        return LoginResult(tokens=self._tokens.issue_pair(current), user=current)
 
     async def _maybe_rehash(self, user: User, password: str) -> None:
         """Transparently upgrade a stored hash whose parameters are out of date."""
@@ -88,6 +104,9 @@ class AuthService:
                 user.id,
                 password_hash=self._hasher.hash(password),
                 must_change_password=user.must_change_password,
+                # A transparent hash upgrade — the password is unchanged, so it must NOT
+                # revoke the user's sessions (BP18d).
+                revoke_sessions=False,
             )
 
     def _equalizer_hash(self) -> str:

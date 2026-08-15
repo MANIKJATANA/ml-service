@@ -38,6 +38,7 @@ def _to_user(row: UserRow) -> User:
         must_change_password=row.must_change_password,
         created_at=row.created_at,
         updated_at=row.updated_at,
+        token_version=row.token_version,
     )
 
 
@@ -92,7 +93,12 @@ class PostgresUserRepository:
             return _to_user(row) if row is not None else None
 
     async def set_password(
-        self, user_id: str, *, password_hash: str, must_change_password: bool
+        self,
+        user_id: str,
+        *,
+        password_hash: str,
+        must_change_password: bool,
+        revoke_sessions: bool = True,
     ) -> None:
         key = req_uuid(user_id, field="user_id")
         async with self._sessionmaker() as session, session.begin():
@@ -102,6 +108,11 @@ class PostgresUserRepository:
             # ORM mutation → flush on commit; also trips updated_at's onupdate.
             row.password_hash = password_hash
             row.must_change_password = must_change_password
+            # BP18d: a real change/reset bumps token_version to revoke older sessions; a
+            # transparent rehash-on-login (revoke_sessions=False) must NOT (the password is
+            # unchanged — logging the user out everywhere would be wrong).
+            if revoke_sessions:
+                row.token_version = row.token_version + 1
 
     async def set_status(self, user_id: str, *, status: UserStatus) -> None:
         key = req_uuid(user_id, field="user_id")

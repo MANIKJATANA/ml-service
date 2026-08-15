@@ -178,6 +178,9 @@ class User:
     must_change_password: bool
     created_at: datetime
     updated_at: datetime
+    # Bumped on every password change/reset (BP18d); the token's `tv` claim is compared to
+    # this on each request + refresh, so a changed/reset password revokes all older sessions.
+    token_version: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -205,6 +208,9 @@ class Student:
     # ``student_group_name`` is denormalized onto the read model for list display (like email).
     student_group_id: str | None = None
     student_group_name: str | None = None
+    # BP18d: the linked login's status (active/disabled) — denormalized off the users JOIN
+    # (like email). Lets staff show + toggle a student's non-destructive login kill-switch.
+    status: UserStatus = UserStatus.ACTIVE
 
 
 @dataclass(frozen=True, slots=True)

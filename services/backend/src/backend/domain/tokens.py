@@ -44,3 +44,6 @@ class TokenClaims:
     expires_at: datetime
     role: Role | None = None
     school_id: str | None = None
+    # BP18d: the issuing user's token_version; compared to the row's on each request +
+    # refresh so a password change/reset (which bumps it) revokes older tokens.
+    token_version: int = 0

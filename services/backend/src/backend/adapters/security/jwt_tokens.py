@@ -50,12 +50,17 @@ class JwtTokenService:
                 "type": TokenType.ACCESS.value,
                 "role": user.role.value,
                 "school_id": user.school_id,
+                "tv": user.token_version,
             },
         )
         refresh = self._encode(
             now,
             ttl_s=self._refresh_ttl,
-            claims={"sub": user.id, "type": TokenType.REFRESH.value},
+            claims={
+                "sub": user.id,
+                "type": TokenType.REFRESH.value,
+                "tv": user.token_version,
+            },
         )
         return TokenPair(
             access_token=access,
@@ -95,6 +100,9 @@ class JwtTokenService:
             expires_at=datetime.fromtimestamp(payload["exp"], tz=UTC),
             role=role,
             school_id=payload.get("school_id"),
+            # BP18d: default a token minted before this deploy (no `tv`) to 0, so it stays
+            # valid for a user still at token_version 0 and is rejected once they bump it.
+            token_version=int(payload.get("tv", 0)),
         )
 
     def _encode(

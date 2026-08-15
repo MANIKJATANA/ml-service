@@ -177,6 +177,92 @@ def test_resend_invite_unknown_student_is_404() -> None:
     assert resp.status_code == 404, resp.text
 
 
+def test_disable_student_blocks_login_and_reenable_restores() -> None:
+    # BP18d: the non-destructive kill-switch, proved end-to-end at the auth layer. Disabling a
+    # student's login stops a sign-in (auth rejects a disabled account) and surfaces on the read
+    # model; the student is never deleted (photos/matches survive); re-enabling restores access.
+    client, token, _ = _admin_client()
+    created = client.post(
+        "/v1/students",
+        json={"name": "Amy", "email": "amy@s1.io", "reference_photo_path": _PATH},
+        headers=_auth(token),
+    )
+    assert created.status_code == 201, created.text
+    student_id = created.json()["student"]["id"]
+    student_pw = created.json()["temp_password"]
+    assert created.json()["student"]["status"] == "active"
+    # Baseline: the student can sign in.
+    assert client.post(
+        "/v1/auth/login", json={"email": "amy@s1.io", "password": student_pw}
+    ).status_code == 200
+
+    disabled = client.patch(
+        f"/v1/students/{student_id}/status",
+        json={"status": "disabled"},
+        headers=_auth(token),
+    )
+    assert disabled.status_code == 200, disabled.text
+    assert disabled.json()["status"] == "disabled"
+    # The disabled student can no longer sign in — but the profile is intact.
+    assert client.post(
+        "/v1/auth/login", json={"email": "amy@s1.io", "password": student_pw}
+    ).status_code == 401
+    assert client.get(f"/v1/students/{student_id}", headers=_auth(token)).json()[
+        "status"
+    ] == "disabled"
+
+    reenabled = client.patch(
+        f"/v1/students/{student_id}/status",
+        json={"status": "active"},
+        headers=_auth(token),
+    )
+    assert reenabled.status_code == 200 and reenabled.json()["status"] == "active"
+    assert client.post(
+        "/v1/auth/login", json={"email": "amy@s1.io", "password": student_pw}
+    ).status_code == 200
+
+
+def test_set_student_status_unknown_is_404() -> None:
+    client, token, _ = _admin_client()
+    resp = client.patch(
+        "/v1/students/00000000-0000-0000-0000-000000000000/status",
+        json={"status": "disabled"},
+        headers=_auth(token),
+    )
+    assert resp.status_code == 404, resp.text
+
+
+def test_disabling_a_student_kills_their_live_session() -> None:
+    # BP18d: the point of the kill-switch — not just that a NEW login is blocked, but that a
+    # student ALREADY holding a valid access token is locked out on their very next request
+    # (get_current_user reloads the user + rejects a disabled account, 0024). This is the
+    # live-session guarantee the login-only test doesn't cover.
+    client, token, _ = _admin_client()
+    created = client.post(
+        "/v1/students",
+        json={"name": "Amy", "email": "amy@s1.io", "reference_photo_path": _PATH},
+        headers=_auth(token),
+    )
+    assert created.status_code == 201, created.text
+    student_id = created.json()["student"]["id"]
+    student_pw = created.json()["temp_password"]
+    student_token = client.post(
+        "/v1/auth/login", json={"email": "amy@s1.io", "password": student_pw}
+    ).json()["access_token"]
+    # Baseline: the live token works.
+    assert client.get("/v1/auth/me", headers=_auth(student_token)).status_code == 200
+
+    client.patch(
+        f"/v1/students/{student_id}/status",
+        json={"status": "disabled"},
+        headers=_auth(token),
+    )
+    # The SAME (unexpired) token is now rejected — the disable took effect mid-session.
+    revoked = client.get("/v1/auth/me", headers=_auth(student_token))
+    assert revoked.status_code == 401, revoked.text
+    assert revoked.headers.get("WWW-Authenticate") == "Bearer"
+
+
 def test_me_carries_the_student_name_for_a_student() -> None:
     # BP18b: /auth/me surfaces the student's display name (the shell shows it); staff/admin
     # accounts have none.

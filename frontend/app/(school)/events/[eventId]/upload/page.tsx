@@ -1,13 +1,15 @@
 "use client";
 
-import { CheckCircle2, Clock, XCircle } from "lucide-react";
+import { CheckCircle2, Clock, RotateCcw, XCircle } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
+import { useState } from "react";
 import { mutate as globalMutate } from "swr";
 
 import { Breadcrumb } from "@/components/ui/breadcrumb";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { EmptyState } from "@/components/ui/empty-state";
 import { MultiFileDropzone } from "@/components/ui/multi-file-dropzone";
 import { PageHeader } from "@/components/ui/page-header";
@@ -15,6 +17,7 @@ import { ProgressBar } from "@/components/ui/progress-bar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import { isApiError } from "@/lib/api/errors";
+import { useBeforeUnload } from "@/lib/hooks/use-before-unload";
 import { useEvent } from "@/lib/hooks/use-events";
 import { type UploadStatus, useMediaUpload } from "@/lib/hooks/use-media-upload";
 
@@ -35,16 +38,27 @@ export default function EventUploadPage() {
   const { eventId } = useParams<{ eventId: string }>();
   const router = useRouter();
   const { event, isLoading, error } = useEvent(eventId);
-  const { items, isUploading, summary, add } = useMediaUpload(eventId);
+  const { items, isUploading, summary, add, retryFailed } = useMediaUpload(eventId);
+  const [leaveConfirmOpen, setLeaveConfirmOpen] = useState(false);
 
   const notFound = isApiError(error) && error.status === 404;
   const isArchived = event?.status === "archived";
+
+  // BP19d: warn on a tab-close / reload / external nav while an upload is in flight (the FE
+  // had no such guard). In-app nav (the Back button below) is guarded by an explicit confirm.
+  useBeforeUnload(isUploading);
 
   function backToEvent() {
     // Refresh the event's photo status/roster so the detail page shows the new counts.
     void globalMutate(`events/${eventId}/status`);
     void globalMutate(`events/${eventId}/media`);
     router.push(`/events/${eventId}`);
+  }
+
+  function onBack() {
+    // BP19d: don't trap the user during an upload, but confirm before leaving mid-flight.
+    if (isUploading) setLeaveConfirmOpen(true);
+    else backToEvent();
   }
 
   return (
@@ -136,17 +150,32 @@ export default function EventUploadPage() {
             ) : null}
           </Card>
 
-          <div className="flex justify-end">
+          <div className="flex justify-end gap-2">
+            {/* BP19d: re-run just the failed files (their handles are kept) — no re-picking. */}
+            {summary.failed > 0 && !isUploading ? (
+              <Button variant="secondary" onClick={retryFailed}>
+                <RotateCcw className="size-4" aria-hidden="true" />
+                Retry failed ({summary.failed})
+              </Button>
+            ) : null}
             <Button
               variant={summary.done > 0 ? "primary" : "secondary"}
-              onClick={backToEvent}
-              disabled={isUploading}
+              onClick={onBack}
             >
-              {isUploading ? "Uploading…" : "Back to event"}
+              Back to event
             </Button>
           </div>
         </>
       )}
+
+      <ConfirmDialog
+        open={leaveConfirmOpen}
+        onOpenChange={setLeaveConfirmOpen}
+        title="Leave while uploading?"
+        description="Some photos are still uploading. They'll keep uploading in the background if you leave, but you won't see their progress or be able to retry any that fail. (Closing the tab would stop them.)"
+        confirmLabel="Leave anyway"
+        onConfirm={backToEvent}
+      />
     </div>
   );
 }

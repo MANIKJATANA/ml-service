@@ -31,6 +31,10 @@ export function useMediaUpload(eventId: string) {
   const [items, setItems] = useState<UploadItem[]>([]);
   const nextId = useRef(0);
   const mounted = useRef(true);
+  // BP19d: retain each file's handle by item id so a failed upload can be RE-tried without
+  // re-picking it. File objects are cheap references (the bytes aren't held in memory until
+  // read), and the map dies with the page, so retaining them for the session is fine.
+  const filesById = useRef<Map<string, File>>(new Map());
 
   useEffect(() => {
     return () => {
@@ -65,9 +69,28 @@ export function useMediaUpload(eventId: string) {
     }
   }
 
+  // Bounded pool: `worker`s share `idx`, each pulling the next entry until the batch drains.
+  // idx++ is synchronous between awaits, so no two workers take the same file.
+  function runPool(entries: { id: string; file: File }[]) {
+    let idx = 0;
+    const worker = async () => {
+      while (idx < entries.length) {
+        const { id, file } = entries[idx++];
+        await uploadOne(id, file);
+      }
+    };
+    void Promise.all(
+      Array.from({ length: Math.min(UPLOAD_CONCURRENCY, entries.length) }, worker),
+    );
+  }
+
   function add(files: File[]) {
     if (files.length === 0) return;
-    const batch = files.map((file) => ({ id: String(nextId.current++), file }));
+    const batch = files.map((file) => {
+      const id = String(nextId.current++);
+      filesById.current.set(id, file);
+      return { id, file };
+    });
     setItems((prev) => [
       ...prev,
       ...batch.map(({ id, file }) => ({
@@ -77,19 +100,32 @@ export function useMediaUpload(eventId: string) {
         progress: 0,
       })),
     ]);
-    // Bounded pool: `worker`s share `idx`, each pulling the next file until the batch
-    // drains. idx++ is synchronous between awaits, so no two workers take the same file.
-    let idx = 0;
-    const worker = async () => {
-      while (idx < batch.length) {
-        const { id, file } = batch[idx++];
-        await uploadOne(id, file);
-      }
-    };
-    void Promise.all(
-      Array.from({ length: Math.min(UPLOAD_CONCURRENCY, batch.length) }, worker),
-    );
+    runPool(batch);
   }
 
-  return { items, isUploading, summary, add };
+  // BP19d: re-run just the failed items (using their retained file handles) so an
+  // interrupted / flaky upload doesn't force the user to re-pick every file. Only offered
+  // when the batch is idle (no overlapping pools), so no two workers race the same item.
+  function retryFailed() {
+    const entries: { id: string; file: File }[] = [];
+    for (const it of items) {
+      if (it.status !== "error") continue;
+      // The map is append-only (set in `add`, never deleted), so this lookup is always a hit;
+      // the guard is defensive — a miss would just leave that item in `error`, never wrongly done.
+      const file = filesById.current.get(it.id);
+      if (file !== undefined) entries.push({ id: it.id, file });
+    }
+    if (entries.length === 0) return;
+    const retrying = new Set(entries.map((e) => e.id));
+    setItems((prev) =>
+      prev.map((it) =>
+        retrying.has(it.id)
+          ? { ...it, status: "queued" as const, progress: 0, error: undefined }
+          : it,
+      ),
+    );
+    runPool(entries);
+  }
+
+  return { items, isUploading, summary, add, retryFailed };
 }

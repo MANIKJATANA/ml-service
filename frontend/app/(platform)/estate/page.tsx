@@ -82,7 +82,7 @@ function EstateBody({ e }: { e: EstateAnalyticsResponse }) {
               </div>
               <Link
                 href={`/schools/${f.school_id}`}
-                className="ml-auto shrink-0 text-body-sm font-medium text-accent hover:text-accent-hover"
+                className="ml-auto shrink-0 rounded text-body-sm font-medium text-accent hover:text-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 View school →
               </Link>
@@ -90,7 +90,7 @@ function EstateBody({ e }: { e: EstateAnalyticsResponse }) {
           ))}
         </Card>
       ) : (
-        <p className="text-body-sm text-ink-muted">Every school is on track — nothing stalled.</p>
+        <p className="text-body-sm text-ink-secondary">Every school is on track — nothing stalled.</p>
       )}
 
       {/* Totals */}
@@ -137,7 +137,7 @@ function EstateBody({ e }: { e: EstateAnalyticsResponse }) {
                       <TableCell>
                         <Link
                           href={`/schools/${f.school_id}`}
-                          className="font-medium text-ink hover:text-accent-hover"
+                          className="rounded font-medium text-ink hover:text-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                         >
                           {f.school_name}
                         </Link>

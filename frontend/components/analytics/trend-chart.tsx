@@ -28,7 +28,7 @@ export function TrendChart({
   label: string;
 }) {
   if (months.length === 0) {
-    return <p className="text-body-sm text-ink-muted">No activity yet.</p>;
+    return <p className="text-body-sm text-ink-secondary">No activity yet.</p>;
   }
   const max = Math.max(1, ...months.map((m) => m[metric]));
 
@@ -41,7 +41,7 @@ export function TrendChart({
           const pct = Math.round((100 * v) / max);
           return (
             <li key={m.month} className="flex items-center gap-3">
-              <span className="w-14 shrink-0 text-body-sm tabular-nums text-ink-muted">
+              <span className="w-14 shrink-0 text-body-sm tabular-nums text-ink-secondary">
                 {monthLabel(m.month)}
               </span>
               <div

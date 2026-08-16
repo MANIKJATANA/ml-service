@@ -22,7 +22,7 @@ export function DownloadHistory({ mediaId }: { mediaId: string }) {
     // — surveillance discovered, not disclosed. Show a one-line disclosure (no fetch; the log
     // itself stays admin-only). Non-staff surfaces don't render this component.
     return user?.role === "teacher" ? (
-      <p className="text-body-sm text-ink-muted">
+      <p className="text-body-sm text-ink-secondary">
         <History className="mr-1 inline size-3.5 align-[-2px]" aria-hidden="true" />
         Downloads are recorded and visible to your school&apos;s admins.
       </p>
@@ -33,19 +33,19 @@ export function DownloadHistory({ mediaId }: { mediaId: string }) {
 
   if (error) {
     return (
-      <p className="text-body-sm text-ink-muted" role="alert">
+      <p className="text-body-sm text-ink-secondary" role="alert">
         Couldn&apos;t load download history.
       </p>
     );
   }
 
   if (isLoading && !log) {
-    return <p className="text-body-sm text-ink-muted">Loading download history…</p>;
+    return <p className="text-body-sm text-ink-secondary">Loading download history…</p>;
   }
 
   if (count === 0) {
     return (
-      <p className="text-body-sm text-ink-muted">
+      <p className="text-body-sm text-ink-secondary">
         <History className="mr-1 inline size-3.5 align-[-2px]" aria-hidden="true" />
         Not downloaded yet
       </p>
@@ -76,11 +76,11 @@ export function DownloadHistory({ mediaId }: { mediaId: string }) {
             <li key={e.id} className="flex flex-col gap-0.5 text-body-sm">
               <span className="text-ink">
                 {e.actor_email ?? "Removed account"}
-                <span className="ml-1.5 text-ink-muted">
+                <span className="ml-1.5 text-ink-secondary">
                   {ROLE_LABELS[e.actor_role]}
                 </span>
               </span>
-              <span className="text-ink-muted">
+              <span className="text-ink-secondary">
                 <time dateTime={e.downloaded_at}>{formatDateTime(e.downloaded_at)}</time>
                 {e.subject_student_name ? ` · as ${e.subject_student_name}` : null}
               </span>

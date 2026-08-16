@@ -304,7 +304,7 @@ function NeedsReview({ eventId }: { eventId: string }) {
             className="size-4 rounded border-hairline text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           />
           Select all
-          <span className="text-ink-muted">
+          <span className="text-ink-secondary">
             · {selected.size} of {pairs.length} selected · sorted by confidence
           </span>
         </label>
@@ -369,7 +369,7 @@ function NeedsReview({ eventId }: { eventId: string }) {
                     <p className="min-w-0 flex-1 truncate text-body-sm text-ink" title={p.name}>
                       {p.name}
                     </p>
-                    <span className="shrink-0 tabular-nums text-body-sm text-ink-muted">
+                    <span className="shrink-0 tabular-nums text-body-sm text-ink-secondary">
                       {Math.round(p.confidence * 100)}%
                     </span>
                   </div>

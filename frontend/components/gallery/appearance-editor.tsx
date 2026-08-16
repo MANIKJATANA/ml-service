@@ -60,7 +60,7 @@ export function AppearanceEditor({
       )}
       <AddStudents mediaId={mediaId} present={presentIds} onChanged={onChanged} />
       {/* BP21 (R3-S5-03): explain the % staff are asked to correct, and link the full explainer. */}
-      <p className="text-body-sm text-ink-muted">
+      <p className="text-body-sm text-ink-secondary">
         {hasConfidence
           ? "Percentages are how sure the match is — a low one is worth a second look. "
           : null}
@@ -225,7 +225,7 @@ function AddStudents({
           />
           <ul className="max-h-48 overflow-y-auto rounded-button border border-hairline">
             {options.length === 0 ? (
-              <li className="px-2 py-2 text-body-sm text-ink-muted">
+              <li className="px-2 py-2 text-body-sm text-ink-secondary">
                 {debouncedQuery ? "No students found." : "Search to add a student."}
               </li>
             ) : (

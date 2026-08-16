@@ -46,6 +46,24 @@
   --color-info-strong: #0369a1;
 
   /*
+   * BP25 (R3-S2-06): non-semantic category hues — deliberately distinct from the
+   * success/warning/error/info status tones so an event category can never read as a status.
+   * Each pair is a soft bg + a dark ink that passes WCAG AA.
+   */
+  --color-cat-1-soft: #ede9fe; /* violet */
+  --color-cat-1-ink: #5b21b6;
+  --color-cat-2-soft: #ccfbf1; /* teal */
+  --color-cat-2-ink: #115e59;
+  --color-cat-3-soft: #fae8ff; /* fuchsia */
+  --color-cat-3-ink: #86198f;
+  --color-cat-4-soft: #cffafe; /* cyan */
+  --color-cat-4-ink: #155e75;
+  --color-cat-5-soft: #e0e7ff; /* indigo */
+  --color-cat-5-ink: #3730a3;
+  --color-cat-6-soft: #e2e8f0; /* slate */
+  --color-cat-6-ink: #334155;
+
+  /*
    * Type — Geist Sans/Mono are wired via next/font in app/layout.tsx. USE the
    * semantic utilities below (text-display-*, text-headline, text-body,
    * text-body-sm, text-tabular) for all app type. Tailwind's default

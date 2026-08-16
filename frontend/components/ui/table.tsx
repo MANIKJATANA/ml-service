@@ -27,7 +27,7 @@ export function TableHead({ className, ...props }: ThHTMLAttributes<HTMLTableCel
   return (
     <th
       scope="col"
-      className={cn("px-4 py-2.5 text-body-sm font-medium text-ink-muted", className)}
+      className={cn("px-4 py-2.5 text-body-sm font-medium text-ink-secondary", className)}
       {...props}
     />
   );

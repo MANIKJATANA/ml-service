@@ -74,6 +74,9 @@ export function Lightbox({
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
+      // BP25 (R3-S4-05): when a video is focused, let ← → seek it — don't also navigate the
+      // gallery (the BP6/0043 double-action). The <video controls> is the focused element then.
+      if (document.activeElement?.tagName === "VIDEO") return;
       if (e.key === "ArrowLeft" && canPrev) onIndexChange(index - 1);
       else if (e.key === "ArrowRight" && canNext) onIndexChange(index + 1);
     }
@@ -159,6 +162,12 @@ export function Lightbox({
                 <X className="size-5" />
               </DialogPrimitive.Close>
             </div>
+
+            {/* BP25 (R3-S4-05): the keyboard shortcuts, visible (were sr-only-only). Desktop-only. */}
+            <p className="hidden text-body-sm text-ink-secondary sm:block">
+              <span aria-hidden="true">←</span> <span aria-hidden="true">→</span> to move ·
+              Esc to close
+            </p>
 
             {/* BP20: the photo's story — which event, when. */}
             {caption ? (

@@ -27,7 +27,32 @@ import type { Role, UserResponse } from "@/lib/api/types";
 import { ROLE_LABELS } from "@/lib/auth/routes";
 import { useDashboard } from "@/lib/hooks/use-dashboard";
 import { useMyNotifications } from "@/lib/hooks/use-my-notifications";
+import { useOnlineStatus } from "@/lib/hooks/use-online-status";
 import { cn } from "@/lib/utils";
+
+/** A keyboard skip-to-content link — visually hidden until focused (BP25). */
+function SkipLink() {
+  return (
+    <a
+      href="#main-content"
+      className="sr-only z-[60] rounded-button bg-canvas px-3 py-2 text-body-sm font-medium text-accent-hover shadow-md focus:not-sr-only focus:absolute focus:left-3 focus:top-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    >
+      Skip to content
+    </a>
+  );
+}
+
+/** A fixed banner shown while the browser reports it's offline (BP25). */
+function OfflineBar() {
+  return (
+    <div
+      role="status"
+      className="fixed inset-x-0 top-0 z-50 bg-ink px-4 py-1.5 text-center text-body-sm font-medium text-canvas"
+    >
+      You&apos;re offline — some actions may not work until you reconnect.
+    </div>
+  );
+}
 
 interface NavItem {
   href: string;
@@ -136,12 +161,12 @@ function UserFooter({ user, onSignOut }: { user: UserResponse; onSignOut: () => 
           </span>
         ) : null}
         <span
-          className={cn("truncate text-body-sm", user.name ? "text-ink-muted" : "font-medium text-ink")}
+          className={cn("truncate text-body-sm", user.name ? "text-ink-secondary" : "font-medium text-ink")}
           title={user.email}
         >
           {user.email}
         </span>
-        <span className="text-body-sm text-ink-muted">{ROLE_LABELS[user.role]}</span>
+        <span className="text-body-sm text-ink-secondary">{ROLE_LABELS[user.role]}</span>
       </div>
       <Link href="/change-password" className={actionClass}>
         <KeyRound className="size-4 shrink-0" aria-hidden="true" />
@@ -163,6 +188,7 @@ export function AppShell({ user, children }: { user: UserResponse; children: Rea
   // BP20b: the student gets a warm, slim receive surface — a top bar + drawer instead of the
   // admin sidebar — while staff/platform keep the console chrome.
   const isStudent = user.role === "student";
+  const online = useOnlineStatus();
 
   // Nav information scent — only staff have dashboard:view; the shared "dashboard" SWR
   // key means this rides along with the dashboard page's fetch (no extra request).
@@ -221,6 +247,8 @@ export function AppShell({ user, children }: { user: UserResponse; children: Rea
     // account drawer) over a warm wash, with a wider hero-friendly content column.
     return (
       <div className="flex min-h-dvh flex-col bg-canvas-warm">
+        <SkipLink />
+        {!online ? <OfflineBar /> : null}
         <header className="sticky top-0 z-40 flex h-14 items-center justify-between border-b border-hairline bg-canvas/85 px-4 backdrop-blur sm:px-6">
           <span className="text-headline text-ink">Photos</span>
           <DialogPrimitive.Root open={drawerOpen} onOpenChange={setDrawerOpen}>
@@ -260,7 +288,7 @@ export function AppShell({ user, children }: { user: UserResponse; children: Rea
             </DialogPrimitive.Portal>
           </DialogPrimitive.Root>
         </header>
-        <main className="flex-1 p-4 sm:p-8">
+        <main id="main-content" tabIndex={-1} className="flex-1 p-4 focus:outline-none sm:p-8">
           <div className="mx-auto w-full max-w-6xl">{children}</div>
         </main>
       </div>
@@ -269,6 +297,8 @@ export function AppShell({ user, children }: { user: UserResponse; children: Rea
 
   return (
     <div className="flex min-h-dvh bg-surface">
+      <SkipLink />
+      {!online ? <OfflineBar /> : null}
       {/* Desktop sidebar */}
       <aside className="hidden w-60 shrink-0 flex-col border-r border-hairline bg-canvas sm:flex">
         <div className="flex h-14 items-center border-b border-hairline px-5">
@@ -321,7 +351,7 @@ export function AppShell({ user, children }: { user: UserResponse; children: Rea
             <span className="text-headline text-ink">Photos</span>
           </div>
         </header>
-        <main className="flex-1 p-4 sm:p-8">
+        <main id="main-content" tabIndex={-1} className="flex-1 p-4 focus:outline-none sm:p-8">
           <div className="mx-auto w-full max-w-6xl">{children}</div>
         </main>
       </div>

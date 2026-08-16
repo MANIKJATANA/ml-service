@@ -147,7 +147,7 @@ function ReferencePhotoDialog({
           {progress !== null ? (
             <div className="flex flex-col gap-1.5">
               <ProgressBar value={progress} label="Upload progress" />
-              <span aria-live="polite" className="text-body-sm text-ink-muted">
+              <span aria-live="polite" className="text-body-sm text-ink-secondary">
                 Uploading photo… {progress}%
               </span>
             </div>
@@ -476,7 +476,7 @@ export default function StudentDetailPage() {
               </div>
               <dl className="grid gap-6 sm:grid-cols-2">
                 <div className="flex flex-col gap-1">
-                  <dt className="text-body-sm text-ink-muted">Enrollment</dt>
+                  <dt className="text-body-sm text-ink-secondary">Enrollment</dt>
                   <dd>
                     <StatusPill tone={enrollDisplay(student).tone}>
                       {enrollDisplay(student).label}
@@ -484,7 +484,7 @@ export default function StudentDetailPage() {
                   </dd>
                 </div>
                 <div className="flex flex-col gap-1">
-                  <dt className="text-body-sm text-ink-muted">Login</dt>
+                  <dt className="text-body-sm text-ink-secondary">Login</dt>
                   <dd>
                     <StatusPill tone={student.status === "disabled" ? "neutral" : "success"}>
                       {student.status === "disabled" ? "Disabled" : "Active"}
@@ -492,11 +492,11 @@ export default function StudentDetailPage() {
                   </dd>
                 </div>
                 <div className="flex flex-col gap-1">
-                  <dt className="text-body-sm text-ink-muted">Added</dt>
+                  <dt className="text-body-sm text-ink-secondary">Added</dt>
                   <dd className="text-body text-ink">{formatDate(student.created_at)}</dd>
                 </div>
                 <div className="flex flex-col gap-1">
-                  <dt className="text-body-sm text-ink-muted">Class</dt>
+                  <dt className="text-body-sm text-ink-secondary">Class</dt>
                   <dd>
                     <ClassSelect
                       studentId={studentId}

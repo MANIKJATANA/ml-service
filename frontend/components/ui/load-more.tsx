@@ -47,7 +47,7 @@ export function LoadMore({
           Load more
         </Button>
       ) : null}
-      <span role="status" className="tabular-nums text-body-sm text-ink-muted">
+      <span role="status" className="tabular-nums text-body-sm text-ink-secondary">
         Showing {shown} of {total}
       </span>
     </div>

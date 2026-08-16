@@ -79,17 +79,19 @@ export function MonthCalendar({
         {loading ? "Loading events…" : `${countInMonth} events in ${label}`}
       </p>
 
+      {/* BP25 (R3-S4-02): scroll horizontally on a narrow screen instead of crushing the 7 columns. */}
+      <div className="overflow-x-auto rounded-card border border-hairline">
       <div
         role="grid"
         aria-label={`Events for ${label}`}
-        className="overflow-hidden rounded-card border border-hairline"
+        className="min-w-[600px]"
       >
         <div role="row" className="grid grid-cols-7 border-b border-hairline bg-surface">
           {WEEKDAYS.map((d) => (
             <div
               key={d}
               role="columnheader"
-              className="px-2 py-1.5 text-body-sm font-medium text-ink-muted"
+              className="px-2 py-1.5 text-body-sm font-medium text-ink-secondary"
             >
               {d}
             </div>
@@ -120,10 +122,10 @@ export function MonthCalendar({
                     className={cn(
                       "inline-flex size-6 items-center justify-center text-body-sm",
                       cell.isToday
-                        ? "rounded-full bg-accent font-semibold text-on-accent"
+                        ? "rounded-full bg-accent-hover font-semibold text-on-accent"
                         : cell.inMonth
                           ? "text-ink"
-                          : "text-ink-muted",
+                          : "text-ink-secondary",
                     )}
                   >
                     {cell.date.getDate()}
@@ -146,7 +148,7 @@ export function MonthCalendar({
                       </li>
                     ))}
                     {overflow > 0 ? (
-                      <li className="px-1 text-body-sm text-ink-muted">+{overflow} more</li>
+                      <li className="px-1 text-body-sm text-ink-secondary">+{overflow} more</li>
                     ) : null}
                   </ul>
                 </div>
@@ -155,9 +157,10 @@ export function MonthCalendar({
           </div>
         ))}
       </div>
+      </div>
 
       {hasUndated ? (
-        <p className="text-body-sm text-ink-muted">
+        <p className="text-body-sm text-ink-secondary">
           Events without a date aren&apos;t shown here — see the List tab.
         </p>
       ) : null}

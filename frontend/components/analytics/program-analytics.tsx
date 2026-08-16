@@ -39,7 +39,7 @@ export function ProgramAnalytics() {
     return (
       <section className="flex flex-col gap-3">
         <h2 className="text-headline text-ink">Program analytics</h2>
-        <p className="text-body-sm text-ink-muted" role="alert">
+        <p className="text-body-sm text-ink-secondary" role="alert">
           Couldn&apos;t load analytics right now.
         </p>
       </section>
@@ -93,7 +93,7 @@ function AnalyticsSection({ a }: { a: SchoolAnalyticsResponse }) {
         <Card className="overflow-hidden">
           <table className="w-full text-body">
             <thead>
-              <tr className="border-b border-hairline text-left text-body-sm text-ink-muted">
+              <tr className="border-b border-hairline text-left text-body-sm text-ink-secondary">
                 <th scope="col" className="px-4 py-3 font-medium">Term</th>
                 <th scope="col" className="px-4 py-3 text-right font-medium">Events</th>
                 <th scope="col" className="px-4 py-3 text-right font-medium">Photos</th>

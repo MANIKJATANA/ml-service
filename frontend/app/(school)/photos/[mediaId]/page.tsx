@@ -12,11 +12,13 @@ import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Skeleton } from "@/components/ui/skeleton";
 import { isApiError } from "@/lib/api/errors";
+import { useDocumentTitle } from "@/lib/hooks/use-document-title";
 import { useDownloadToDisk } from "@/lib/hooks/use-download-to-disk";
 import { useMedia, useMediaAppearances } from "@/lib/hooks/use-galleries";
 import { useMediaDownload } from "@/lib/hooks/use-media-download";
 
 export default function PhotoDetailPage() {
+  useDocumentTitle("Photo");
   const { mediaId } = useParams<{ mediaId: string }>();
   const { media, isLoading, error } = useMedia(mediaId);
   const { download } = useMediaDownload(mediaId, true);

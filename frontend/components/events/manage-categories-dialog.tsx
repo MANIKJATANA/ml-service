@@ -89,9 +89,9 @@ export function ManageCategoriesDialog({ onChanged }: { onChanged?: () => void }
             aria-label="Categories"
           >
             {isLoading ? (
-              <li className="px-3 py-3 text-body-sm text-ink-muted">Loading…</li>
+              <li className="px-3 py-3 text-body-sm text-ink-secondary">Loading…</li>
             ) : categories.length === 0 ? (
-              <li className="px-3 py-3 text-body-sm text-ink-muted">No categories yet.</li>
+              <li className="px-3 py-3 text-body-sm text-ink-secondary">No categories yet.</li>
             ) : (
               categories.map((c) => (
                 <li key={c.id} className="flex items-center gap-2 px-3 py-2">

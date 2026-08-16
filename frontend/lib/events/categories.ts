@@ -4,16 +4,18 @@
  * Categories are configurable per school, so the color is DERIVED deterministically from the
  * category id (a stable hash into a fixed pale-tint palette) rather than stored. The 6 default
  * categories land on distinct tints; a custom one gets an auto-assigned color (two customs could
- * collide — a visual aid, not identity). The palette uses the app's existing tone tokens.
+ * collide — a visual aid, not identity).
  */
 
-// Deliberately excludes the error/red tint — a normal category shouldn't read as an error.
+// BP25 (R3-S2-06): a NON-semantic hue set (violet/teal/fuchsia/cyan/indigo/slate) — distinct
+// from the success/warning/error/info status tones, so a category never reads as a status.
 const PALETTE = [
-  "bg-info-soft text-info-strong",
-  "bg-success-soft text-success-strong",
-  "bg-warning-soft text-warning-strong",
-  "bg-accent/10 text-accent-dark",
-  "bg-surface-2 text-ink-secondary",
+  "bg-cat-1-soft text-cat-1-ink",
+  "bg-cat-2-soft text-cat-2-ink",
+  "bg-cat-3-soft text-cat-3-ink",
+  "bg-cat-4-soft text-cat-4-ink",
+  "bg-cat-5-soft text-cat-5-ink",
+  "bg-cat-6-soft text-cat-6-ink",
 ] as const;
 
 function hashString(value: string): number {

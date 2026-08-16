@@ -25,3 +25,27 @@ export function useListSort(initialKey: string, defaultDirs: Record<string, Sort
 
   return { sort, dir, onSort };
 }
+
+/**
+ * Like {@link useListSort}, but the sort key + direction live in the URL (BP25) — shareable +
+ * Back-safe. Takes a `useUrlParams()` bag so sort + dir change in ONE atomic `set` (no race).
+ * The default sort stays out of the URL until the user sorts.
+ */
+export function useUrlListSort(
+  initialKey: string,
+  defaultDirs: Record<string, SortDir>,
+  params: { get: (k: string, d?: string) => string; set: (u: Record<string, string | null>) => void },
+) {
+  const sort = params.get("sort", initialKey);
+  const dir: SortDir = params.get("dir", defaultDirs[sort] ?? "asc") === "desc" ? "desc" : "asc";
+
+  function onSort(key: string) {
+    if (key === sort) {
+      params.set({ dir: dir === "asc" ? "desc" : "asc" });
+    } else {
+      params.set({ sort: key, dir: defaultDirs[key] ?? "asc" });
+    }
+  }
+
+  return { sort, dir, onSort };
+}

@@ -126,7 +126,7 @@ function AddStudentsDialog({
           ) : null}
           <ul className="max-h-64 divide-y divide-hairline overflow-y-auto overscroll-contain rounded-button border border-hairline">
             {results.length === 0 ? (
-              <li className="px-3 py-3 text-body-sm text-ink-muted">
+              <li className="px-3 py-3 text-body-sm text-ink-secondary">
                 {query ? "No matching students." : "Search to find students to add."}
               </li>
             ) : (
@@ -140,7 +140,7 @@ function AddStudentsDialog({
                     className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
                   >
                     <span className="min-w-0 flex-1 truncate text-body-sm text-ink">{s.name}</span>
-                    <span className="min-w-0 shrink truncate text-body-sm text-ink-muted">
+                    <span className="min-w-0 shrink truncate text-body-sm text-ink-secondary">
                       {s.email}
                     </span>
                   </button>
@@ -259,7 +259,7 @@ function AssignTeachersDialog({
           ) : null}
           <ul className="max-h-64 divide-y divide-hairline overflow-y-auto overscroll-contain rounded-button border border-hairline">
             {results.length === 0 ? (
-              <li className="px-3 py-3 text-body-sm text-ink-muted">
+              <li className="px-3 py-3 text-body-sm text-ink-secondary">
                 {query ? "No matching teachers." : "Search to find teachers to assign."}
               </li>
             ) : (
@@ -334,7 +334,7 @@ function TeachersSection({ classId }: { classId: string }) {
       {isLoading ? (
         <Skeleton className="h-8 w-48" />
       ) : teachers.length === 0 ? (
-        <p className="text-body-sm text-ink-muted">
+        <p className="text-body-sm text-ink-secondary">
           No teachers assigned. Assign teachers so they see this class focused first.
         </p>
       ) : (

@@ -291,13 +291,13 @@ function MapStep({
                     <div className="flex flex-col gap-0.5">
                       <span className="font-medium text-ink">{r.studentName}</span>
                       {r.enrollmentStatus === "enrolled" ? (
-                        <span className="text-body-sm text-ink-muted">
+                        <span className="text-body-sm text-ink-secondary">
                           Already enrolled — will replace
                         </span>
                       ) : null}
                     </div>
                   ) : (
-                    <span className="text-body-sm text-ink-muted">No match — will be skipped</span>
+                    <span className="text-body-sm text-ink-secondary">No match — will be skipped</span>
                   )}
                 </TableCell>
                 <TableCell>
@@ -405,7 +405,7 @@ function RunStep({
 
 function ItemStatus({ item }: { item: BulkEnrollItem }) {
   if (item.status === "queued") {
-    return <span className="text-body-sm text-ink-muted">Waiting…</span>;
+    return <span className="text-body-sm text-ink-secondary">Waiting…</span>;
   }
   if (item.status === "uploading") {
     return (
@@ -421,7 +421,7 @@ function ItemStatus({ item }: { item: BulkEnrollItem }) {
     return (
       <div className="flex flex-col gap-0.5">
         <StatusPill tone="error">Failed</StatusPill>
-        {item.error ? <span className="text-body-sm text-ink-muted">{item.error}</span> : null}
+        {item.error ? <span className="text-body-sm text-ink-secondary">{item.error}</span> : null}
       </div>
     );
   }

@@ -2,9 +2,10 @@
 
 import { GraduationCap, RotateCcw, UserPlus } from "lucide-react";
 import Link from "next/link";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, Suspense, useEffect, useState } from "react";
 
 import { StudentAvatar } from "@/components/ui/avatar";
+import { Highlight } from "@/components/ui/highlight";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -27,7 +28,7 @@ import { SortableHead } from "@/components/ui/sortable-head";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/components/ui/toast";
-import { createStudent, enrollStudent, getStudents } from "@/lib/api/endpoints";
+import { assignStudentsToClass, createStudent, enrollStudent, getStudents } from "@/lib/api/endpoints";
 import { isApiError } from "@/lib/api/errors";
 import { uploadReferencePhoto } from "@/lib/api/upload";
 import type { EnrollmentStatus, SortDir, StudentListItem } from "@/lib/api/types";
@@ -36,9 +37,10 @@ import { useDashboard } from "@/lib/hooks/use-dashboard";
 import { useDebouncedValue } from "@/lib/hooks/use-debounced-value";
 import { useMe } from "@/lib/hooks/use-me";
 import { useMyClasses } from "@/lib/hooks/use-my-classes";
-import { useListSort } from "@/lib/hooks/use-sort";
+import { useUrlListSort } from "@/lib/hooks/use-sort";
 import { useStudentReferencePhoto } from "@/lib/hooks/use-student-reference-photo";
 import { useStudents } from "@/lib/hooks/use-students";
+import { useUrlParams } from "@/lib/hooks/use-url-state";
 import {
   ENROLL_FAILURE_SHORT,
   enrollDisplay,
@@ -159,7 +161,7 @@ function CreateStudentDialog({
           {progress !== null ? (
             <div className="flex flex-col gap-1.5">
               <ProgressBar value={progress} label="Upload progress" />
-              <span aria-live="polite" className="text-body-sm text-ink-muted">
+              <span aria-live="polite" className="text-body-sm text-ink-secondary">
                 Uploading photo… {progress}%
               </span>
             </div>
@@ -294,13 +296,31 @@ function RetryFailedButton({
   );
 }
 
-export default function StudentsPage() {
-  const [rawQuery, setRawQuery] = useState("");
-  const query = useDebouncedValue(rawQuery.trim(), 300);
-  const [filter, setFilter] = useState<"all" | EnrollmentStatus>("all");
-  const [classFilter, setClassFilter] = useState(""); // "" = all classes (BP11a)
-  const [focus, setFocus] = useState(true); // BP11c: default a teacher to their classes
-  const { sort, dir, onSort } = useListSort("name", SORT_DEFAULT_DIR);
+function StudentsContent() {
+  // BP25: filters live in the URL (shareable + Back-safe) via useUrlParams.
+  const { get, set } = useUrlParams();
+  const urlQ = get("q");
+  const [rawQuery, setRawQuery] = useState(urlQ);
+  const [prevUrlQ, setPrevUrlQ] = useState(urlQ);
+  if (urlQ !== prevUrlQ) {
+    setPrevUrlQ(urlQ);
+    setRawQuery(urlQ);
+  }
+  const debounced = useDebouncedValue(rawQuery.trim(), 300);
+  // Write only once the debounce settles to the current input (BP25 R1 fix: a Back that drops
+  // `q` must not have the lagging debounce re-add it for ~300ms).
+  useEffect(() => {
+    if (debounced === rawQuery.trim() && debounced !== urlQ) set({ q: debounced || null });
+  }, [debounced, rawQuery, urlQ, set]);
+  const query = urlQ;
+  const statusParam = get("status", "all");
+  const filter: "all" | EnrollmentStatus =
+    statusParam === "enrolled" || statusParam === "pending" || statusParam === "failed"
+      ? statusParam
+      : "all";
+  const classFilter = get("class", ""); // "" = all classes (BP11a)
+  const focus = get("mine", "1") !== "0"; // BP11c: default a teacher to their classes
+  const { sort, dir, onSort } = useUrlListSort("name", SORT_DEFAULT_DIR, { get, set });
   const [invite, setInvite] = useState<Invite | null>(null);
 
   const { dashboard, mutate: mutateDashboard } = useDashboard();
@@ -324,6 +344,50 @@ export default function StudentsPage() {
       student_group_id: activeClassFilter || undefined,
       mine: focusOn,
     });
+
+  const { toast } = useToast();
+  // BP25 (L14): bulk-select students → assign to a class (reuses the BP11a bulk endpoint).
+  // Selection is derived stale-safe (BP13): only ids still on the loaded page are acted on.
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkClassId, setBulkClassId] = useState("");
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const loadedIds = new Set(items.map((s) => s.id));
+  const selectedOnPage = [...selected].filter((id) => loadedIds.has(id));
+  const allOnPageSelected = items.length > 0 && items.every((s) => selected.has(s.id));
+  function toggleStudent(id: string) {
+    setSelected((cur) => {
+      const next = new Set(cur);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+  function toggleAllOnPage() {
+    setSelected((cur) => {
+      const next = new Set(cur);
+      if (allOnPageSelected) items.forEach((s) => next.delete(s.id));
+      else items.forEach((s) => next.add(s.id));
+      return next;
+    });
+  }
+  async function assignBulk() {
+    if (!bulkClassId || selectedOnPage.length === 0) return;
+    setBulkBusy(true);
+    try {
+      const { assigned } = await assignStudentsToClass(bulkClassId, selectedOnPage);
+      toast(
+        `Assigned ${assigned} ${assigned === 1 ? "student" : "students"} to the class.`,
+        "success",
+      );
+      setSelected(new Set());
+      setBulkClassId("");
+      mutate();
+    } catch (err) {
+      toast(isApiError(err) ? err.message : "Something went wrong", "error");
+    } finally {
+      setBulkBusy(false);
+    }
+  }
 
   const counts = dashboard?.students;
   const chips: ChipItem[] = [
@@ -400,18 +464,20 @@ export default function StudentsPage() {
           <FilterChips
             items={chips}
             activeId={filter}
-            onSelect={(id) => setFilter(id as "all" | EnrollmentStatus)}
+            onSelect={(id) => set({ status: id === "all" ? null : id })}
             ariaLabel="Filter by enrollment status"
           />
           {/* Row 2: the scope toggle + class filter (left) and search (right). */}
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex flex-wrap items-center gap-2">
-              {canFocus ? <FocusToggle value={focus} onChange={setFocus} /> : null}
+              {canFocus ? (
+                <FocusToggle value={focus} onChange={(next) => set({ mine: next ? null : "0" })} />
+              ) : null}
               {classes.length > 0 ? (
                 <select
                   aria-label="Filter by class"
                   value={activeClassFilter}
-                  onChange={(e) => setClassFilter(e.target.value)}
+                  onChange={(e) => set({ class: e.target.value || null })}
                   className="h-10 rounded-button border border-hairline bg-canvas px-3 text-body text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   <option value="">All classes</option>
@@ -425,6 +491,38 @@ export default function StudentsPage() {
             </div>
             <SearchInput value={rawQuery} onChange={setRawQuery} placeholder="Search name or email…" />
           </div>
+          {/* BP25 (L14): bulk-select → assign to a class (parity with the events bulk bar). */}
+          {selectedOnPage.length > 0 && classes.length > 0 ? (
+            <div className="flex flex-wrap items-center gap-3 rounded-card border border-hairline bg-surface px-4 py-3">
+              <span role="status" className="text-body-sm font-medium text-ink">
+                {selectedOnPage.length} selected
+              </span>
+              <select
+                aria-label="Class to assign to"
+                value={bulkClassId}
+                onChange={(e) => setBulkClassId(e.target.value)}
+                className="h-9 rounded-button border border-hairline bg-canvas px-3 text-body-sm text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <option value="">Assign to class…</option>
+                {classes.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+              <Button size="sm" onClick={assignBulk} loading={bulkBusy} disabled={!bulkClassId || bulkBusy}>
+                Assign
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setSelected(new Set())}
+                disabled={bulkBusy}
+              >
+                Clear
+              </Button>
+            </div>
+          ) : null}
           {total === 0 ? (
             <EmptyState title="No matching students" description="Try a different search or filter." />
           ) : (
@@ -433,6 +531,21 @@ export default function StudentsPage() {
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      {/* BP25: the checkbox column only exists when there's a bulk action (classes
+                          to assign to) — else it's dead UI. */}
+                      {classes.length > 0 ? (
+                        <TableHead className="w-10">
+                          <label className="flex w-fit cursor-pointer items-center p-1">
+                            <input
+                              type="checkbox"
+                              checked={allOnPageSelected}
+                              onChange={toggleAllOnPage}
+                              aria-label="Select all students on this page"
+                              className="size-4 rounded border-hairline text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            />
+                          </label>
+                        </TableHead>
+                      ) : null}
                       <SortableHead
                         label="Student"
                         sortKey="name"
@@ -454,6 +567,19 @@ export default function StudentsPage() {
                   <TableBody>
                     {items.map((student) => (
                       <TableRow key={student.id} className="transition-colors hover:bg-surface">
+                        {classes.length > 0 ? (
+                          <TableCell>
+                            <label className="flex w-fit cursor-pointer items-center p-1">
+                              <input
+                                type="checkbox"
+                                checked={selected.has(student.id)}
+                                onChange={() => toggleStudent(student.id)}
+                                aria-label={`Select ${student.name}`}
+                                className="size-4 rounded border-hairline text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                              />
+                            </label>
+                          </TableCell>
+                        ) : null}
                         <TableCell>
                           <Link
                             href={`/students/${student.id}`}
@@ -462,10 +588,10 @@ export default function StudentsPage() {
                             <StudentRowAvatar student={student} />
                             <span className="flex flex-col">
                               <span className="font-medium text-ink hover:underline">
-                                {student.name}
+                                <Highlight text={student.name} query={urlQ} />
                               </span>
                               {student.student_group_name ? (
-                                <span className="text-body-sm text-ink-muted">
+                                <span className="text-body-sm text-ink-secondary">
                                   {student.student_group_name}
                                 </span>
                               ) : null}
@@ -522,5 +648,14 @@ export default function StudentsPage() {
 
       <InviteResultDialog invite={invite} onClose={() => setInvite(null)} />
     </div>
+  );
+}
+
+/** URL-backed filters (BP25) need a Suspense boundary (useSearchParams on a static route). */
+export default function StudentsPage() {
+  return (
+    <Suspense fallback={<Skeleton className="h-24 w-full" />}>
+      <StudentsContent />
+    </Suspense>
   );
 }

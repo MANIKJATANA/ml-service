@@ -2,7 +2,7 @@
 
 import { CalendarDays, Plus } from "lucide-react";
 import Link from "next/link";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, Suspense, useEffect, useState } from "react";
 import { mutate as globalMutate } from "swr";
 
 import { FocusToggle } from "@/components/delegation/focus-toggle";
@@ -14,6 +14,7 @@ import { Card } from "@/components/ui/card";
 import { Dialog, DialogClose, DialogContent, DialogTrigger } from "@/components/ui/dialog";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Field } from "@/components/ui/field";
+import { Highlight } from "@/components/ui/highlight";
 import { Input } from "@/components/ui/input";
 import { LoadMore } from "@/components/ui/load-more";
 import { PageHeader } from "@/components/ui/page-header";
@@ -44,8 +45,9 @@ import { useEventCategories, useEventTerms } from "@/lib/hooks/use-event-categor
 import { useEvents } from "@/lib/hooks/use-events";
 import { useMe } from "@/lib/hooks/use-me";
 import { useMyClasses } from "@/lib/hooks/use-my-classes";
-import { useListSort } from "@/lib/hooks/use-sort";
+import { useUrlListSort } from "@/lib/hooks/use-sort";
 import { useMonthEvents } from "@/lib/hooks/use-month-events";
+import { useUrlParams } from "@/lib/hooks/use-url-state";
 import { cn, formatDate } from "@/lib/utils";
 
 const SORT_DEFAULT_DIR: Record<string, SortDir> = {
@@ -66,7 +68,7 @@ function CategoryBadge({
   categoryId: string | null;
   categoryName: string | null;
 }) {
-  if (!categoryId || !categoryName) return <span className="text-ink-muted">—</span>;
+  if (!categoryId || !categoryName) return <span className="text-ink-secondary">—</span>;
   return (
     <span
       className={cn(
@@ -275,16 +277,32 @@ function CalendarView({
   );
 }
 
-export default function EventsPage() {
-  const [rawQuery, setRawQuery] = useState("");
-  const query = useDebouncedValue(rawQuery.trim(), 300);
-  const [filter, setFilter] = useState<"all" | EventStatus>("all");
-  const [categoryFilter, setCategoryFilter] = useState("");
-  const [termFilter, setTermFilter] = useState("");
-  const [classFilter, setClassFilter] = useState("");
-  const [focus, setFocus] = useState(true); // BP11c: default a teacher to their classes
-  const { sort, dir, onSort } = useListSort("event_date", SORT_DEFAULT_DIR);
-  const [tab, setTab] = useState("list");
+function EventsContent() {
+  // BP25: filters live in the URL (shareable + Back-safe) via useUrlParams.
+  const { get, set } = useUrlParams();
+  const urlQ = get("q");
+  const [rawQuery, setRawQuery] = useState(urlQ);
+  const [prevUrlQ, setPrevUrlQ] = useState(urlQ);
+  if (urlQ !== prevUrlQ) {
+    setPrevUrlQ(urlQ);
+    setRawQuery(urlQ);
+  }
+  const debounced = useDebouncedValue(rawQuery.trim(), 300);
+  // Write only once the debounce settles to the current input (BP25 R1 fix: a Back that drops
+  // `q` must not have the lagging debounce re-add it for ~300ms).
+  useEffect(() => {
+    if (debounced === rawQuery.trim() && debounced !== urlQ) set({ q: debounced || null });
+  }, [debounced, rawQuery, urlQ, set]);
+  const query = urlQ;
+  const statusParam = get("status", "all");
+  const filter: "all" | EventStatus =
+    statusParam === "active" || statusParam === "archived" ? statusParam : "all";
+  const categoryFilter = get("category", "");
+  const termFilter = get("term", "");
+  const classFilter = get("class", "");
+  const focus = get("mine", "1") !== "0"; // BP11c: default a teacher to their classes
+  const { sort, dir, onSort } = useUrlListSort("event_date", SORT_DEFAULT_DIR, { get, set });
+  const tab = get("tab", "list");
 
   const { dashboard } = useDashboard();
   const { categories } = useEventCategories();
@@ -418,17 +436,19 @@ export default function EventsPage() {
           <FilterChips
             items={chips}
             activeId={filter}
-            onSelect={(id) => setFilter(id as "all" | EventStatus)}
+            onSelect={(id) => set({ status: id === "all" ? null : id })}
             ariaLabel="Filter by event status"
           />
           {/* Row 2: the scope toggle + class/category/term filters (all AND together). */}
           <div className="flex flex-wrap items-center gap-2">
-              {canFocus ? <FocusToggle value={focus} onChange={setFocus} /> : null}
+              {canFocus ? (
+                <FocusToggle value={focus} onChange={(next) => set({ mine: next ? null : "0" })} />
+              ) : null}
               {classes.length > 0 ? (
                 <select
                   aria-label="Filter by class"
                   value={activeClass}
-                  onChange={(e) => setClassFilter(e.target.value)}
+                  onChange={(e) => set({ class: e.target.value || null })}
                   className={SELECT_CLASS}
                 >
                   <option value="">All classes</option>
@@ -443,7 +463,7 @@ export default function EventsPage() {
                 <select
                   aria-label="Filter by category"
                   value={activeCategory}
-                  onChange={(e) => setCategoryFilter(e.target.value)}
+                  onChange={(e) => set({ category: e.target.value || null })}
                   className={SELECT_CLASS}
                 >
                   <option value="">All categories</option>
@@ -458,7 +478,7 @@ export default function EventsPage() {
                 <select
                   aria-label="Filter by term"
                   value={activeTerm}
-                  onChange={(e) => setTermFilter(e.target.value)}
+                  onChange={(e) => set({ term: e.target.value || null })}
                   className={SELECT_CLASS}
                 >
                   <option value="">All terms</option>
@@ -471,7 +491,7 @@ export default function EventsPage() {
               ) : null}
           </div>
 
-          <Tabs value={tab} onValueChange={setTab}>
+          <Tabs value={tab} onValueChange={(v) => set({ tab: v === "list" ? null : v })}>
             <TabsList>
               <TabsTrigger value="list">List</TabsTrigger>
               <TabsTrigger value="calendar">Calendar</TabsTrigger>
@@ -515,13 +535,16 @@ export default function EventsPage() {
                       <TableHeader>
                         <TableRow>
                           <TableHead className="w-10">
-                            <input
-                              type="checkbox"
-                              checked={allOnPageSelected}
-                              onChange={toggleAllOnPage}
-                              aria-label="Select all events on this page"
-                              className="size-4 rounded border-hairline text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                            />
+                            {/* BP25: a padded label lifts the 16px checkbox to a ≥24px target. */}
+                            <label className="flex w-fit cursor-pointer items-center p-1">
+                              <input
+                                type="checkbox"
+                                checked={allOnPageSelected}
+                                onChange={toggleAllOnPage}
+                                aria-label="Select all events on this page"
+                                className="size-4 rounded border-hairline text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                              />
+                            </label>
                           </TableHead>
                           <SortableHead label="Name" sortKey="name" activeKey={sort} dir={dir} onSort={onSort} />
                           <TableHead>Category</TableHead>
@@ -543,13 +566,15 @@ export default function EventsPage() {
                           return (
                           <TableRow key={event.id} className="transition-colors hover:bg-surface">
                             <TableCell>
-                              <input
-                                type="checkbox"
-                                checked={selected.has(event.id)}
-                                onChange={() => toggleEvent(event.id)}
-                                aria-label={`Select ${event.name}`}
-                                className="size-4 rounded border-hairline text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                              />
+                              <label className="flex w-fit cursor-pointer items-center p-1">
+                                <input
+                                  type="checkbox"
+                                  checked={selected.has(event.id)}
+                                  onChange={() => toggleEvent(event.id)}
+                                  aria-label={`Select ${event.name}`}
+                                  className="size-4 rounded border-hairline text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                />
+                              </label>
                             </TableCell>
                             <TableCell>
                               <div className="flex items-center gap-2">
@@ -557,7 +582,7 @@ export default function EventsPage() {
                                   href={`/events/${event.id}`}
                                   className="rounded font-medium text-accent-hover hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                                 >
-                                  {event.name}
+                                  <Highlight text={event.name} query={urlQ} />
                                 </Link>
                                 {event.status === "archived" ? (
                                   <StatusPill tone={EVENT_STATUS_TONE.archived}>
@@ -566,7 +591,7 @@ export default function EventsPage() {
                                 ) : null}
                               </div>
                               {(event.term || event.student_group_name) ? (
-                                <span className="text-body-sm text-ink-muted">
+                                <span className="text-body-sm text-ink-secondary">
                                   {[event.term, event.student_group_name]
                                     .filter(Boolean)
                                     .join(" · ")}
@@ -637,5 +662,14 @@ export default function EventsPage() {
         </div>
       )}
     </div>
+  );
+}
+
+/** URL-backed filters (BP25) need a Suspense boundary (useSearchParams on a static route). */
+export default function EventsPage() {
+  return (
+    <Suspense fallback={<Skeleton className="h-24 w-full" />}>
+      <EventsContent />
+    </Suspense>
   );
 }

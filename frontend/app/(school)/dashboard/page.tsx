@@ -103,7 +103,7 @@ function buildAlerts(d: DashboardResponse): DashAlert[] {
     alerts.push({
       key: "processing",
       tone: "info",
-      icon: <Loader2 className="size-4" aria-hidden="true" />,
+      icon: <Loader2 className="size-4 animate-spin" aria-hidden="true" />,
       title: `${plural(d.events.processing, "event", "events")} matching now`,
       description: "Face matching is in progress for these events.",
       href: "/events",
@@ -216,7 +216,7 @@ function DashboardContent({ d }: { d: DashboardResponse }) {
           ))}
         </Card>
       ) : (
-        <p className="text-body-sm text-ink-muted">
+        <p className="text-body-sm text-ink-secondary">
           You&apos;re all caught up — nothing needs attention.
         </p>
       )}

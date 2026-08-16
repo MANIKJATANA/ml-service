@@ -79,7 +79,7 @@ export function StudentPicker({
           />
           <ul className="max-h-56 overflow-y-auto overscroll-contain rounded-button border border-hairline">
             {items.length === 0 ? (
-              <li className="px-2 py-2 text-body-sm text-ink-muted">
+              <li className="px-2 py-2 text-body-sm text-ink-secondary">
                 {debounced ? "No students found." : "Search to pick a student."}
               </li>
             ) : (
@@ -103,11 +103,11 @@ export function StudentPicker({
                       <span className="min-w-0 flex-1 truncate text-body-sm text-ink">
                         {s.name}
                       </span>
-                      <span className="min-w-0 shrink truncate text-body-sm text-ink-muted">
+                      <span className="min-w-0 shrink truncate text-body-sm text-ink-secondary">
                         {s.email}
                       </span>
                       {disabled ? (
-                        <span className="shrink-0 text-body-sm text-ink-muted">assigned</span>
+                        <span className="shrink-0 text-body-sm text-ink-secondary">assigned</span>
                       ) : null}
                     </button>
                   </li>

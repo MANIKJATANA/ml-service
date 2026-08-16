@@ -325,7 +325,7 @@ function DistributionCard({
           {roster?.notified_at ? "Announce again" : "Announce to students"}
         </Button>
         {!canNotify ? (
-          <p className="text-body-sm text-ink-muted">
+          <p className="text-body-sm text-ink-secondary">
             Finish matching the photos before announcing.
           </p>
         ) : null}
@@ -528,13 +528,13 @@ export default function EventDetailPage() {
               ) : null}
               <dl className="grid gap-6 sm:grid-cols-3">
                 <div className="flex flex-col gap-1">
-                  <dt className="text-body-sm text-ink-muted">Date</dt>
+                  <dt className="text-body-sm text-ink-secondary">Date</dt>
                   <dd className="text-body text-ink">
                     {event.event_date ? formatDate(event.event_date) : "—"}
                   </dd>
                 </div>
                 <div className="flex flex-col gap-1">
-                  <dt className="text-body-sm text-ink-muted">Category</dt>
+                  <dt className="text-body-sm text-ink-secondary">Category</dt>
                   <dd>
                     {event.category_id && event.category_name ? (
                       <span
@@ -546,20 +546,20 @@ export default function EventDetailPage() {
                         {event.category_name}
                       </span>
                     ) : (
-                      <span className="text-body text-ink-muted">—</span>
+                      <span className="text-body text-ink-secondary">—</span>
                     )}
                   </dd>
                 </div>
                 <div className="flex flex-col gap-1">
-                  <dt className="text-body-sm text-ink-muted">Term</dt>
+                  <dt className="text-body-sm text-ink-secondary">Term</dt>
                   <dd className="text-body text-ink">{event.term ?? "—"}</dd>
                 </div>
                 <div className="flex flex-col gap-1">
-                  <dt className="text-body-sm text-ink-muted">Class</dt>
+                  <dt className="text-body-sm text-ink-secondary">Class</dt>
                   <dd className="text-body text-ink">{event.student_group_name ?? "School-wide"}</dd>
                 </div>
                 <div className="flex flex-col gap-1">
-                  <dt className="text-body-sm text-ink-muted">Status</dt>
+                  <dt className="text-body-sm text-ink-secondary">Status</dt>
                   <dd>
                     <StatusPill tone={EVENT_STATUS_TONE[event.status]}>
                       {EVENT_STATUS_LABEL[event.status]}
@@ -567,7 +567,7 @@ export default function EventDetailPage() {
                   </dd>
                 </div>
                 <div className="flex flex-col gap-1">
-                  <dt className="text-body-sm text-ink-muted">Created</dt>
+                  <dt className="text-body-sm text-ink-secondary">Created</dt>
                   <dd className="text-body text-ink">{formatDate(event.created_at)}</dd>
                 </div>
               </dl>

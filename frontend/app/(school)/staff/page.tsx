@@ -1,7 +1,7 @@
 "use client";
 
 import { UserPlus, Users } from "lucide-react";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, Suspense, useEffect, useState } from "react";
 import useSWR, { mutate as globalMutate } from "swr";
 
 import { RoleGate } from "@/components/role-gate";
@@ -12,6 +12,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Dialog, DialogClose, DialogContent, DialogTrigger } from "@/components/ui/dialog";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Field } from "@/components/ui/field";
+import { Highlight } from "@/components/ui/highlight";
 import { Input } from "@/components/ui/input";
 import { LoadMore } from "@/components/ui/load-more";
 import { PageHeader } from "@/components/ui/page-header";
@@ -32,8 +33,9 @@ import { isApiError } from "@/lib/api/errors";
 import type { ClassResponse, SortDir, UserResponse } from "@/lib/api/types";
 import { useClasses } from "@/lib/hooks/use-classes";
 import { useDebouncedValue } from "@/lib/hooks/use-debounced-value";
-import { useListSort } from "@/lib/hooks/use-sort";
+import { useUrlListSort } from "@/lib/hooks/use-sort";
 import { useStaff } from "@/lib/hooks/use-staff";
+import { useUrlParams } from "@/lib/hooks/use-url-state";
 import { formatDate } from "@/lib/utils";
 
 // Default direction when a column is first selected (BP9): email A→Z, added newest-first.
@@ -268,7 +270,7 @@ function EditClassesDialog({
       >
         <div className="flex flex-col gap-3">
           {classes.length === 0 ? (
-            <p className="text-body-sm text-ink-muted">
+            <p className="text-body-sm text-ink-secondary">
               No classes yet. Create classes first, then assign them here.
             </p>
           ) : (
@@ -284,7 +286,7 @@ function EditClassesDialog({
                     />
                     <span className="min-w-0 flex-1 truncate text-body-sm text-ink">{c.name}</span>
                     {(c.grade || c.section) && (
-                      <span className="shrink-0 text-body-sm text-ink-muted">
+                      <span className="shrink-0 text-body-sm text-ink-secondary">
                         {[c.grade, c.section].filter(Boolean).join(" · ")}
                       </span>
                     )}
@@ -327,13 +329,25 @@ function ClassesCell({ teacher }: { teacher: UserResponse }) {
 }
 
 function StaffContent() {
-  const [rawQuery, setRawQuery] = useState("");
-  const query = useDebouncedValue(rawQuery.trim(), 300);
-  const { sort, dir, onSort } = useListSort("email", SORT_DEFAULT_DIR);
+  const { get, set } = useUrlParams();
+  const urlQ = get("q");
+  const [rawQuery, setRawQuery] = useState(urlQ);
+  const [prevUrlQ, setPrevUrlQ] = useState(urlQ);
+  if (urlQ !== prevUrlQ) {
+    setPrevUrlQ(urlQ);
+    setRawQuery(urlQ);
+  }
+  const debounced = useDebouncedValue(rawQuery.trim(), 300);
+  // Write only once the debounce settles to the current input (BP25 R1 fix: a Back that drops
+  // `q` must not have the lagging debounce re-add it for ~300ms).
+  useEffect(() => {
+    if (debounced === rawQuery.trim() && debounced !== urlQ) set({ q: debounced || null });
+  }, [debounced, rawQuery, urlQ, set]);
+  const { sort, dir, onSort } = useUrlListSort("email", SORT_DEFAULT_DIR, { get, set });
   const [invite, setInvite] = useState<Invite | null>(null);
 
   const { items, total, isLoading, isLoadingMore, error, reachedEnd, loadMore, mutate } =
-    useStaff({ q: query || undefined, sort, dir });
+    useStaff({ q: urlQ || undefined, sort, dir });
 
   const isInitialLoading = isLoading && items.length === 0;
 
@@ -366,7 +380,7 @@ function StaffContent() {
             </Button>
           }
         />
-      ) : total === 0 && query.length === 0 ? (
+      ) : total === 0 && urlQ.length === 0 ? (
         <EmptyState
           icon={<Users className="size-8" aria-hidden="true" />}
           title="No teachers yet"
@@ -398,7 +412,9 @@ function StaffContent() {
                       const status = staffStatus(teacher);
                       return (
                         <TableRow key={teacher.id}>
-                          <TableCell>{teacher.email}</TableCell>
+                          <TableCell>
+                            <Highlight text={teacher.email} query={urlQ} />
+                          </TableCell>
                           <TableCell>
                             <StatusPill tone={status.tone}>{status.label}</StatusPill>
                           </TableCell>
@@ -443,7 +459,10 @@ function StaffContent() {
 export default function StaffPage() {
   return (
     <RoleGate allow={["school_admin"]}>
-      <StaffContent />
+      {/* URL-backed filters (BP25) need a Suspense boundary (useSearchParams, static route). */}
+      <Suspense fallback={<Skeleton className="h-24 w-full" />}>
+        <StaffContent />
+      </Suspense>
     </RoleGate>
   );
 }

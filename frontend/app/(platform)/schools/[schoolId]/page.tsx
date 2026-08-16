@@ -518,7 +518,7 @@ export default function SchoolDetailPage() {
           <Card className="p-6">
             <dl className="grid gap-6 sm:grid-cols-3">
               <div className="flex flex-col gap-1">
-                <dt className="text-body-sm text-ink-muted">Status</dt>
+                <dt className="text-body-sm text-ink-secondary">Status</dt>
                 <dd>
                   <StatusPill tone={school.status === "active" ? "success" : "warning"}>
                     {school.status === "active" ? "Active" : "Suspended"}
@@ -526,13 +526,13 @@ export default function SchoolDetailPage() {
                 </dd>
               </div>
               <div className="flex flex-col gap-1">
-                <dt className="text-body-sm text-ink-muted">Max teachers</dt>
+                <dt className="text-body-sm text-ink-secondary">Max teachers</dt>
                 <dd className="text-body tabular-nums text-ink">
                   {school.max_teachers.toLocaleString()}
                 </dd>
               </div>
               <div className="flex flex-col gap-1">
-                <dt className="text-body-sm text-ink-muted">Created</dt>
+                <dt className="text-body-sm text-ink-secondary">Created</dt>
                 <dd className="text-body text-ink">{formatDate(school.created_at)}</dd>
               </div>
             </dl>

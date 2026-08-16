@@ -38,7 +38,7 @@ export function Field({ label, htmlFor, error, hint, children, className }: Fiel
           {error}
         </p>
       ) : hint ? (
-        <p id={`${htmlFor}-hint`} className="text-body-sm text-ink-muted">
+        <p id={`${htmlFor}-hint`} className="text-body-sm text-ink-secondary">
           {hint}
         </p>
       ) : null}

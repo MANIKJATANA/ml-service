@@ -11,8 +11,10 @@ import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toast";
 import { changePassword } from "@/lib/api/endpoints";
 import { isApiError } from "@/lib/api/errors";
+import { useDocumentTitle } from "@/lib/hooks/use-document-title";
 
 export default function ChangePasswordPage() {
+  useDocumentTitle("Change password");
   const router = useRouter();
   const { toast } = useToast();
   const [current, setCurrent] = useState("");

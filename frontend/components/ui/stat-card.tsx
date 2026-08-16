@@ -21,7 +21,7 @@ interface StatCardProps {
 export function StatCard({ label, value, hint, href }: StatCardProps) {
   const body = (
     <>
-      <span className="text-body-sm text-ink-muted">{label}</span>
+      <span className="text-body-sm text-ink-secondary">{label}</span>
       <span className="text-display-lg tabular-nums text-ink">{value}</span>
       {hint ? <span className="text-body-sm text-ink-secondary">{hint}</span> : null}
     </>

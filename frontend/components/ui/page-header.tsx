@@ -1,5 +1,8 @@
+"use client";
+
 import type { ReactNode } from "react";
 
+import { useDocumentTitle } from "@/lib/hooks/use-document-title";
 import { cn } from "@/lib/utils";
 
 interface PageHeaderProps {
@@ -9,8 +12,10 @@ interface PageHeaderProps {
   className?: string;
 }
 
-/** Page title + optional description and right-aligned actions, over a hairline. */
+/** Page title + optional description and right-aligned actions, over a hairline. BP25: it also
+ *  sets the browser tab title to "{title} · Photos", so every page with a header is named. */
 export function PageHeader({ title, description, actions, className }: PageHeaderProps) {
+  useDocumentTitle(title);
   return (
     <div
       className={cn(

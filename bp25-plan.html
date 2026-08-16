@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BP25 — Floor sweep</title>
+<style>
+  :root{
+    --ink:#0d1729; --ink-2:#5a6578; --ink-3:#7b8494;
+    --canvas:#f8f9fa; --surface:#fff; --hairline:#e3e8ef;
+    --accent:#4f46e5; --accent-soft:#eef2ff;
+    --high:#b45309; --high-soft:#fffbeb;
+    --ok:#15803d; --ok-soft:#f0fdf4;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:ui-sans-serif,system-ui,"Segoe UI",Roboto,sans-serif;background:var(--canvas);color:var(--ink);line-height:1.55;padding:48px 20px}
+  .wrap{max-width:880px;margin:0 auto}
+  h1{font-size:29px;letter-spacing:-.02em;margin-bottom:6px}
+  h2{font-size:18px;letter-spacing:-.01em;margin:42px 0 13px}
+  .sub{color:var(--ink-2);font-size:14.5px;margin-bottom:8px}
+  .meta{font-size:12.5px;color:var(--ink-3);margin-bottom:30px}
+  .meta code{background:var(--surface);border:1px solid var(--hairline);border-radius:4px;padding:1px 5px;font-size:11.5px}
+  .card{background:var(--surface);border:1px solid var(--hairline);border-radius:12px;padding:18px 20px;margin-bottom:14px}
+  .problem{background:var(--high-soft);border:1px solid #f3e2c0;border-radius:12px;padding:16px 20px;margin-bottom:14px;font-size:14px;line-height:1.6}
+  .problem b{color:var(--high)}
+  .problem .chain{margin-top:8px;font-size:13px;color:var(--ink-2)}
+  .problem .chain b{color:var(--ink)}
+  .ord{background:var(--accent-soft);border:1px solid #dfe3ff;border-radius:10px;padding:13px 16px;margin-bottom:14px;font-size:13px;color:var(--ink);line-height:1.55}
+  .ord b{color:var(--accent)}
+  .grp{background:var(--surface);border:1px solid var(--hairline);border-radius:11px;padding:15px 18px;margin-bottom:11px}
+  .grp .top{display:flex;align-items:baseline;gap:9px;flex-wrap:wrap;margin-bottom:9px}
+  .grp .lt{font-weight:700;font-size:11px;color:var(--accent);background:var(--accent-soft);border-radius:6px;padding:2px 8px}
+  .grp .nm{font-weight:700;font-size:15px;letter-spacing:-.01em}
+  .grp .tags{margin-left:auto;display:flex;gap:5px;align-items:center}
+  .grp .tag{font-size:10.5px;color:var(--ink-2);background:var(--canvas);border:1px solid var(--hairline);border-radius:5px;padding:1px 7px;white-space:nowrap}
+  .grp .tag.big{color:var(--high);background:var(--high-soft);border-color:#f3e2c0}
+  ul.items{list-style:none;margin:0;padding:0}
+  ul.items li{font-size:13.5px;line-height:1.5;color:var(--ink);padding:5px 0 5px 20px;position:relative;border-top:1px solid #f1f3f6}
+  ul.items li:first-child{border-top:none}
+  ul.items li:before{content:"";position:absolute;left:3px;top:12px;width:6px;height:6px;border-radius:2px;background:var(--accent)}
+  ul.items li b{color:var(--ink)}
+  ul.items li .now{color:var(--ink-3);font-size:12.5px}
+  .verify{font-size:13.5px;line-height:1.6;color:var(--ink-2)}
+  .verify b{color:var(--ink)}
+  .foot{margin-top:38px;padding-top:16px;border-top:1px solid var(--hairline);font-size:13px;color:var(--ink-2)}
+  .foot code{background:var(--surface);border:1px solid var(--hairline);border-radius:4px;padding:1px 5px;font-size:11.5px}
+  .foot b{color:var(--ink)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>BP25 — Floor sweep</h1>
+  <p class="sub">The next Round-3 build. One pass over the app's accumulated <b>small rough edges</b> — readability, keyboard/touch access, shareable links, and a few visual fixes — so the whole thing feels finished.</p>
+  <p class="meta">Plan: <code>C:\Users\…\plans\…jolly-peach.md</code> (approved) · findings: <code>product/06</code> theme Q · roadmap: <code>product/07</code> BP25 · this is the explainer to verify <b>before</b> any code · <b>one phase, four groups</b> · <b>frontend only — no database, no ML, no server change</b></p>
+
+  <h2>The problem we're fixing</h2>
+  <div class="problem">
+    <b>Lots of small things are a little bit off — none fatal, but together they make the app feel unpolished.</b>
+    <div class="chain">
+      Some data text is <b>too light to read comfortably</b> (fails the contrast standard). The month calendar <b>crushes on a phone</b>. A few tap targets are too small and a few links show <b>no keyboard-focus ring</b>. Filter a list, click into a row, press Back — and your <b>filter is gone</b> (it was never in the web address). Every browser tab just says <b>"Photos"</b>. The sign-in screen is a <b>plain gray card</b>. The "matching now" spinner <b>doesn't spin</b>. And event <b>category colors reuse the exact status colors</b>, so a "Trip" tag can look like a "needs attention" warning.
+    </div>
+  </div>
+
+  <div class="ord">
+    <b>Your call (already made):</b> take <b>all four groups</b> below, in <b>one phase</b>. Mostly low-risk cosmetic + accessibility work; the two rounds of self-review are the safety net.
+  </div>
+
+  <h2>What we're building — four groups, one phase</h2>
+
+  <div class="grp">
+    <div class="top"><span class="lt">A</span><span class="nm">Readability &amp; access (the floor)</span>
+      <span class="tags"><span class="tag big">the one High</span></span></div>
+    <ul class="items">
+      <li><b>Readable data text</b> — swap the too-light gray to the darker one everywhere it carries data (table headers, labels, counts, hints) so it passes the contrast standard. <span class="now">~60 spots, colour only.</span></li>
+      <li><b>Calendar on a phone</b> — it scrolls sideways instead of crushing; the "today" circle gets the darker, readable accent.</li>
+      <li><b>Keyboard &amp; touch</b> — focus rings on three bare links; bigger tap targets on the events checkboxes + the toast close button.</li>
+      <li><b>The photo viewer</b> — a visible "← → · Esc" hint; and when a <b>video</b> is focused, the arrows control the video (not the gallery) instead of doing both.</li>
+      <li><b>Page titles</b> — each browser tab reads its page ("Students · Photos", "Dashboard · Photos") instead of all saying "Photos".</li>
+    </ul>
+  </div>
+
+  <div class="grp">
+    <div class="top"><span class="lt">B</span><span class="nm">Design residue (quick polish)</span></div>
+    <ul class="items">
+      <li><b>A brand moment on sign-in</b> — the "Photos" name + mark above the card, instead of a bare gray box.</li>
+      <li><b>Category colors</b> — a distinct, non-status palette, so an event category can never be mistaken for a "warning".</li>
+      <li><b>The frozen spinner</b> — the "matching now" icon actually spins.</li>
+      <li><b>The one-time password</b> — shown in a proper monospace so it's easy to read/copy.</li>
+    </ul>
+  </div>
+
+  <div class="grp">
+    <div class="top"><span class="lt">C</span><span class="nm">Shareable list links</span>
+      <span class="tags"><span class="tag">the bigger one</span></span></div>
+    <ul class="items">
+      <li><b>Filters in the web address</b> — search / sort / filter / status on the Students, Events, Staff, and Schools lists go into the URL, so a filtered view is <b>shareable</b> and <b>survives the Back button</b> (like the gallery tab already does).</li>
+    </ul>
+  </div>
+
+  <div class="grp">
+    <div class="top"><span class="lt">D</span><span class="nm">The odds &amp; ends</span></div>
+    <ul class="items">
+      <li><b>Skip-to-content</b> link for keyboard users + a proper <code>&lt;main&gt;</code> on the sign-in screen.</li>
+      <li><b>Bulk-select students</b> — a checkbox column + a bulk "Assign to class" bar (like the events list already has).</li>
+      <li><b>"You're offline"</b> hint when the connection drops; <b>scroll position</b> better preserved on Back.</li>
+      <li><b>Search highlighting</b> — the matched text is highlighted in the results; a second <b>"Download all"</b> at the bottom of a long photo page.</li>
+    </ul>
+  </div>
+
+  <h2>How we'll work</h2>
+  <div class="ord">
+    <b>One phase</b> — all four groups together, then the full check (types + lint + build) and a <b>2× self-review</b> (the second pass focused on contrast + accessibility), then brought back to you. It's a <b>large but low-risk</b> diff — mostly colours, spacing, and wiring. <b>Nothing is committed until you say so.</b> Frontend-only — the review will confirm only <code>frontend/</code> changed.
+  </div>
+
+  <h2>How we'll check it</h2>
+  <div class="card verify">
+    The full frontend gate stays green, plus a walk: the lightened text now reads clearly; the calendar scrolls on a narrow screen; the links/targets are keyboard- and touch-friendly; the video-arrow fix works; each tab shows its page name; the sign-in has a brand; categories don't look like statuses; a filtered list is shareable and survives Back; the skip-link, offline hint, student bulk-assign, search highlight, and bottom "Download all" all work.
+  </div>
+
+  <p class="foot">Not in this build (noted honestly): the "quiet" input border stays as-is (a deliberate tradeoff — labels + a strong focus ring carry it); full scroll-position memory on the long infinite lists is best-effort only; dark mode and a few parked polish items are still parked. <b>No server change, no database migration, no ML change.</b> After this, the roadmap tail is <code>BP23</code> (instrumentation) → <code>BP24</code>, plus the earlier <b>blocked</b> student "This isn't me" safety whenever you re-open it.</p>
+
+</div>
+</body>
+</html>

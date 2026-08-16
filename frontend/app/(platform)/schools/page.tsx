@@ -2,9 +2,10 @@
 
 import { Building2, Plus } from "lucide-react";
 import Link from "next/link";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, Suspense, useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { Highlight } from "@/components/ui/highlight";
 import { Card } from "@/components/ui/card";
 import { Dialog, DialogClose, DialogContent, DialogTrigger } from "@/components/ui/dialog";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -30,7 +31,8 @@ import { isApiError } from "@/lib/api/errors";
 import type { SchoolStatus, SortDir } from "@/lib/api/types";
 import { useDebouncedValue } from "@/lib/hooks/use-debounced-value";
 import { useSchools } from "@/lib/hooks/use-schools";
-import { useListSort } from "@/lib/hooks/use-sort";
+import { useUrlListSort } from "@/lib/hooks/use-sort";
+import { useUrlParams } from "@/lib/hooks/use-url-state";
 
 const STATUS_TONE: Record<SchoolStatus, "success" | "warning"> = {
   active: "success",
@@ -128,13 +130,27 @@ function CreateSchoolDialog({ onCreated }: { onCreated: () => void }) {
   );
 }
 
-export default function SchoolsPage() {
-  const [rawQuery, setRawQuery] = useState("");
-  const query = useDebouncedValue(rawQuery.trim(), 300);
-  const { sort, dir, onSort } = useListSort("name", SORT_DEFAULT_DIR);
+function SchoolsContent() {
+  const { get, set } = useUrlParams();
+  const urlQ = get("q");
+  const [rawQuery, setRawQuery] = useState(urlQ);
+  // Back-sync the input if the URL q changed externally (adjust-during-render, lint-safe).
+  const [prevUrlQ, setPrevUrlQ] = useState(urlQ);
+  if (urlQ !== prevUrlQ) {
+    setPrevUrlQ(urlQ);
+    setRawQuery(urlQ);
+  }
+  const debounced = useDebouncedValue(rawQuery.trim(), 300);
+  // Write the debounced search to the URL (`set` is router.replace, not a setState → no loop).
+  // Only once the debounce has SETTLED to the current input, so a Back that drops `q` doesn't get
+  // the lagging debounce re-adding it for ~300ms (BP25 R1 fix).
+  useEffect(() => {
+    if (debounced === rawQuery.trim() && debounced !== urlQ) set({ q: debounced || null });
+  }, [debounced, rawQuery, urlQ, set]);
+  const { sort, dir, onSort } = useUrlListSort("name", SORT_DEFAULT_DIR, { get, set });
 
   const { items, total, isLoading, isLoadingMore, error, reachedEnd, loadMore, mutate } =
-    useSchools({ q: query || undefined, sort, dir });
+    useSchools({ q: urlQ || undefined, sort, dir });
 
   const isInitialLoading = isLoading && items.length === 0;
 
@@ -163,7 +179,7 @@ export default function SchoolsPage() {
             </Button>
           }
         />
-      ) : total === 0 && query.length === 0 ? (
+      ) : total === 0 && urlQ.length === 0 ? (
         <EmptyState
           icon={<Building2 className="size-8" aria-hidden="true" />}
           title="No schools yet"
@@ -201,7 +217,7 @@ export default function SchoolsPage() {
                               href={`/schools/${school.id}`}
                               className="rounded font-medium text-accent-hover hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                             >
-                              {school.name}
+                              <Highlight text={school.name} query={urlQ} />
                             </Link>
                           </TableCell>
                           <TableCell className="tabular-nums text-ink-secondary">
@@ -244,6 +260,15 @@ export default function SchoolsPage() {
         </div>
       )}
     </div>
+  );
+}
+
+/** URL-backed filters (BP25) need a Suspense boundary (useSearchParams on a static route). */
+export default function SchoolsPage() {
+  return (
+    <Suspense fallback={<Skeleton className="h-24 w-full" />}>
+      <SchoolsContent />
+    </Suspense>
   );
 }
 

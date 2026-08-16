@@ -108,7 +108,7 @@ function AuditLog() {
                           <span className="text-ink">
                             {row.actor_email ?? "Removed account"}
                           </span>
-                          <span className="text-body-sm text-ink-muted">
+                          <span className="text-body-sm text-ink-secondary">
                             {ROLE_LABELS[row.actor_role]}
                           </span>
                         </div>
@@ -116,7 +116,7 @@ function AuditLog() {
                       <TableCell>
                         <Link
                           href={`/photos/${row.media_id}`}
-                          className="text-accent-hover hover:underline"
+                          className="rounded text-accent-hover hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                         >
                           {row.event_name ?? "View photo"}
                         </Link>
@@ -131,7 +131,7 @@ function AuditLog() {
             </Card>
 
             <div className="flex items-center justify-between gap-4">
-              <p className="text-body-sm text-ink-muted" aria-live="polite">
+              <p className="text-body-sm text-ink-secondary" aria-live="polite">
                 Showing {start}–{end} of {total}
               </p>
               <div className="flex items-center gap-2">

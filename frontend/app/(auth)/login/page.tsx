@@ -11,8 +11,10 @@ import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toast";
 import { login } from "@/lib/api/endpoints";
 import { isApiError } from "@/lib/api/errors";
+import { useDocumentTitle } from "@/lib/hooks/use-document-title";
 
 export default function LoginPage() {
+  useDocumentTitle("Sign in");
   const router = useRouter();
   const { toast } = useToast();
   const [email, setEmail] = useState("");

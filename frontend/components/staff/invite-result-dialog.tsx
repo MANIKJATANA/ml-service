@@ -69,7 +69,7 @@ export function InviteResultDialog({
               <div className="flex flex-col gap-1.5">
                 <span className="text-body-sm text-ink-secondary">{invite.email}</span>
                 <div className="flex items-center gap-2">
-                  <code className="min-w-0 flex-1 select-all break-all rounded-button border border-hairline bg-surface px-3 py-2 text-body text-ink">
+                  <code className="min-w-0 flex-1 select-all break-all rounded-button border border-hairline bg-surface px-3 py-2 font-mono text-body text-ink">
                     {invite.tempPassword}
                   </code>
                   <Button type="button" variant="secondary" onClick={copy} className="shrink-0">

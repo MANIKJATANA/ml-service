@@ -33,7 +33,7 @@ export function RateCard({
   const pct = hasData ? Math.round((100 * numerator) / denominator) : 0;
   return (
     <div className="flex flex-col gap-2 rounded-card border border-hairline bg-canvas p-5 shadow-sm">
-      <span className="text-body-sm text-ink-muted">{label}</span>
+      <span className="text-body-sm text-ink-secondary">{label}</span>
       <span className="text-display-lg tabular-nums text-ink">
         {hasData ? `${pct}%` : "—"}
       </span>

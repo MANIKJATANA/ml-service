@@ -55,7 +55,7 @@ export function AppearanceList({
         ))}
       </ul>
       {/* BP21 (R3-S5-03): explain the confidence % and link the plain-language explainer. */}
-      <p className="text-body-sm text-ink-muted">
+      <p className="text-body-sm text-ink-secondary">
         {hasConfidence
           ? "Percentages are how sure the match is — a low one is worth a second look. "
           : null}

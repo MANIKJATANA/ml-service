@@ -58,7 +58,7 @@ export function MultiFileDropzone({
         <span className="text-body-sm text-ink-secondary">
           Drag files here, or <span className="font-medium text-accent-hover">browse</span>
         </span>
-        {hint ? <span className="text-body-sm text-ink-muted">{hint}</span> : null}
+        {hint ? <span className="text-body-sm text-ink-secondary">{hint}</span> : null}
       </label>
       <input
         id={inputId}

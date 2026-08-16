@@ -14,6 +14,7 @@ import { markNotificationSeen, reportNotMe } from "@/lib/api/endpoints";
 import { isApiError } from "@/lib/api/errors";
 import type { MyNotificationEvent } from "@/lib/api/types";
 import { formatEventDate, toISODate } from "@/lib/events/calendar";
+import { useDocumentTitle } from "@/lib/hooks/use-document-title";
 import { useDownloadAll } from "@/lib/hooks/use-download-all";
 import { useMyEvents, useMyMedia } from "@/lib/hooks/use-my-gallery";
 import { useMyNotifications } from "@/lib/hooks/use-my-notifications";
@@ -152,7 +153,7 @@ function PhotoArea({
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between gap-3">
-        <span className="text-body-sm text-ink-muted">
+        <span className="text-body-sm text-ink-secondary">
           {plural(ordered.length, "photo", "photos")}
         </span>
         <Button variant="secondary" size="sm" onClick={handleDownloadAll} loading={busy} disabled={busy}>
@@ -174,11 +175,21 @@ function PhotoArea({
         showAppearances={false}
         onNotMe={handleNotMe}
       />
+      {/* BP25: a second "Download all" at the foot so a long scroll needn't return to the top. */}
+      {ordered.length > 12 ? (
+        <div className="flex justify-center pt-2">
+          <Button variant="secondary" size="sm" onClick={handleDownloadAll} loading={busy} disabled={busy}>
+            <Download className="size-4" aria-hidden="true" />
+            {busy ? `Preparing ${done}/${total}…` : "Download all"}
+          </Button>
+        </div>
+      ) : null}
     </div>
   );
 }
 
 export default function MyPhotosPage() {
+  useDocumentTitle("My Photos");
   const { events, isLoading, error, mutate } = useMyEvents();
   const { notifications, mutate: mutateNotifications } = useMyNotifications();
   const [selected, setSelected] = useState(""); // "" = all events
@@ -305,7 +316,7 @@ export default function MyPhotosPage() {
               </button>
             ))}
             {newEvents.length > MAX_BANNER_EVENTS ? (
-              <span className="text-ink-muted">+{newEvents.length - MAX_BANNER_EVENTS} more</span>
+              <span className="text-ink-secondary">+{newEvents.length - MAX_BANNER_EVENTS} more</span>
             ) : null}
           </div>
         ) : null}

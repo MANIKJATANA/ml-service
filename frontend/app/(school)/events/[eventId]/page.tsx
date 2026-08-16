@@ -1,6 +1,6 @@
 "use client";
 
-import { Archive, Images, Pencil, Play, RotateCcw, Send, Upload } from "lucide-react";
+import { Archive, Images, Pencil, Play, RotateCcw, ScanSearch, Send, Upload } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { type FormEvent, useEffect, useState } from "react";
@@ -37,6 +37,7 @@ import { useClasses } from "@/lib/hooks/use-classes";
 import { useEvent } from "@/lib/hooks/use-events";
 import { useEventCategories } from "@/lib/hooks/use-event-categories";
 import { useEventNotifications } from "@/lib/hooks/use-event-notifications";
+import { useEventReview } from "@/lib/hooks/use-galleries";
 import { useEventStatus } from "@/lib/hooks/use-event-status";
 import { cn, formatDate, formatDateTime } from "@/lib/utils";
 
@@ -224,11 +225,24 @@ function DistributionCard({
 }) {
   const { toast } = useToast();
   const { roster, mutate: rosterMutate } = useEventNotifications(event.id);
+  const { reviews } = useEventReview(event.id);
   const [notifying, setNotifying] = useState(false);
   const [togglingAuto, setTogglingAuto] = useState(false);
+  const [confirmAnnounceOpen, setConfirmAnnounceOpen] = useState(false);
+
+  // BP22 (R3-A3-08): the review debt right where Announce lives — Σ ambiguous candidates the
+  // read still lists (it already drops corrected pairs, so this is the overlay-correct count).
+  const reviewCount = (reviews ?? []).reduce((n, r) => n + r.candidates.length, 0);
 
   // Announce-able once the event has finished processing at least once, and isn't archived.
   const canNotify = event.completed_at !== null && event.status === "active";
+
+  // Announcing with unreviewed matches shows students uncertain matches — confirm first (no
+  // hard block: one click proceeds). Auto-announce is a separate, deliberate opt-in.
+  function onAnnounceClick() {
+    if (reviewCount > 0) setConfirmAnnounceOpen(true);
+    else void onNotify();
+  }
 
   async function onNotify() {
     setNotifying(true);
@@ -297,7 +311,16 @@ function DistributionCard({
       ) : null}
 
       <div className="flex flex-col gap-2">
-        <Button onClick={onNotify} loading={notifying} disabled={!canNotify} className="w-fit">
+        {reviewCount > 0 ? (
+          <Link
+            href={`/events/${event.id}/gallery?tab=review`}
+            className="inline-flex w-fit items-center gap-2 rounded-button bg-warning-soft px-3 py-1.5 text-body-sm font-medium text-warning-strong transition-colors hover:bg-warning-soft/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <ScanSearch className="size-4" aria-hidden="true" />
+            {reviewCount} {reviewCount === 1 ? "match" : "matches"} to review
+          </Link>
+        ) : null}
+        <Button onClick={onAnnounceClick} loading={notifying} disabled={!canNotify} className="w-fit">
           <Send className="size-4" aria-hidden="true" />
           {roster?.notified_at ? "Announce again" : "Announce to students"}
         </Button>
@@ -307,6 +330,18 @@ function DistributionCard({
           </p>
         ) : null}
       </div>
+
+      <ConfirmDialog
+        open={confirmAnnounceOpen}
+        onOpenChange={setConfirmAnnounceOpen}
+        title={`${reviewCount} ${reviewCount === 1 ? "match" : "matches"} still need review`}
+        description="Announcing now shows students their photos, including any uncertain matches that haven't been checked. Review them first, or announce anyway."
+        confirmLabel="Announce anyway"
+        onConfirm={() => {
+          setConfirmAnnounceOpen(false);
+          void onNotify();
+        }}
+      />
 
       {roster && roster.students.length > 0 ? (
         <div className="overflow-hidden rounded-card border border-hairline">

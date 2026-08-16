@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 
+import { StudentRefAvatar } from "@/components/gallery/student-ref-avatar";
 import { Spinner } from "@/components/ui/spinner";
 import { StatusPill } from "@/components/ui/status-pill";
 import type { MediaAppearanceResponse } from "@/lib/api/types";
@@ -30,7 +31,9 @@ export function AppearanceList({
     <div className="flex flex-col gap-3">
       <ul className="flex flex-col gap-2.5">
         {appearances.map((appearance) => (
-          <li key={appearance.student_id} className="flex items-center justify-between gap-2">
+          <li key={appearance.student_id} className="flex items-center gap-2">
+            {/* BP22: the student's reference face next to their name (staff surface only). */}
+            <StudentRefAvatar studentId={appearance.student_id} name={appearance.name} className="size-8" />
             <span className="min-w-0 flex-1 truncate text-body-sm text-ink">{appearance.name}</span>
             <div className="flex shrink-0 items-center gap-2">
               {appearance.verdict === "added" ? (

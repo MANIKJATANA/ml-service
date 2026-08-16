@@ -591,7 +591,14 @@ export default function EventsPage() {
                                   {event.matched_students}
                                 </span>
                                 {event.needs_review > 0 ? (
-                                  <StatusPill tone="warning">{event.needs_review} to review</StatusPill>
+                                  // BP22: deep-link straight to the review lane (was unlinked).
+                                  <Link
+                                    href={`/events/${event.id}/gallery?tab=review`}
+                                    aria-label={`Review ${event.needs_review} ${event.needs_review === 1 ? "match" : "matches"} for ${event.name}`}
+                                    className="rounded transition-opacity hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                  >
+                                    <StatusPill tone="warning">{event.needs_review} to review</StatusPill>
+                                  </Link>
                                 ) : null}
                               </div>
                             </TableCell>

@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BP22 — Review loop, armed</title>
+<style>
+  :root{
+    --ink:#0d1729; --ink-2:#5a6578; --ink-3:#7b8494;
+    --canvas:#f8f9fa; --surface:#fff; --hairline:#e3e8ef;
+    --accent:#4f46e5; --accent-soft:#eef2ff;
+    --crit:#dc2626; --crit-soft:#fef2f2;
+    --high:#b45309; --high-soft:#fffbeb;
+    --ok:#15803d; --ok-soft:#f0fdf4;
+    --park:#7b8494; --park-soft:#f1f3f6;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:ui-sans-serif,system-ui,"Segoe UI",Roboto,sans-serif;background:var(--canvas);color:var(--ink);line-height:1.55;padding:48px 20px}
+  .wrap{max-width:880px;margin:0 auto}
+  h1{font-size:29px;letter-spacing:-.02em;margin-bottom:6px}
+  h2{font-size:18px;letter-spacing:-.01em;margin:42px 0 13px}
+  .sub{color:var(--ink-2);font-size:14.5px;margin-bottom:8px}
+  .meta{font-size:12.5px;color:var(--ink-3);margin-bottom:30px}
+  .meta code{background:var(--surface);border:1px solid var(--hairline);border-radius:4px;padding:1px 5px;font-size:11.5px}
+  .card{background:var(--surface);border:1px solid var(--hairline);border-radius:12px;padding:18px 20px;margin-bottom:14px}
+  .chip{display:inline-block;font-size:11px;font-weight:600;padding:2px 9px;border-radius:999px;white-space:nowrap}
+  .chip.acc{background:var(--accent-soft);color:var(--accent)}
+  .chip.park{background:var(--park-soft);color:var(--park)}
+  .problem{background:var(--high-soft);border:1px solid #f3e2c0;border-radius:12px;padding:16px 20px;margin-bottom:14px;font-size:14px;line-height:1.6}
+  .problem b{color:var(--high)}
+  .problem .chain{margin-top:8px;font-size:13px;color:var(--ink-2)}
+  .problem .chain b{color:var(--ink)}
+  .ord{background:var(--accent-soft);border:1px solid #dfe3ff;border-radius:10px;padding:13px 16px;margin-bottom:14px;font-size:13px;color:var(--ink);line-height:1.55}
+  .ord b{color:var(--accent)}
+  .slice{background:var(--surface);border:1px solid var(--hairline);border-radius:11px;padding:14px 18px;margin-bottom:11px}
+  .slice .top{display:flex;align-items:baseline;gap:9px;flex-wrap:wrap;margin-bottom:6px}
+  .slice .bp{font-weight:700;font-size:15px;letter-spacing:-.01em;font-variant-numeric:tabular-nums}
+  .slice .nm{font-size:14px;color:var(--ink)}
+  .slice .tags{margin-left:auto;display:flex;gap:5px;align-items:center;flex-wrap:wrap}
+  .slice .tag{font-size:10.5px;color:var(--ink-2);background:var(--canvas);border:1px solid var(--hairline);border-radius:5px;padding:1px 7px;white-space:nowrap}
+  .slice .tag.nomig{color:var(--ok);background:var(--ok-soft);border-color:#c6ecd2}
+  .exp{margin:7px 0 1px}
+  .exp > div{font-size:13.5px;line-height:1.55;color:var(--ink);margin-bottom:4px}
+  .exp .k{font-weight:700;font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;margin-right:7px}
+  .exp .now .k{color:var(--crit)}
+  .exp .aft .k{color:var(--ok)}
+  .how{font-size:11.5px;color:var(--ink-3);margin-top:7px;line-height:1.55}
+  .how b{color:var(--ink-2);font-weight:600}
+  .verify{font-size:13.5px;line-height:1.6;color:var(--ink-2)}
+  .verify b{color:var(--ink)}
+  ol.steps{margin:0 0 0 20px;font-size:13.5px;line-height:1.7}
+  ol.steps b{color:var(--ink)}
+  .foot{margin-top:38px;padding-top:16px;border-top:1px solid var(--hairline);font-size:13px;color:var(--ink-2)}
+  .foot code{background:var(--surface);border:1px solid var(--hairline);border-radius:4px;padding:1px 5px;font-size:11.5px}
+  .foot b{color:var(--ink)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>BP22 — Review loop, armed</h1>
+  <p class="sub">The next Round-3 build. It puts <b>the evidence where the decision is</b> — so a teacher checking "is this the right student?" can actually tell, knows what's still unreviewed before they announce, and doesn't lose their place.</p>
+  <p class="meta">Plan: <code>C:\Users\…\plans\…jolly-peach.md</code> (approved) · findings: <code>product/06</code> theme N · roadmap: <code>product/07</code> BP22 · this is the explainer to verify <b>before</b> any code · one phase, three pieces · <b>frontend only — no database, no ML, no server change</b></p>
+
+  <h2>The problem we're fixing</h2>
+  <div class="problem">
+    <b>Reviewing matches is guesswork — and the moment to catch a bad one is easy to miss.</b>
+    <div class="chain">
+      When the system isn't sure a face is a match, it asks a teacher to check. But the review screen shows only a name and a percentage — <b>"Is this Priya Sharma? 71%"</b> over a group photo, with <b>no picture of Priya</b>. A teacher personally knows maybe two of their classes out of 800 students, so for most names it's a guess — and a wrong "confirm" sends the wrong photo to the wrong student (the exact mistake the review step exists to prevent). Worse, the review lane is on a <b>separate tab of a separate page</b>: the event screen where you press <b>Announce</b> never mentions it, and <b>auto-announce is on</b>, so uncertain matches reach students the instant matching finishes. And the review lane <b>forgets where you were</b> — open a photo, come back, and you're dumped on "All photos" to re-find "Needs review" all over again.
+    </div>
+  </div>
+
+  <div class="ord">
+    <b>Your calls (already made):</b> the student-side <b>"This isn't me"</b> safety fix is <b>held for its own separate decision</b> (not in this build); announcing while matches are unreviewed shows a <b>count + a one-click confirm</b> (never a hard block); delivered as <b>one phase</b>.
+  </div>
+
+  <h2>What we're building — three pieces, one phase</h2>
+
+  <div class="slice">
+    <div class="top"><span class="bp">1</span><span class="nm">See who you're deciding on</span>
+      <span class="tags"><span class="chip acc">the big accuracy fix</span><span class="tag nomig">no server change</span></span></div>
+    <div class="exp">
+      <div class="now"><span class="k">Now</span>A review row says <b>"Priya Sharma · 71%"</b> over a group photo — but there's no picture of Priya. Most names are a guess, and a wrong "confirm" leaks the wrong photo to the wrong student.</div>
+      <div class="aft"><span class="k">After</span>Every review row (and the photo's people-list) shows the student's <b>saved reference face</b> next to their name — so "is this the right person?" is a <b>look, not a guess</b>.</div>
+    </div>
+    <div class="how"><b>How:</b> the small round student photo already exists (it's on the students list). We just show it where the decision is made. Nothing new is stored.</div>
+  </div>
+
+  <div class="slice">
+    <div class="top"><span class="bp">2</span><span class="nm">Know your review debt before you announce</span>
+      <span class="tags"><span class="chip acc">catch it in time</span></span></div>
+    <div class="exp">
+      <div class="now"><span class="k">Now</span>The event screen — home of <b>Match</b> and <b>Announce</b> — never mentions review. A hurried teacher matches, sees "All photos matched", announces, and finds the review lane later or never.</div>
+      <div class="aft"><span class="k">After</span>The Announce card shows <b>"N matches to review"</b> (a link straight to the review lane), and pressing <b>Announce</b> while some are still unreviewed asks a quick <b>"N still need review — announce anyway?"</b> — one click to proceed, never a hard stop.</div>
+    </div>
+  </div>
+
+  <div class="slice">
+    <div class="top"><span class="bp">3</span><span class="nm">The review lane stays where you leave it</span>
+      <span class="tags"><span class="chip acc">stop the reset</span></span></div>
+    <div class="exp">
+      <div class="now"><span class="k">Now</span>The "Needs review" tab isn't in the web address, so opening a photo and coming back drops you on "All photos" — you re-click "Needs review" for every photo. The dashboard + events-list "N to review" don't take you there either.</div>
+      <div class="aft"><span class="k">After</span>The review tab lives in the <b>web address</b> (shareable, and Back returns to it), the events-list <b>"N to review"</b> links straight to it, and the tab's count matches the <b>real number of matches</b> to review.</div>
+    </div>
+  </div>
+
+  <h2>How we'll work</h2>
+  <div class="ord">
+    <b>One phase</b> — all three pieces together (they're small and all frontend). Built, run through the full check (types + lint + build) and a <b>2× self-review</b>, then brought back to you. <b>Nothing is committed until you say so.</b> This whole phase is <b>frontend-only</b> — no database migration, no ML change, no server logic; the review will confirm only <code>frontend/</code> changed.
+  </div>
+
+  <h2>How we'll check it</h2>
+  <div class="card verify">
+    The full frontend gate (types + lint + build) stays green, plus a walk of the review flow:
+    <ol class="steps" style="margin-top:8px">
+      <li>Open a review row / a photo's people-list → each shows the student's <b>face</b> next to the name.</li>
+      <li>On an event with unreviewed matches → the Announce card shows <b>"N to review"</b>; pressing Announce asks <b>"announce anyway?"</b>.</li>
+      <li>Open <code>…/gallery?tab=review</code> directly → it lands on the review tab; the events-list <b>"N to review"</b> links there; <b>Back</b> returns to it.</li>
+      <li>The tab's count matches the number of matches (not photos).</li>
+    </ol>
+  </div>
+
+  <p class="foot">Not in this build (noted honestly): making the student <b>"This isn't me"</b> safe — a confirm + an undo, and telling staff when a student disputes a match — is <b>held as its own decision</b> (your call). A face-outline <b>overlay</b> on the photo and accuracy <b>dashboards</b> come later (<code>BP23</code>). The events-list "N to review" count stays the raw matcher number for now (the Announce card + the review tab use the exact remaining count). <b>No server change, no database migration, no ML change.</b></p>
+
+</div>
+</body>
+</html>

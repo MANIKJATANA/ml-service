@@ -5,6 +5,7 @@ import { UserPlus, X } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 
+import { StudentRefAvatar } from "@/components/gallery/student-ref-avatar";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { SearchInput } from "@/components/ui/search-input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -104,6 +105,8 @@ function AppearanceRow({
 
   return (
     <li className="flex items-center gap-2 border-b border-hairline py-2 last:border-b-0">
+      {/* BP22: the student's reference face, so staff correct by looking, not guessing. */}
+      <StudentRefAvatar studentId={a.student_id} name={a.name} className="size-8" />
       <span className="min-w-0 flex-1 truncate text-body-sm text-ink">{a.name}</span>
       {a.confidence !== null ? (
         <span className="tabular-nums text-body-sm text-ink-secondary">

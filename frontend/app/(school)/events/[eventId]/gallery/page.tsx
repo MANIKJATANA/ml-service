@@ -2,7 +2,7 @@
 
 import { Images } from "lucide-react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
 import { mutate as globalMutate } from "swr";
 
@@ -10,6 +10,7 @@ import { FilterChips } from "@/components/gallery/filter-chips";
 import { GridSkeleton } from "@/components/gallery/grid-skeleton";
 import { PhotoGrid } from "@/components/gallery/photo-grid";
 import { SignedImage } from "@/components/gallery/signed-image";
+import { StudentRefAvatar } from "@/components/gallery/student-ref-avatar";
 import { Breadcrumb } from "@/components/ui/breadcrumb";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -362,8 +363,10 @@ function NeedsReview({ eventId }: { eventId: string }) {
                   />
                 </label>
                 <div className="flex flex-col gap-1 p-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="truncate text-body-sm text-ink" title={p.name}>
+                  <div className="flex items-center gap-2">
+                    {/* BP22: the candidate's reference face — decide by looking, not guessing. */}
+                    <StudentRefAvatar studentId={p.studentId} name={p.name} className="size-7" />
+                    <p className="min-w-0 flex-1 truncate text-body-sm text-ink" title={p.name}>
                       {p.name}
                     </p>
                     <span className="shrink-0 tabular-nums text-body-sm text-ink-muted">
@@ -396,11 +399,29 @@ function NeedsReview({ eventId }: { eventId: string }) {
   );
 }
 
+const GALLERY_TABS = ["all", "by-student", "review"] as const;
+type GalleryTab = (typeof GALLERY_TABS)[number];
+
 export default function EventGalleryPage() {
   const { eventId } = useParams<{ eventId: string }>();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const { event } = useEvent(eventId);
   const { reviews } = useEventReview(eventId);
-  const reviewCount = reviews?.length ?? 0;
+  // Count match PAIRS (sum of candidates), not photos — a photo can carry several ambiguous
+  // candidates. Same unit + overlay the DistributionCard uses; the school-wide dashboard "N to
+  // review" is a close approximation (raw minus resolved, clamped), not necessarily bit-exact.
+  const reviewCount = (reviews ?? []).reduce((n, r) => n + r.candidates.length, 0);
+
+  // BP22 (R3-A3-09): the active tab lives in the URL so a deep-link opens the right tab and
+  // browser-back returns to it (the route is dynamic, so useSearchParams needs no Suspense).
+  const tabParam = searchParams.get("tab");
+  const tab: GalleryTab = GALLERY_TABS.includes(tabParam as GalleryTab)
+    ? (tabParam as GalleryTab)
+    : "all";
+  function onTabChange(value: string) {
+    router.replace(`/events/${eventId}/gallery?tab=${value}`, { scroll: false });
+  }
 
   return (
     <div className="flex flex-col gap-6">
@@ -413,7 +434,7 @@ export default function EventGalleryPage() {
       />
       <PageHeader title="Gallery" description="Browse every photo, or see who appears in them." />
 
-      <Tabs defaultValue="all">
+      <Tabs value={tab} onValueChange={onTabChange}>
         <TabsList>
           <TabsTrigger value="all">All photos</TabsTrigger>
           <TabsTrigger value="by-student">By student</TabsTrigger>

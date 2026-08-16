@@ -6,13 +6,18 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState } f
 import { cn } from "@/lib/utils";
 
 type ToastVariant = "success" | "error" | "info" | "warning";
+/** BP20: `sticky` skips the auto-dismiss timer — the toast stays until the user closes it.
+ *  Used for a partial/capped result the user needs to actually read (e.g. "saved the first 500"). */
+interface ToastOptions {
+  sticky?: boolean;
+}
 interface ToastItem {
   id: number;
   message: string;
   variant: ToastVariant;
 }
 interface ToastContextValue {
-  toast: (message: string, variant?: ToastVariant) => void;
+  toast: (message: string, variant?: ToastVariant, options?: ToastOptions) => void;
 }
 
 const ToastContext = createContext<ToastContextValue | null>(null);
@@ -46,10 +51,13 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const toast = useCallback(
-    (message: string, variant: ToastVariant = "info") => {
+    (message: string, variant: ToastVariant = "info", options?: ToastOptions) => {
       const id = nextId.current++;
       setToasts((current) => [...current, { id, message, variant }]);
-      timers.current.set(id, setTimeout(() => remove(id), 5000));
+      // A sticky toast has no auto-dismiss timer — it waits for the user to close it (BP20).
+      if (!options?.sticky) {
+        timers.current.set(id, setTimeout(() => remove(id), 5000));
+      }
     },
     [remove],
   );

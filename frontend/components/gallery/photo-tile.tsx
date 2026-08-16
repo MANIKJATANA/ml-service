@@ -19,6 +19,9 @@ interface PhotoTileProps {
    *  when true, else the full-res object (a pre-BP17 image still renders). Video ignores it
    *  (it always uses the full object as its poster). */
   hasThumbnail?: boolean;
+  /** BP20: the photo's "story" (event + date) — its accessible name, a hover scrim label
+   *  (masonry), and the saved filename. Omitted on surfaces that don't supply it. */
+  caption?: string;
   /** "grid" = uniform square crop (staff galleries); "masonry" = natural aspect ratio,
    *  borderless, with a hover-to-download affordance (the student surface, BP3). */
   variant?: "grid" | "masonry";
@@ -50,12 +53,13 @@ export function PhotoTile({
   onOpen,
   mediaType = "image",
   hasThumbnail = false,
+  caption,
   variant = "grid",
   selectionMode = false,
   selected = false,
   onToggleSelect,
 }: PhotoTileProps) {
-  const props = { mediaId, index, onOpen, mediaType, hasThumbnail };
+  const props = { mediaId, index, onOpen, mediaType, hasThumbnail, caption };
   // Multi-select is a staff-grid affordance only; the student masonry surface ignores it.
   return variant === "masonry" ? (
     <MasonryTile {...props} />
@@ -77,6 +81,7 @@ function GridTile({
   onOpen,
   mediaType,
   hasThumbnail,
+  caption,
   selectionMode = false,
   selected = false,
   onToggleSelect,
@@ -84,6 +89,7 @@ function GridTile({
   const { ref, inView } = useInView<HTMLButtonElement>();
   const isVideo = mediaType === "video";
   const kind = isVideo ? "video" : "photo";
+  const name = caption ?? `${kind} ${index + 1}`;
   return (
     <button
       ref={ref}
@@ -91,8 +97,8 @@ function GridTile({
       onClick={() => (selectionMode ? onToggleSelect?.(mediaId) : onOpen(index))}
       aria-label={
         selectionMode
-          ? `${selected ? "Deselect" : "Select"} ${kind} ${index + 1}`
-          : `Open ${kind} ${index + 1}`
+          ? `${selected ? "Deselect" : "Select"} ${name}`
+          : `Open ${name}`
       }
       aria-pressed={selectionMode ? selected : undefined}
       className={cn(
@@ -138,18 +144,20 @@ function MasonryTile({
   onOpen,
   mediaType,
   hasThumbnail,
+  caption,
 }: Omit<PhotoTileProps, "variant">) {
   const { ref, inView } = useInView<HTMLDivElement>();
   const { download } = useMediaDownload(mediaId, inView);
-  const { downloading, onDownload } = useDownloadToDisk(mediaId, download);
+  const { downloading, onDownload } = useDownloadToDisk(mediaId, download, caption);
   const isVideo = mediaType === "video";
+  const name = caption ?? `${isVideo ? "video" : "photo"} ${index + 1}`;
 
   return (
     <div ref={ref} className="group relative overflow-hidden rounded-2xl bg-surface-2">
       <button
         type="button"
         onClick={() => onOpen(index)}
-        aria-label={`Open ${isVideo ? "video" : "photo"} ${index + 1}`}
+        aria-label={`Open ${name}`}
         className="relative block w-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         <SignedImage
@@ -165,14 +173,24 @@ function MasonryTile({
         />
         {isVideo ? <PlayBadge /> : null}
       </button>
-      {/* Gradient scrim + download, revealed on hover / keyboard focus. */}
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-end bg-gradient-to-t from-ink/40 to-transparent p-2 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+      {/* Gradient scrim: the photo's story (BP20) + a download, revealed on hover / focus. */}
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-end justify-between gap-2 bg-gradient-to-t from-ink/50 to-transparent p-2 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+        {caption ? (
+          <span
+            aria-hidden="true"
+            className="min-w-0 flex-1 truncate pb-1 pl-1 text-body-sm font-medium text-canvas drop-shadow"
+          >
+            {caption}
+          </span>
+        ) : (
+          <span className="flex-1" />
+        )}
         <button
           type="button"
           onClick={onDownload}
           disabled={!download || downloading}
-          aria-label={`Download photo ${index + 1}`}
-          className="pointer-events-auto rounded-full bg-canvas/90 p-2 text-ink shadow-md transition-colors hover:bg-canvas focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+          aria-label={`Download ${name}`}
+          className="pointer-events-auto shrink-0 rounded-full bg-canvas/90 p-2 text-ink shadow-md transition-colors hover:bg-canvas focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
         >
           <Download className="size-4" aria-hidden="true" />
         </button>

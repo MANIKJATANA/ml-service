@@ -23,6 +23,22 @@ export function toISODate(d: Date): string {
   return `${y}-${mo}-${day}`;
 }
 
+/** Friendly local date from a "YYYY-MM-DD" event date (timezone-safe via {@link parseLocalDate});
+ *  "" for null/malformed. Used for the student photo "story" (BP20). */
+export function formatEventDate(iso: string | null): string {
+  const d = iso ? parseLocalDate(iso) : null;
+  return d
+    ? d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" })
+    : "";
+}
+
+/** The local calendar year of a "YYYY-MM-DD" event date, or null (used to group the student
+ *  event filter by year, BP20). */
+export function eventYear(iso: string | null): number | null {
+  const d = iso ? parseLocalDate(iso) : null;
+  return d ? d.getFullYear() : null;
+}
+
 export interface DayCell {
   date: Date;
   iso: string;

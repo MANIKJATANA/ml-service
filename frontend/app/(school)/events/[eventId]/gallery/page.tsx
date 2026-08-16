@@ -55,12 +55,12 @@ function AllPhotos({ eventId }: { eventId: string }) {
   async function downloadSelected() {
     if (selectedIds.length === 0) return;
     try {
-      const n = await onDownloadAll();
-      if (n > 0) {
-        toast(`Downloaded ${n} ${n === 1 ? "photo" : "photos"}.`, "success");
+      const { saved } = await onDownloadAll();
+      if (saved > 0) {
+        toast(`Downloaded ${saved} ${saved === 1 ? "photo" : "photos"}.`, "success");
         exitSelect();
       }
-      // n === 0 => the user dismissed the save dialog; stay in select mode.
+      // saved === 0 => the user dismissed the save dialog; stay in select mode.
     } catch {
       toast("Couldn't download those photos.", "error");
     }

@@ -34,6 +34,19 @@ export function formatDateTime(iso: string): string {
   });
 }
 
+/** Make a string safe to use as a file/folder name: drop path separators + reserved chars,
+ *  collapse whitespace, trim, and cap the length. "" if nothing usable survives (BP20 — naming
+ *  a student's saved photos/zip entries by event). */
+export function sanitizeFilename(name: string): string {
+  const cleaned = name
+    .replace(/[\\/:*?"<>|]/g, "-") // path separators + Windows-reserved chars
+    .replace(/\s+/g, " ") // collapse whitespace
+    .replace(/-{2,}/g, "-") // collapse repeated dashes
+    .trim()
+    .replace(/^[.\-]+|[.\-]+$/g, ""); // no leading/trailing dot or dash
+  return cleaned.slice(0, 80);
+}
+
 /** Copy text to the clipboard (BP7c — the shown-once temp password). Resolves `true` on
  *  success, `false` if the Clipboard API is unavailable (insecure context) or denied, so
  *  the caller can fall back to "select it manually". */

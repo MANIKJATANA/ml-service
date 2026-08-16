@@ -33,10 +33,27 @@ const BUFFERED_CAP = 500;
 type StreamEntry = { name: string; input: Response };
 type BlobEntry = { name: string; input: Blob };
 
-function nameFor(index: number, contentType: string | null): string {
+/** BP20: optional per-download naming so a student's save keeps its story.
+ *  `entryBase(index)` → the zip-entry path WITHOUT extension (e.g. "Sports Day/2026-07-04-001");
+ *  the extension is appended from the response content-type. `zipName` overrides the archive
+ *  filename. Omit both → the legacy `photo-001.jpg` in `my-photos.zip` (staff callers). */
+export interface DownloadAllOptions {
+  entryBase?: (index: number) => string;
+  zipName?: string;
+}
+
+/** The outcome of a "download all": how many were saved, and whether the non-streaming
+ *  fallback capped the set (so the caller can be honest about "the first N"). */
+export interface DownloadAllResult {
+  saved: number;
+  capped: boolean;
+}
+
+function nameFor(index: number, contentType: string | null, entryBase?: (i: number) => string): string {
   const subtype = (contentType ?? "").split("/")[1]?.split(";")[0];
   const ext = !subtype || subtype === "octet-stream" ? "jpg" : subtype;
-  return `photo-${String(index + 1).padStart(3, "0")}.${ext}`;
+  const base = entryBase?.(index) ?? `photo-${String(index + 1).padStart(3, "0")}`;
+  return `${base}.${ext}`;
 }
 
 /** Stream each entitled photo straight into the zip → disk (bounded memory). Sequential (the
@@ -45,11 +62,12 @@ async function streamToDisk(
   picker: ShowSaveFilePicker,
   mediaIds: string[],
   onProgress: () => void,
+  opts?: DownloadAllOptions,
 ): Promise<number> {
   let handle: SaveFileHandle;
   try {
     handle = await picker({
-      suggestedName: "my-photos.zip",
+      suggestedName: opts?.zipName ?? "my-photos.zip",
       types: [{ description: "Zip archive", accept: { "application/zip": [".zip"] } }],
     });
   } catch {
@@ -65,7 +83,7 @@ async function streamToDisk(
         const { download_url } = await downloadMedia(mediaIds[i]);
         const res = await fetch(download_url);
         if (!res.ok || !res.body) throw new Error(`status ${res.status}`);
-        entry = { name: nameFor(i, res.headers.get("content-type")), input: res };
+        entry = { name: nameFor(i, res.headers.get("content-type"), opts?.entryBase), input: res };
         void recordDownload(mediaIds[i]).catch(() => {});
         saved += 1;
       } catch {
@@ -85,7 +103,11 @@ async function streamToDisk(
 
 /** Fetch each photo's blob (bounded concurrency, order-preserving), then buffer them into one
  *  in-memory zip and save via an anchor. A photo that fails to fetch is skipped. */
-async function bufferedSave(mediaIds: string[], onProgress: () => void): Promise<number> {
+async function bufferedSave(
+  mediaIds: string[],
+  onProgress: () => void,
+  opts?: DownloadAllOptions,
+): Promise<number> {
   const results: (BlobEntry | null)[] = new Array(mediaIds.length).fill(null);
   let next = 0;
 
@@ -98,7 +120,7 @@ async function bufferedSave(mediaIds: string[], onProgress: () => void): Promise
         const res = await fetch(download_url);
         if (!res.ok) throw new Error(`status ${res.status}`);
         const blob = await res.blob();
-        results[i] = { name: nameFor(i, blob.type), input: blob };
+        results[i] = { name: nameFor(i, blob.type, opts?.entryBase), input: blob };
         void recordDownload(mediaIds[i]).catch(() => {});
       } catch {
         results[i] = null;
@@ -116,7 +138,7 @@ async function bufferedSave(mediaIds: string[], onProgress: () => void): Promise
   const url = URL.createObjectURL(zipBlob);
   const anchor = document.createElement("a");
   anchor.href = url;
-  anchor.download = "my-photos.zip";
+  anchor.download = opts?.zipName ?? "my-photos.zip";
   document.body.appendChild(anchor);
   anchor.click();
   anchor.remove();
@@ -126,34 +148,38 @@ async function bufferedSave(mediaIds: string[], onProgress: () => void): Promise
 
 /**
  * "Download all" for a student's own photos (BP3, streaming in BP9/decisions/0055): mint each
- * entitled signed URL, fetch the bytes, and write them into ONE `my-photos.zip` client-side
- * (client-zip) — no server change, no per-photo save dialogs.
+ * entitled signed URL, fetch the bytes, and write them into ONE zip client-side (client-zip)
+ * — no server change, no per-photo save dialogs.
  *
  * On Chromium/Edge the zip **streams to disk** via the File System Access API, so memory
  * stays bounded to the in-flight fetch and a 900-photo set survives. Elsewhere it falls back
  * to buffering the archive in memory, capped at {@link BUFFERED_CAP} so it can't OOM.
  *
- * `done`/`total` drive a progress label; `onDownloadAll` resolves with the number of photos
- * actually saved (so the caller can flag a partial result) and throws only if nothing could
- * be fetched. A cancelled save dialog resolves to 0 (a silent no-op).
+ * `done`/`total` drive a progress label; `onDownloadAll` resolves with `{saved, capped}` —
+ * `capped` is true when the non-streaming fallback trimmed a >{@link BUFFERED_CAP} set (so the
+ * caller can say "the first N"), and it throws only if nothing could be fetched. A cancelled
+ * save dialog resolves to `{saved: 0, capped: false}` (a silent no-op). BP20: pass `opts` to
+ * name the zip + its entries by event/date (staff callers omit it → legacy naming).
  */
-export function useDownloadAll(mediaIds: string[]) {
+export function useDownloadAll(mediaIds: string[], opts?: DownloadAllOptions) {
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(0);
 
-  async function onDownloadAll(): Promise<number> {
-    if (busy || mediaIds.length === 0) return 0;
+  async function onDownloadAll(): Promise<DownloadAllResult> {
+    if (busy || mediaIds.length === 0) return { saved: 0, capped: false };
     setBusy(true);
     setDone(0);
     try {
       const picker = savePicker();
       const bump = () => setDone((d) => d + 1);
-      if (picker) return await streamToDisk(picker, mediaIds, bump);
-      return await bufferedSave(mediaIds.slice(0, BUFFERED_CAP), bump);
+      if (picker) return { saved: await streamToDisk(picker, mediaIds, bump, opts), capped: false };
+      const capped = mediaIds.length > BUFFERED_CAP;
+      const saved = await bufferedSave(mediaIds.slice(0, BUFFERED_CAP), bump, opts);
+      return { saved, capped };
     } finally {
       setBusy(false);
     }
   }
 
-  return { busy, done, total: mediaIds.length, onDownloadAll };
+  return { busy, done, total: mediaIds.length, cap: BUFFERED_CAP, onDownloadAll };
 }

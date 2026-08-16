@@ -13,6 +13,7 @@
   --color-canvas: #ffffff;
   --color-surface: #f8f9fa;
   --color-surface-2: #f0f2f7;
+  --color-canvas-warm: #fdf8f3; /* BP20: a warm wash for the student receive surface (bg-canvas-warm) */
   --color-hairline: #e3e8ef; /* dividers, card + input borders */
   --color-hairline-strong: #c9d1de; /* resting/hover input border — NOT the focus ring */
   --color-ink: #0d1729;

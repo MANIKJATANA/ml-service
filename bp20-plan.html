@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BP20 — The arrival moment</title>
+<style>
+  :root{
+    --ink:#0d1729; --ink-2:#5a6578; --ink-3:#7b8494;
+    --canvas:#f8f9fa; --surface:#fff; --hairline:#e3e8ef;
+    --accent:#4f46e5; --accent-soft:#eef2ff;
+    --crit:#dc2626; --crit-soft:#fef2f2;
+    --high:#b45309; --high-soft:#fffbeb;
+    --med:#0369a1; --med-soft:#f0f9ff;
+    --ok:#15803d; --ok-soft:#f0fdf4;
+    --warm:#fbf3ec; --warm-line:#f0e2d4;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:ui-sans-serif,system-ui,"Segoe UI",Roboto,sans-serif;background:var(--canvas);color:var(--ink);line-height:1.55;padding:48px 20px}
+  .wrap{max-width:880px;margin:0 auto}
+  h1{font-size:29px;letter-spacing:-.02em;margin-bottom:6px}
+  h2{font-size:18px;letter-spacing:-.01em;margin:42px 0 13px}
+  .sub{color:var(--ink-2);font-size:14.5px;margin-bottom:8px}
+  .meta{font-size:12.5px;color:var(--ink-3);margin-bottom:30px}
+  .meta code{background:var(--surface);border:1px solid var(--hairline);border-radius:4px;padding:1px 5px;font-size:11.5px}
+  .card{background:var(--surface);border:1px solid var(--hairline);border-radius:12px;padding:18px 20px;margin-bottom:14px}
+  .chip{display:inline-block;font-size:11px;font-weight:600;padding:2px 9px;border-radius:999px;white-space:nowrap}
+  .chip.crit{background:var(--crit-soft);color:var(--crit)}
+  .chip.ok{background:var(--ok-soft);color:var(--ok)}
+  .chip.acc{background:var(--accent-soft);color:var(--accent)}
+  .chip.warm{background:var(--warm);color:#a15a2b;border:1px solid var(--warm-line)}
+  .problem{background:var(--high-soft);border:1px solid #f3e2c0;border-radius:12px;padding:16px 20px;margin-bottom:14px;font-size:14px;line-height:1.6}
+  .problem b{color:var(--high)}
+  .problem .chain{margin-top:8px;font-size:13px;color:var(--ink-2)}
+  .problem .chain b{color:var(--ink)}
+  .ord{background:var(--accent-soft);border:1px solid #dfe3ff;border-radius:10px;padding:13px 16px;margin-bottom:14px;font-size:13px;color:var(--ink);line-height:1.55}
+  .ord b{color:var(--accent)}
+  .ord .seq{font-variant-numeric:tabular-nums;font-weight:600;color:var(--accent)}
+  .slice{background:var(--surface);border:1px solid var(--hairline);border-radius:11px;padding:14px 18px;margin-bottom:11px}
+  .slice.warm{background:var(--warm);border-color:var(--warm-line)}
+  .slice .top{display:flex;align-items:baseline;gap:9px;flex-wrap:wrap;margin-bottom:6px}
+  .slice .bp{font-weight:700;font-size:15px;letter-spacing:-.01em;font-variant-numeric:tabular-nums}
+  .slice .nm{font-size:14px;color:var(--ink)}
+  .slice .tags{margin-left:auto;display:flex;gap:5px;align-items:center;flex-wrap:wrap}
+  .slice .tag{font-size:10.5px;color:var(--ink-2);background:var(--canvas);border:1px solid var(--hairline);border-radius:5px;padding:1px 7px;white-space:nowrap}
+  .slice .tag.nomig{color:var(--ok);background:var(--ok-soft);border-color:#c6ecd2}
+  .exp{margin:7px 0 1px}
+  .exp > div{font-size:13.5px;line-height:1.55;color:var(--ink);margin-bottom:4px}
+  .exp .k{font-weight:700;font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;margin-right:7px}
+  .exp .now .k{color:var(--crit)}
+  .exp .aft .k{color:var(--ok)}
+  .how{font-size:11.5px;color:var(--ink-3);margin-top:7px;line-height:1.55}
+  .how b{color:var(--ink-2);font-weight:600}
+  .verify{font-size:13.5px;line-height:1.6;color:var(--ink-2)}
+  .verify b{color:var(--ink)}
+  ol.steps{margin:0 0 0 20px;font-size:13.5px;line-height:1.7}
+  ol.steps b{color:var(--ink)}
+  .foot{margin-top:38px;padding-top:16px;border-top:1px solid var(--hairline);font-size:13px;color:var(--ink-2)}
+  .foot code{background:var(--surface);border:1px solid var(--hairline);border-radius:4px;padding:1px 5px;font-size:11.5px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>BP20 — The arrival moment</h1>
+  <p class="sub">The next Round-3 build. It makes a student's "new photos" moment actually <b>open on the new photos, name them, and stay fresh</b> — and gives the student's screen a warmer, calmer look.</p>
+  <p class="meta">Plan: <code>C:\Users\…\plans\…jolly-peach.md</code> (approved) · findings: <code>product/06</code> theme L · roadmap: <code>product/07</code> BP20 (+ BP20b) · this is the explainer to verify <b>before</b> any code · one phase, seven small pieces · <b>frontend only — no database, no ML, no server change</b></p>
+
+  <h2>The problem we're fixing</h2>
+  <div class="problem">
+    <b>The "new photos" signal exists — and then points at nothing.</b>
+    <div class="chain">
+      A student gets a <b>"3 new"</b> badge, taps "My Photos"… and the grid opens on photos from <b>three years ago</b> — the stream is oldest-first, and the new event is the <b>last</b> chip in a wall of ~60. The "new" flags are cleared the instant the page loads — <b>before they've looked at anything</b> — and the badge, once shown, <b>never refreshes</b> in a tab left open. The photos themselves say nothing (no event, no date), and "Download all" hands over <b>photo-001…photo-900</b> in one pile — and on some browsers it silently keeps only the <b>oldest 500</b>, then tells them to "try again to get the rest" (which re-downloads the same 500). On top of all that, the whole screen wears the <b>admin's gray sidebar chrome</b>, not a warm receive space.
+    </div>
+  </div>
+
+  <div class="ord">
+    <b>Your calls (already made):</b> take the <b>full scope</b> — the moment-fix <i>and</i> the warm reskin (BP20b); a "new" event clears when its photos <b>actually appear on arrival</b> (not the instant the page loads); delivered as <b>one phase</b>.
+  </div>
+
+  <h2>What we're building — seven small pieces, one phase</h2>
+
+  <div class="slice">
+    <div class="top"><span class="bp">1</span><span class="nm">Newest first</span>
+      <span class="tags"><span class="chip acc">the core fix</span><span class="tag nomig">no server change</span></span></div>
+    <div class="exp">
+      <div class="now"><span class="k">Now</span>The grid opens on the <b>oldest</b> photos; the newest event is the <b>last</b> chip.</div>
+      <div class="aft"><span class="k">After</span>Newest photos and newest events <b>first</b> — you land on what's actually new.</div>
+    </div>
+    <div class="how"><b>How:</b> the app just reverses the lists it already receives (the server sends them oldest-first). No server change.</div>
+  </div>
+
+  <div class="slice">
+    <div class="top"><span class="bp">2</span><span class="nm">A banner that points somewhere — and clears only once you've seen it</span>
+      <span class="tags"><span class="chip acc">the core fix</span></span></div>
+    <div class="exp">
+      <div class="now"><span class="k">Now</span>A generic "New photos from 3 events" line that <b>links nowhere</b> — and every "new" flag is wiped the moment the page loads, before you've looked at anything.</div>
+      <div class="aft"><span class="k">After</span>The banner <b>names each new event</b> as a tap-to-filter link; the "new" marks clear <b>once the photos are actually on screen</b> (on arrival, not on load) — so the badge reflects what you've really seen. It's a one-visit highlight that's gone next time.</div>
+    </div>
+  </div>
+
+  <div class="slice">
+    <div class="top"><span class="bp">3</span><span class="nm">A badge that stays fresh</span>
+      <span class="tags"><span class="chip acc">the core fix</span></span></div>
+    <div class="exp">
+      <div class="now"><span class="k">Now</span>The "new photos" badge is fetched <b>once</b> when the tab opens, then freezes — a tab left open all day never lights up.</div>
+      <div class="aft"><span class="k">After</span>The badge <b>refreshes when you return to the tab</b> and gently every ~minute, so new photos actually light it up.</div>
+    </div>
+    <div class="how"><b>How:</b> only the two "count" badges (the student's new-photos badge and the staff dashboard badge) poll gently — the rest of the app is unchanged.</div>
+  </div>
+
+  <div class="slice">
+    <div class="top"><span class="bp">4</span><span class="nm">Events that fit the screen</span>
+      <span class="tags"><span class="chip acc">the core fix</span></span></div>
+    <div class="exp">
+      <div class="now"><span class="k">Now</span>~60 events render as one giant wall of pills in creation order — on a phone that's the <b>entire first screen</b>, pills instead of photos.</div>
+      <div class="aft"><span class="k">After</span>A short row of chips when there are only a few events; when there are many, they <b>group by year</b> (newest first) with older years folded away. The date is already in the data.</div>
+    </div>
+  </div>
+
+  <div class="slice">
+    <div class="top"><span class="bp">5</span><span class="nm">Photos that tell their story</span>
+      <span class="tags"><span class="chip acc">the core fix</span></span></div>
+    <div class="exp">
+      <div class="now"><span class="k">Now</span>Open a photo and it says only <b>"812 of 900"</b> — never <i>which event, when</i>. (Screen readers get an empty description.)</div>
+      <div class="aft"><span class="k">After</span>Each photo shows its <b>event name + date</b> in the viewer and as its description, with an optional caption on the tile.</div>
+    </div>
+    <div class="how"><b>How:</b> the photo already knows which event it belongs to; we just look up that event's name + date (both already loaded on the page) and show them.</div>
+  </div>
+
+  <div class="slice">
+    <div class="top"><span class="bp">6</span><span class="nm">A save you can actually use</span>
+      <span class="tags"><span class="chip acc">the core fix</span></span></div>
+    <div class="exp">
+      <div class="now"><span class="k">Now</span>"Download all" gives <b>photo-001…photo-900</b> in one pile named <code style="font-size:11px">my-photos.zip</code>; on non-Chrome browsers it silently keeps only the <b>oldest 500</b>, and the message ("try again to get the rest") just re-downloads the same 500, then vanishes in 5 seconds.</div>
+      <div class="aft"><span class="k">After</span>Files are grouped + named by <b>event and date</b> (<code style="font-size:11px">{event}/{date}-001.jpg</code>), the zip is <code style="font-size:11px">my-photos-{date}.zip</code>, single saves are named by event; the "only got some" message is <b>honest</b> ("showing the first 500 — use an event filter, or Chrome, for all N") and <b>stays on screen</b> instead of disappearing.</div>
+    </div>
+  </div>
+
+  <div class="slice warm">
+    <div class="top"><span class="bp">BP20b</span><span class="nm">A warmer student space</span>
+      <span class="tags"><span class="chip warm">the look</span><span class="tag nomig">token-level</span></span></div>
+    <div class="exp">
+      <div class="now"><span class="k">Now</span>The student's screen wears the <b>admin's chrome</b> — a wide white sidebar carrying a single "My Photos" link, cool-gray everywhere. It reads like a console, not a gift.</div>
+      <div class="aft"><span class="k">After</span>A <b>slim top bar</b> (not the admin sidebar), a <b>warm background</b>, and a bigger, friendlier <b>hero</b> on "My Photos" — a receive space. Staff and platform screens are <b>untouched</b>.</div>
+    </div>
+    <div class="how"><b>How:</b> style-token level — reuses the existing design system (including one big-heading size that was defined but never used) plus one new warm background shade; no components are rewritten.</div>
+  </div>
+
+  <h2>How we'll work</h2>
+  <div class="ord">
+    <b>One phase</b> — all seven pieces together (they're small and all frontend). Built, run through the full check (types + lint + build) and a <b>2× self-review</b>, then brought back to you. <b>Nothing is committed until you say so.</b> This whole phase is <b>frontend-only</b> — no database migration, no ML change, no server logic; the review will confirm only <code>frontend/</code> changed.
+  </div>
+
+  <h2>How we'll check it</h2>
+  <div class="card verify">
+    The full frontend gate (types + lint + build) stays green, plus a walk of the student surface:
+    <ol class="steps" style="margin-top:8px">
+      <li>Open "My Photos" → the <b>newest</b> photos are on top; the newest event is the <b>first</b> chip.</li>
+      <li>The banner <b>names</b> the new events and each one filters to it; the "new" clears only <b>once the photos are on screen</b>.</li>
+      <li>Leave the tab open and come back → the badge <b>refreshes</b>.</li>
+      <li>With many events → they <b>group by year</b>, newest first.</li>
+      <li>Open a photo → it <b>names its event + date</b>.</li>
+      <li>"Download all" → files named by <b>event/date</b>; the "only got some" message is <b>honest and stays up</b>.</li>
+      <li>The student screen looks <b>warm + slim</b>; staff screens look <b>exactly as before</b>.</li>
+    </ol>
+  </div>
+
+  <p class="foot">Not in this build (noted honestly): making <b>"This isn't me" safe</b> (a confirm + an undo) is the next phase (<code>BP22</code>); putting the event filter in the web address (shareable / bookmarkable) is a later floor-sweep. The "newest-first" ordering is just the app <b>reversing lists it already receives</b> — <b>no server change, no database migration, no ML change</b>. After this, the roadmap continues with <code>BP22</code> (the review loop).</p>
+
+</div>
+</body>
+</html>

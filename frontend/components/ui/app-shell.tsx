@@ -160,6 +160,9 @@ export function AppShell({ user, children }: { user: UserResponse; children: Rea
   const router = useRouter();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const items = NAV_BY_ROLE[user.role];
+  // BP20b: the student gets a warm, slim receive surface — a top bar + drawer instead of the
+  // admin sidebar — while staff/platform keep the console chrome.
+  const isStudent = user.role === "student";
 
   // Nav information scent — only staff have dashboard:view; the shared "dashboard" SWR
   // key means this rides along with the dashboard page's fetch (no extra request).
@@ -188,15 +191,17 @@ export function AppShell({ user, children }: { user: UserResponse; children: Rea
   }
 
   // Close the mobile drawer if the viewport grows to desktop while it's open — otherwise
-  // Radix keeps body scroll locked + focus trapped on a now-hidden (sm:hidden) panel.
+  // Radix keeps body scroll locked + focus trapped on a now-hidden (sm:hidden) panel. The
+  // student drawer is shown at ALL sizes (BP20b), so it's exempt.
   useEffect(() => {
+    if (isStudent) return;
     const mql = window.matchMedia("(min-width: 640px)");
     function onChange() {
       if (mql.matches) setDrawerOpen(false);
     }
     mql.addEventListener("change", onChange);
     return () => mql.removeEventListener("change", onChange);
-  }, []);
+  }, [isStudent]);
 
   async function handleLogout() {
     try {
@@ -209,6 +214,57 @@ export function AppShell({ user, children }: { user: UserResponse; children: Rea
     await mutate("auth/me", undefined, { revalidate: false });
     router.replace("/login");
     router.refresh();
+  }
+
+  if (isStudent) {
+    // BP20b: a warm receive surface — a slim top bar (brand + a menu button opening the
+    // account drawer) over a warm wash, with a wider hero-friendly content column.
+    return (
+      <div className="flex min-h-dvh flex-col bg-canvas-warm">
+        <header className="sticky top-0 z-40 flex h-14 items-center justify-between border-b border-hairline bg-canvas/85 px-4 backdrop-blur sm:px-6">
+          <span className="text-headline text-ink">Photos</span>
+          <DialogPrimitive.Root open={drawerOpen} onOpenChange={setDrawerOpen}>
+            <DialogPrimitive.Trigger asChild>
+              <button
+                type="button"
+                aria-label="Open menu"
+                className="-mr-1 rounded-button p-1 text-ink-secondary transition-colors hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <Menu className="size-5" />
+              </button>
+            </DialogPrimitive.Trigger>
+            <DialogPrimitive.Portal>
+              <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-ink/50" />
+              <DialogPrimitive.Content className="fixed right-0 top-0 z-50 flex h-full w-64 flex-col border-l border-hairline bg-canvas focus:outline-none">
+                <DialogPrimitive.Title className="sr-only">Menu</DialogPrimitive.Title>
+                <DialogPrimitive.Description className="sr-only">
+                  Your photos and account.
+                </DialogPrimitive.Description>
+                <div className="flex h-14 items-center justify-between border-b border-hairline px-5">
+                  <span className="text-headline text-ink">Photos</span>
+                  <DialogPrimitive.Close
+                    aria-label="Close menu"
+                    className="-mr-1 rounded-button p-1 text-ink-muted transition-colors hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    <X className="size-5" />
+                  </DialogPrimitive.Close>
+                </div>
+                <NavList
+                  items={items}
+                  pathname={pathname}
+                  badges={navBadges}
+                  onNavigate={() => setDrawerOpen(false)}
+                />
+                <UserFooter user={user} onSignOut={handleLogout} />
+              </DialogPrimitive.Content>
+            </DialogPrimitive.Portal>
+          </DialogPrimitive.Root>
+        </header>
+        <main className="flex-1 p-4 sm:p-8">
+          <div className="mx-auto w-full max-w-6xl">{children}</div>
+        </main>
+      </div>
+    );
   }
 
   return (

@@ -9,11 +9,14 @@ import { cn } from "@/lib/utils";
 
 /** One media in a grid: its id, type (image vs video), and whether a display thumbnail
  *  exists (BP17). Callers normalise MediaResponse/GalleryMediaResponse into these before
- *  passing them in (BP6). */
+ *  passing them in (BP6). `caption` (BP20) is the photo's "story" — e.g. "Sports Day · Jul 4,
+ *  2026" — used for the tile's accessible name, an optional scrim label, the lightbox line,
+ *  and the saved filename; omitted on surfaces that don't supply it (staff galleries). */
 export interface GalleryItem {
   id: string;
   mediaType: MediaType;
   hasThumbnail: boolean;
+  caption?: string;
 }
 
 // How many tiles to mount initially + grow per scroll step (BP9) — bounds the DOM/mount
@@ -75,9 +78,10 @@ export function PhotoGrid({
     setVisibleCount(INITIAL_WINDOW);
   }
 
-  // Parallel arrays aligned by index over the FULL loaded set — the Lightbox navigates both.
+  // Parallel arrays aligned by index over the FULL loaded set — the Lightbox navigates them.
   const mediaIds = items.map((it) => it.id);
   const mediaTypes = items.map((it) => it.mediaType);
+  const mediaCaptions = items.map((it) => it.caption);
   const shown = items.slice(0, visibleCount);
   const canGrow = visibleCount < items.length;
   const canFetch = hasMore && !loadingMore;
@@ -113,6 +117,7 @@ export function PhotoGrid({
             mediaId={item.id}
             mediaType={item.mediaType}
             hasThumbnail={item.hasThumbnail}
+            caption={item.caption}
             index={i}
             onOpen={setOpenIndex}
             variant={variant}
@@ -129,6 +134,7 @@ export function PhotoGrid({
         <Lightbox
           mediaIds={mediaIds}
           mediaTypes={mediaTypes}
+          mediaCaptions={mediaCaptions}
           index={openIndex}
           onIndexChange={setOpenIndex}
           onClose={() => setOpenIndex(null)}

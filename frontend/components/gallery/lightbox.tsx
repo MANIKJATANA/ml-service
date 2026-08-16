@@ -18,6 +18,9 @@ interface LightboxProps {
   mediaIds: string[];
   /** Per-media type, aligned by index to `mediaIds` — a video renders a player (BP6). */
   mediaTypes?: MediaType[];
+  /** Per-media "story" (event + date), aligned by index (BP20) — shown in the panel, folded
+   *  into the image `alt`, and used to name the saved file. Undefined where not supplied. */
+  mediaCaptions?: (string | undefined)[];
   index: number;
   onIndexChange: (index: number) => void;
   onClose: () => void;
@@ -37,6 +40,7 @@ interface LightboxProps {
 export function Lightbox({
   mediaIds,
   mediaTypes,
+  mediaCaptions,
   index,
   onIndexChange,
   onClose,
@@ -46,10 +50,11 @@ export function Lightbox({
 }: LightboxProps) {
   const mediaId = mediaIds[index];
   const mediaType = mediaTypes?.[index] ?? "image";
+  const caption = mediaCaptions?.[index];
   const { download } = useMediaDownload(mediaId, true);
   const { appearances, isLoading: appsLoading, mutate: mutateAppearances } =
     useMediaAppearances(showAppearances ? mediaId : null);
-  const { downloading, onDownload } = useDownloadToDisk(mediaId, download);
+  const { downloading, onDownload } = useDownloadToDisk(mediaId, download, caption);
   const contentRef = useRef<HTMLDivElement>(null);
   const [notMeBusy, setNotMeBusy] = useState(false);
 
@@ -107,7 +112,11 @@ export function Lightbox({
               kind={mediaType}
               asPlayer
               size="full"
-              alt={`${mediaType === "video" ? "Video" : "Photo"} ${index + 1} of ${mediaIds.length}`}
+              alt={
+                caption
+                  ? `${caption} (${index + 1} of ${mediaIds.length})`
+                  : `${mediaType === "video" ? "Video" : "Photo"} ${index + 1} of ${mediaIds.length}`
+              }
               onDark
               imgClassName="max-h-full max-w-full rounded-card object-contain"
             />
@@ -150,6 +159,11 @@ export function Lightbox({
                 <X className="size-5" />
               </DialogPrimitive.Close>
             </div>
+
+            {/* BP20: the photo's story — which event, when. */}
+            {caption ? (
+              <p className="-mt-1 text-body-sm font-medium text-ink">{caption}</p>
+            ) : null}
 
             <Button onClick={onDownload} loading={downloading} disabled={!download}>
               <Download className="size-4" aria-hidden="true" />

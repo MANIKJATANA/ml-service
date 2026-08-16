@@ -61,10 +61,16 @@ async function proxy(req: NextRequest, path: string): Promise<NextResponse> {
   }
 
   const resBody = await backendRes.text();
+  // Forward content-type + Retry-After (BP8c's 429 throttle) so the client can humanize a
+  // rate-limit response ("try again in N seconds") instead of reading it as a generic error.
+  const outHeaders: Record<string, string> = {};
   const contentType = backendRes.headers.get("content-type");
+  if (contentType) outHeaders["content-type"] = contentType;
+  const retryAfter = backendRes.headers.get("retry-after");
+  if (retryAfter) outHeaders["retry-after"] = retryAfter;
   const out = new NextResponse(resBody || null, {
     status: backendRes.status,
-    headers: contentType ? { "content-type": contentType } : undefined,
+    headers: Object.keys(outHeaders).length > 0 ? outHeaders : undefined,
   });
 
   if (rotated?.access_token && rotated.refresh_token) {

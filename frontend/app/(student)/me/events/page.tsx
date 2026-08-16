@@ -1,12 +1,13 @@
 "use client";
 
 import { Download, Images, Sparkles } from "lucide-react";
+import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { FilterChips } from "@/components/gallery/filter-chips";
 import { GridSkeleton } from "@/components/gallery/grid-skeleton";
 import { PhotoGrid } from "@/components/gallery/photo-grid";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { useToast } from "@/components/ui/toast";
 import { markNotificationSeen, reportNotMe } from "@/lib/api/endpoints";
@@ -161,7 +162,12 @@ export default function MyPhotosPage() {
       <EmptyState
         icon={<Images className="size-8" aria-hidden="true" />}
         title="No photos yet"
-        description="When you appear in your school's event photos, they'll show up here — privately, just for you."
+        description="When you appear in your school's event photos, they'll show up here — visible only to you and your school's staff."
+        action={
+          <Link href="/how-matching-works" className={buttonVariants({ variant: "secondary" })}>
+            How photo matching works
+          </Link>
+        }
       />
     );
   }
@@ -169,11 +175,18 @@ export default function MyPhotosPage() {
   return (
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-2">
-        <h1 className="text-display-lg text-ink">Your photos</h1>
+        <h1 className="text-display-lg text-ink">My Photos</h1>
         <p className="text-body text-ink-secondary">
           You&apos;re in {plural(totalPhotos, "photo", "photos")} from{" "}
-          {plural(events.length, "event", "events")}. Only you can see these.
+          {plural(events.length, "event", "events")} — private to you and your school&apos;s
+          staff. Other students only ever see photos they&apos;re in too.
         </p>
+        <Link
+          href="/how-matching-works"
+          className="w-fit rounded text-body-sm text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          How photo matching works
+        </Link>
         {newCount > 0 ? (
           <p
             role="status"

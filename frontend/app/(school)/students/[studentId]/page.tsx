@@ -37,7 +37,7 @@ import { useClasses } from "@/lib/hooks/use-classes";
 import { useStudentEvents, useStudentMedia } from "@/lib/hooks/use-galleries";
 import { useStudentReferencePhoto } from "@/lib/hooks/use-student-reference-photo";
 import { useStudent } from "@/lib/hooks/use-students";
-import { ENROLL_FAILURE_HELP, ENROLL_LABEL, ENROLL_TONE } from "@/lib/students/enrollment";
+import { ENROLL_FAILURE_HELP, enrollDisplay } from "@/lib/students/enrollment";
 import { formatDate } from "@/lib/utils";
 
 /** Why an enrollment failed + how to fix it (BP7b). Shown under the profile when the
@@ -296,7 +296,9 @@ export default function StudentDetailPage() {
       await mutate(updated, { revalidate: false });
       void globalMutate("students"); // keep the list's enrollment pill in sync
       toast(
-        updated.enrollment_status === "enrolled" ? "Re-enrolled." : "Enrollment still failed.",
+        updated.enrollment_status === "enrolled"
+          ? "Re-enrolled."
+          : "Enrollment didn't succeed — check the reason below.",
         updated.enrollment_status === "enrolled" ? "success" : "warning",
       );
     } catch (err) {
@@ -476,8 +478,8 @@ export default function StudentDetailPage() {
                 <div className="flex flex-col gap-1">
                   <dt className="text-body-sm text-ink-muted">Enrollment</dt>
                   <dd>
-                    <StatusPill tone={ENROLL_TONE[student.enrollment_status]}>
-                      {ENROLL_LABEL[student.enrollment_status]}
+                    <StatusPill tone={enrollDisplay(student).tone}>
+                      {enrollDisplay(student).label}
                     </StatusPill>
                   </dd>
                 </div>
@@ -519,7 +521,7 @@ export default function StudentDetailPage() {
         open={confirmOpen}
         onOpenChange={setConfirmOpen}
         title="Delete student?"
-        description="This removes the student's login, profile, and face enrollment. This can't be undone."
+        description="Permanently deletes their login, profile, face enrollment, and their matched-photo history (which photos they appear in) — this can't be undone. The event photos themselves stay in every gallery, and past download records are kept but anonymized."
         confirmLabel="Delete student"
         destructive
         loading={deleting}

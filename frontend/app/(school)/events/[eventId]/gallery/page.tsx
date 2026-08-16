@@ -173,7 +173,7 @@ function ByStudent({ eventId }: { eventId: string }) {
     return (
       <EmptyState
         title="No students matched yet"
-        description="Run distribution on this event — students who appear in its photos show up here."
+        description="Match this event's photos — students who appear in them show up here."
       />
     );
   }

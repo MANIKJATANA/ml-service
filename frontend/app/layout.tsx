@@ -17,8 +17,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Photo Distribution",
-  description: "Event photo distribution for schools.",
+  title: "Photos",
+  description: "Find and share school event photos with the students in them.",
 };
 
 export default function RootLayout({

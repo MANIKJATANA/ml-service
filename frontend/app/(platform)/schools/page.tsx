@@ -222,7 +222,9 @@ export default function SchoolsPage() {
                             {school.rollup.events}
                           </TableCell>
                           <TableCell>
-                            <StatusPill tone={STATUS_TONE[school.status]}>{school.status}</StatusPill>
+                            <StatusPill tone={STATUS_TONE[school.status]}>
+                              {school.status === "active" ? "Active" : "Suspended"}
+                            </StatusPill>
                           </TableCell>
                         </TableRow>
                       );

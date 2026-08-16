@@ -52,7 +52,7 @@ function AuditLog() {
     <div className="flex flex-col gap-6">
       <PageHeader
         title="Access log"
-        description="Every photo download in your school — who, what, and when (newest first)."
+        description="Records photo saves made in the app — who, what, and when (newest first). It records in-app downloads only, not views or a right-click save on an open image."
       />
 
       {isLoading && !page ? (
@@ -92,7 +92,7 @@ function AuditLog() {
                     <TableHead>When</TableHead>
                     <TableHead>Who</TableHead>
                     <TableHead>Photo</TableHead>
-                    <TableHead>Downloaded as</TableHead>
+                    <TableHead>Student (self)</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>

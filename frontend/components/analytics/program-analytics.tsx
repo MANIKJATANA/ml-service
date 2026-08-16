@@ -56,7 +56,7 @@ function AnalyticsSection({ a }: { a: SchoolAnalyticsResponse }) {
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <RateCard
-          label="Delivery rate"
+          label="Announce rate"
           numerator={a.events_distributed}
           denominator={a.events_total}
           hint="events announced"
@@ -97,7 +97,7 @@ function AnalyticsSection({ a }: { a: SchoolAnalyticsResponse }) {
                 <th scope="col" className="px-4 py-3 font-medium">Term</th>
                 <th scope="col" className="px-4 py-3 text-right font-medium">Events</th>
                 <th scope="col" className="px-4 py-3 text-right font-medium">Photos</th>
-                <th scope="col" className="px-4 py-3 text-right font-medium">Delivered</th>
+                <th scope="col" className="px-4 py-3 text-right font-medium">Announced</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-hairline">

@@ -1,7 +1,7 @@
 import { cn } from "@/lib/utils";
 
 interface RateCardProps {
-  /** What the rate measures ("Delivery rate", "Sign-in rate"). */
+  /** What the rate measures ("Announce rate", "Sign-in rate"). */
   label: string;
   /** The numerator + denominator; the percentage is derived. */
   numerator: number;

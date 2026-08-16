@@ -76,7 +76,7 @@ function ClassFormDialog({
       <DialogTrigger asChild>{trigger}</DialogTrigger>
       <DialogContent
         title={editing ? "Edit class" : "Create class"}
-        description="Group students by class or section to filter, organize, and (soon) delegate."
+        description="Group students by class or section to filter, organize, and delegate to teachers."
       >
         <form onSubmit={onSubmit} className="flex flex-col gap-4">
           <Field label="Name" htmlFor="class-name" hint="e.g. Grade 3B">

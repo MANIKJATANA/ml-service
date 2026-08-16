@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BP21 — Say what it does</title>
+<style>
+  :root{
+    --ink:#0d1729; --ink-2:#5a6578; --ink-3:#7b8494;
+    --canvas:#f8f9fa; --surface:#fff; --hairline:#e3e8ef;
+    --accent:#4f46e5; --accent-soft:#eef2ff;
+    --crit:#dc2626; --crit-soft:#fef2f2;
+    --high:#b45309; --high-soft:#fffbeb;
+    --med:#0369a1; --med-soft:#f0f9ff;
+    --ok:#15803d; --ok-soft:#f0fdf4;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:ui-sans-serif,system-ui,"Segoe UI",Roboto,sans-serif;background:var(--canvas);color:var(--ink);line-height:1.55;padding:48px 20px}
+  .wrap{max-width:880px;margin:0 auto}
+  h1{font-size:29px;letter-spacing:-.02em;margin-bottom:6px}
+  h2{font-size:18px;letter-spacing:-.01em;margin:42px 0 13px}
+  .sub{color:var(--ink-2);font-size:14.5px;margin-bottom:8px}
+  .meta{font-size:12.5px;color:var(--ink-3);margin-bottom:30px}
+  .meta code{background:var(--surface);border:1px solid var(--hairline);border-radius:4px;padding:1px 5px;font-size:11.5px}
+  .card{background:var(--surface);border:1px solid var(--hairline);border-radius:12px;padding:18px 20px;margin-bottom:14px}
+  .chip{display:inline-block;font-size:11px;font-weight:600;padding:2px 9px;border-radius:999px;white-space:nowrap}
+  .chip.crit{background:var(--crit-soft);color:var(--crit)}
+  .chip.ok{background:var(--ok-soft);color:var(--ok)}
+  .chip.acc{background:var(--accent-soft);color:var(--accent)}
+  .problem{background:var(--high-soft);border:1px solid #f3e2c0;border-radius:12px;padding:16px 20px;margin-bottom:14px;font-size:14px;line-height:1.6}
+  .problem b{color:var(--high)}
+  .problem .chain{margin-top:8px;font-size:13px;color:var(--ink-2)}
+  .problem .chain b{color:var(--ink)}
+  .ord{background:var(--accent-soft);border:1px solid #dfe3ff;border-radius:10px;padding:13px 16px;margin-bottom:14px;font-size:13px;color:var(--ink);line-height:1.55}
+  .ord b{color:var(--accent)}
+  .ord .seq{font-variant-numeric:tabular-nums;font-weight:600;color:var(--accent)}
+  .slice{background:var(--surface);border:1px solid var(--hairline);border-radius:11px;padding:14px 18px;margin-bottom:11px}
+  .slice .top{display:flex;align-items:baseline;gap:9px;flex-wrap:wrap;margin-bottom:6px}
+  .slice .bp{font-weight:700;font-size:15px;letter-spacing:-.01em}
+  .slice .nm{font-size:14px;color:var(--ink)}
+  .slice .tags{margin-left:auto;display:flex;gap:5px;align-items:center;flex-wrap:wrap}
+  .slice .tag{font-size:10.5px;color:var(--ink-2);background:var(--canvas);border:1px solid var(--hairline);border-radius:5px;padding:1px 7px;white-space:nowrap}
+  .slice .tag.nomig{color:var(--ok);background:var(--ok-soft);border-color:#c6ecd2}
+  .exp{margin:7px 0 1px}
+  .exp > div{font-size:13.5px;line-height:1.55;color:var(--ink);margin-bottom:4px}
+  .exp .k{font-weight:700;font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;margin-right:7px}
+  .exp .now .k{color:var(--crit)}
+  .exp .aft .k{color:var(--ok)}
+  .how{font-size:11.5px;color:var(--ink-3);margin-top:7px;line-height:1.55}
+  .how b{color:var(--ink-2);font-weight:600}
+  table.words{width:100%;border-collapse:collapse;margin:8px 0 2px;font-size:12.5px}
+  table.words th{text-align:left;color:var(--ink-3);font-weight:600;font-size:11px;padding:3px 8px;border-bottom:1px solid var(--hairline)}
+  table.words td{padding:4px 8px;border-bottom:1px solid var(--hairline);vertical-align:top}
+  table.words .old{color:var(--ink-2)}
+  table.words .new{color:var(--ok);font-weight:600}
+  table.words .arrow{color:var(--ink-3);text-align:center;width:24px}
+  .verify{font-size:13.5px;line-height:1.6;color:var(--ink-2)}
+  .verify b{color:var(--ink)}
+  ol.steps{margin:0 0 0 20px;font-size:13.5px;line-height:1.7}
+  ol.steps b{color:var(--ink)}
+  .foot{margin-top:38px;padding-top:16px;border-top:1px solid var(--hairline);font-size:13px;color:var(--ink-2)}
+  .foot code{background:var(--surface);border:1px solid var(--hairline);border-radius:4px;padding:1px 5px;font-size:11.5px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>BP21 — Say what it does</h1>
+  <p class="sub">The next Round-3 build. It makes the app describe itself in <b>plain, true language</b> — one vocabulary, honest claims, and error messages that actually help.</p>
+  <p class="meta">Plan: <code>C:\Users\…\plans\…jolly-peach.md</code> (approved) · findings: <code>product/06</code> theme M · roadmap: <code>product/07</code> BP21 · this is the explainer to verify <b>before</b> any code · two slices · <b>frontend only — no database, no ML, no server logic change</b></p>
+
+  <h2>The problem we're fixing</h2>
+  <div class="problem">
+    <b>The app talks about itself from the machine's side — and a few things it says aren't even true.</b>
+    <div class="chain">
+      There are really two steps: (1) <b>find which students are in each photo</b> (face matching), and (2) <b>tell those students their photos are ready</b>. But the app names them in <b>seven different words</b> — the button says "Process photos", the message says "Distribution started", the status says "Processing", the checklist says "Distribute to students", the analytics say "Delivery rate". The word <b>"Distribution" means both steps at once</b>, so an admin presses "Process photos", reads "Distribution started", and reasonably thinks the students were told — but they weren't; that's a separate button. On top of that: a student is told <b>"Only you can see these"</b> — which is false (school staff can see all photos); face matching is <b>never explained to anyone</b>, yet students are asked "Is this you?" and staff correct confidence percentages nobody defined; the "delete student" box <b>doesn't say what it destroys or what it keeps</b>; "Notified 143 students" oversells what's really an in-app flag; and four error messages <b>misdirect</b> (a rate-limit reads as a server outage, a bad email says "Unprocessable Entity", raw error text leaks to users).
+    </div>
+  </div>
+
+  <h2>What we're building — two slices</h2>
+
+  <div class="slice">
+    <div class="top"><span class="bp">BP21a</span><span class="nm">Say it in one voice (+ a "how it works" page)</span>
+      <span class="tags"><span class="chip acc">copy &amp; clarity</span><span class="tag">frontend only</span><span class="tag nomig">no migration</span></span></div>
+    <div class="exp">
+      <div class="now"><span class="k">Now</span>Two steps, seven words, one overloaded term ("Distribution") that means both — plus a false privacy claim, an unexplained system, an under-and-over-telling delete box, and a "Pending" label on students who simply have no photo yet.</div>
+      <div class="aft"><span class="k">After</span>One clear grammar everywhere — <b>Match</b> (find who's in the photos) and <b>Announce</b> (tell the students) — plus every claim made true, a plain-language <b>"How photo matching works"</b> page, and a one-line legend explaining what a confidence % means.</div>
+    </div>
+    <table class="words">
+      <tr><th>Where</th><th class="old">Now</th><th class="arrow"></th><th class="new">After</th></tr>
+      <tr><td>Process button</td><td class="old">"Process photos"</td><td class="arrow">→</td><td class="new">"Match photos"</td></tr>
+      <tr><td>After pressing it</td><td class="old">"Distribution started."</td><td class="arrow">→</td><td class="new">"Matching started."</td></tr>
+      <tr><td>Status pill</td><td class="old">"Processing"</td><td class="arrow">→</td><td class="new">"Matching"</td></tr>
+      <tr><td>Notify button</td><td class="old">"Notify students"</td><td class="arrow">→</td><td class="new">"Announce to students"</td></tr>
+      <tr><td>Roster</td><td class="old">"Notified 143 …"</td><td class="arrow">→</td><td class="new">"Announced to 143 — they see it in My Photos"</td></tr>
+      <tr><td>Analytics / estate</td><td class="old">"Delivery rate" / "Distributed"</td><td class="arrow">→</td><td class="new">"Announce rate" / "Announced"</td></tr>
+      <tr><td>Student privacy line</td><td class="old">"Only you can see these"</td><td class="arrow">→</td><td class="new">"Private to you and your school's staff — other students only ever see photos they're in too"</td></tr>
+      <tr><td>Photoless student</td><td class="old">"Pending"</td><td class="arrow">→</td><td class="new">"No photo yet"</td></tr>
+    </table>
+    <div class="how"><b>Also in this slice:</b> the delete-student box tells <b>both</b> sides (destroys their match history for good; keeps the event photos they're in + anonymized download records) · the access-log caption is honest ("records saves made in the app — not views") and teachers are told their downloads are recorded &amp; admin-visible · the app's name + the "My Photos" label are made consistent · the event uploader finally shows the <b>30 MB</b> limit (it's the only place you can add video) · the stale "(soon) delegate" note is dropped (delegation already shipped). All strings — no logic changes.</div>
+  </div>
+
+  <div class="slice">
+    <div class="top"><span class="bp">BP21b</span><span class="nm">Honest error messages</span>
+      <span class="tags"><span class="chip acc">trust</span><span class="tag">frontend + BFF</span><span class="tag nomig">no backend change</span></span></div>
+    <div class="exp">
+      <div class="now"><span class="k">Now</span>If your session quietly expires, a page shows "Something went wrong" + a Retry that can never work. A bad email says "Unprocessable Entity". When the office is rate-limited, it looks like the server is down. And raw internal error text sometimes leaks into a toast.</div>
+      <div class="aft"><span class="k">After</span>An expired session <b>sends you to the login page</b> (with "you were signed out"). A bad field says <b>which field and why</b>. A rate-limit says <b>"try again in N seconds"</b>. Server faults show one <b>calm generic message</b> instead of raw internals.</div>
+    </div>
+    <div class="how"><b>How:</b> a single shared "your session ended → go to login" handler (instead of each screen guessing) · read the real field errors out of the server's validation response · pass the "try again in N seconds" value through the app's proxy (the server already sends it; it was just being dropped) · show a friendly message for 500s. The server itself doesn't change — this is all on the app's side.</div>
+  </div>
+
+  <h2>Build order &amp; how we'll work</h2>
+  <div class="ord">
+    <b>Order</b> &nbsp;<span class="seq">BP21a → BP21b</span> &nbsp;— the vocabulary + honesty pass first (the bulk of the value, all low-risk copy), then the error plumbing.<br>
+    <b>Process</b> — you're reading step 2 now. Each slice is then built on its own, run through the full check (types + lint + build) and a <b>2× self-review</b>, and brought back to you. Nothing is committed until you say so. <b>Note:</b> this whole phase is <b>frontend-only</b> — no database migration, no ML change, no server logic; the review will confirm only <code>frontend/</code> changed.
+  </div>
+
+  <h2>How we'll check it</h2>
+  <div class="card verify">
+    Because it's mostly wording, the checks are: the full frontend gate (types + lint + build) stays green, a review confirms the sweep is <b>complete</b> (no stray "Distribution"/"Process" left behind, one grammar everywhere), and a walk-through of each surface. For the error slice specifically:
+    <ol class="steps" style="margin-top:8px">
+      <li>Let a session expire on a normal page → it <b>sends you to login</b>, not a dead "Retry".</li>
+      <li>Submit a bad email → the message names <b>the field and the reason</b>, not "Unprocessable Entity".</li>
+      <li>Trip the rate limit → <b>"try again in N seconds"</b>, not "something went wrong".</li>
+      <li>Force a server fault → one <b>calm generic message</b>, no raw internals.</li>
+    </ol>
+  </div>
+
+  <p class="foot">Not in this build (noted honestly): no outbound email/WhatsApp — that's the separate parked item; slice 1 just states the in-app truth ("In-app only"). The warmer student <i>look</i> and the "newest photos first" arrival fix are their own later phases (<code>BP20</code>). Backend text/enums are untouched — all labels live in the frontend, so there's <b>no migration and no ML change</b>. After this, the roadmap continues with <code>BP20</code> (the student arrival moment).</p>
+
+</div>
+</body>
+</html>

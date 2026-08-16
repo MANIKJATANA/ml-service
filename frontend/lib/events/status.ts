@@ -16,9 +16,10 @@ export const EVENT_STATUS_LABEL: Record<EventStatus, string> = {
 };
 
 /**
- * Event-level inference state → tone + label (the FE polls this). Colour arrives only when
- * work is actually happening: not_started/queued stay neutral, processing = info (live),
- * completed = success.
+ * Event-level face-MATCHING state → tone + label (the FE polls this). Colour arrives only when
+ * work is actually happening: not_started/queued stay neutral, matching = info (live),
+ * matched = success. BP21: one grammar — "Match" (find who's in each photo), never
+ * "Process"/"Distribution". (The separate ANNOUNCE step has its own pill in the DistributionCard.)
  */
 export const PROCESSING_TONE: Record<EventProcessingStatus, Tone> = {
   not_started: "neutral",
@@ -30,9 +31,9 @@ export const PROCESSING_TONE: Record<EventProcessingStatus, Tone> = {
 export const PROCESSING_LABEL: Record<EventProcessingStatus, string> = {
   not_started: "Not started",
   queued: "Queued",
-  processing: "Processing",
-  completed: "Completed",
-  failed: "Processing failed",
+  processing: "Matching",
+  completed: "Matched",
+  failed: "Matching failed",
 };
 
 /**

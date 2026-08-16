@@ -101,7 +101,7 @@ export default function EventUploadPage() {
         <>
           <PageHeader
             title="Upload media"
-            description={`Add photos and videos to “${event.name}”. Run distribution from the event once they're in.`}
+            description={`Add photos and videos to “${event.name}”. Match them from the event page once they're in.`}
           />
 
           <Card className="flex flex-col gap-4 p-6">
@@ -110,7 +110,7 @@ export default function EventUploadPage() {
               disabled={isUploading}
               accept="image/*,video/*"
               label="Photos & videos"
-              hint="Photos and videos — select as many as you like."
+              hint="Photos and videos, up to 30 MB each — select as many as you like."
             />
 
             {items.length > 0 ? (

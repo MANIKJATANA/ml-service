@@ -213,8 +213,8 @@ function EditEventDialog({
   );
 }
 
-/** Staff distribution controls (BP4): auto-announce toggle, manual "Notify students", and
- *  the notified/seen roster. Announcing needs a finished (completed) active event. */
+/** Staff announce controls (BP4): auto-announce toggle, manual "Announce to students", and
+ *  the announced/seen roster. Announcing needs a finished (matched) active event. */
 function DistributionCard({
   event,
   refresh,
@@ -234,7 +234,10 @@ function DistributionCard({
     setNotifying(true);
     try {
       const res = await notifyStudents(event.id);
-      toast(`Notified ${res.notified} ${res.notified === 1 ? "student" : "students"}.`, "success");
+      toast(
+        `Announced to ${res.notified} ${res.notified === 1 ? "student" : "students"} — they'll see it in My Photos.`,
+        "success",
+      );
       refresh(); // notified_at changed
       void rosterMutate();
     } catch (err) {
@@ -261,14 +264,14 @@ function DistributionCard({
   return (
     <Card className="flex flex-col gap-4 p-6">
       <div className="flex items-center justify-between gap-3">
-        <h2 className="text-headline text-ink">Distribution</h2>
+        <h2 className="text-headline text-ink">Announce</h2>
         <StatusPill tone={roster?.announced ? "success" : "neutral"}>
           {roster?.announced ? "Announced" : "Not announced"}
         </StatusPill>
       </div>
       <p className="text-body-sm text-ink-secondary">
-        Students see their photos in “My Photos”. Auto-announce shows them in-app as soon as
-        processing finishes; “Notify students” also sends via any configured channels.
+        Students see their photos in “My Photos” — in-app only for now. Auto-announce shows them
+        there as soon as matching finishes; “Announce to students” does it manually.
       </p>
 
       <label className="flex items-center gap-3">
@@ -280,13 +283,14 @@ function DistributionCard({
           className="size-4 rounded accent-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         />
         <span className="text-body text-ink">
-          Auto-announce to students when processing finishes
+          Auto-announce to students when matching finishes
         </span>
       </label>
 
       {roster?.announced ? (
         <p className="text-body-sm text-ink-secondary">
-          Notified <span className="tabular-nums">{roster.notified_count}</span> ·{" "}
+          Announced to <span className="tabular-nums">{roster.notified_count}</span>{" "}
+          {roster.notified_count === 1 ? "student" : "students"} ·{" "}
           <span className="tabular-nums">{roster.seen_count}</span> opened
           {roster.notified_at ? ` · last sent ${formatDate(roster.notified_at)}` : ""}
         </p>
@@ -295,11 +299,11 @@ function DistributionCard({
       <div className="flex flex-col gap-2">
         <Button onClick={onNotify} loading={notifying} disabled={!canNotify} className="w-fit">
           <Send className="size-4" aria-hidden="true" />
-          {roster?.notified_at ? "Notify again" : "Notify students"}
+          {roster?.notified_at ? "Announce again" : "Announce to students"}
         </Button>
         {!canNotify ? (
           <p className="text-body-sm text-ink-muted">
-            Finish processing the photos before notifying.
+            Finish matching the photos before announcing.
           </p>
         ) : null}
       </div>
@@ -361,7 +365,7 @@ export default function EventDetailPage() {
         (prev) => (prev ? { ...prev, processing_status: "queued" as const } : prev),
         { revalidate: true },
       );
-      toast("Distribution started.", "success");
+      toast("Matching started.", "success");
     } catch (err) {
       // 400 archived / already in flight / no pending photos; 502 if the queue is down.
       toast(isApiError(err) ? err.message : "Something went wrong", "error");
@@ -556,10 +560,10 @@ export default function EventDetailPage() {
                   <>
                     <ProgressBar
                       value={(status.completed / status.total) * 100}
-                      label="Processing progress"
+                      label="Matching progress"
                     />
                     <p className="text-body-sm text-ink-secondary">
-                      {status.completed} of {status.total} processed
+                      {status.completed} of {status.total} matched
                       {status.pending > 0 ? ` · ${status.pending} pending` : ""}
                       {status.failed > 0 ? ` · ${status.failed} failed` : ""}
                     </p>
@@ -570,7 +574,7 @@ export default function EventDetailPage() {
 
                 {isArchived ? (
                   <p className="text-body-sm text-ink-secondary">
-                    Archived — restore the event to upload or distribute.
+                    Archived — restore the event to add photos or match.
                   </p>
                 ) : (
                   <div className="flex flex-wrap items-center gap-2">
@@ -591,8 +595,8 @@ export default function EventDetailPage() {
                           ? "Retry"
                           : status.pending > 0
                             ? proc === "completed"
-                              ? "Redistribute"
-                              : "Process photos"
+                              ? "Match again"
+                              : "Match photos"
                             : "Retry failed"}
                       </Button>
                     ) : null}
@@ -611,8 +615,8 @@ export default function EventDetailPage() {
                       }
                     >
                       {enqueuedAt
-                        ? `Processing since ${formatDateTime(event.enqueued_at as string)}`
-                        : "Processing"}{" "}
+                        ? `Matching since ${formatDateTime(event.enqueued_at as string)}`
+                        : "Matching"}{" "}
                       — this updates automatically.
                       {staleInFlight
                         ? " This is taking longer than usual; you can retry below."
@@ -623,21 +627,21 @@ export default function EventDetailPage() {
                       retryable failure. Retry re-runs it once the cause is fixed. */}
                   {!isArchived && isFailed ? (
                     <p className="text-body-sm text-error-strong">
-                      Processing couldn&apos;t finish — the job stopped before completing. This is
+                      Matching couldn&apos;t finish — the job stopped before completing. This is
                       usually temporary; retry to run it again. If it keeps failing, an
-                      administrator may need to check the processing service.
+                      administrator may need to check the matching service.
                     </p>
                   ) : null}
                   {!isArchived && !inFlight && !isFailed && status.failed > 0 ? (
                     <p className="text-body-sm text-warning-strong">
                       {status.failed} {status.failed === 1 ? "photo" : "photos"} couldn&apos;t
-                      be processed. Retry — if it keeps failing, the file may be corrupt or
+                      be matched. Retry — if it keeps failing, the file may be corrupt or
                       unreadable, so replace it.
                     </p>
                   ) : null}
                   {!isArchived && !inFlight && !isFailed && status.total > 0 &&
                   status.pending === 0 && status.failed === 0 ? (
-                    <p className="text-body-sm text-success-strong">All photos processed.</p>
+                    <p className="text-body-sm text-success-strong">All photos matched.</p>
                   ) : null}
                 </div>
               </>

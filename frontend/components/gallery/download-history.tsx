@@ -17,7 +17,17 @@ export function DownloadHistory({ mediaId }: { mediaId: string }) {
   const { log, error, isLoading } = useMediaDownloadLog(mediaId, Boolean(isAdmin));
   const [open, setOpen] = useState(false);
 
-  if (!isAdmin) return null;
+  if (!isAdmin) {
+    // BP21 (R3-S5-11): teachers can download but were never told it's recorded + admin-visible
+    // — surveillance discovered, not disclosed. Show a one-line disclosure (no fetch; the log
+    // itself stays admin-only). Non-staff surfaces don't render this component.
+    return user?.role === "teacher" ? (
+      <p className="text-body-sm text-ink-muted">
+        <History className="mr-1 inline size-3.5 align-[-2px]" aria-hidden="true" />
+        Downloads are recorded and visible to your school&apos;s admins.
+      </p>
+    ) : null;
+  }
 
   const count = log?.count ?? 0;
 

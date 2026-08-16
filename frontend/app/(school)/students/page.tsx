@@ -41,8 +41,7 @@ import { useStudentReferencePhoto } from "@/lib/hooks/use-student-reference-phot
 import { useStudents } from "@/lib/hooks/use-students";
 import {
   ENROLL_FAILURE_SHORT,
-  ENROLL_LABEL,
-  ENROLL_TONE,
+  enrollDisplay,
 } from "@/lib/students/enrollment";
 
 // The default sort direction when a column is first selected (BP9): names A→Z, counts
@@ -487,8 +486,8 @@ export default function StudentsPage() {
                         </TableCell>
                         <TableCell>
                           <div className="flex flex-col items-start gap-0.5">
-                            <StatusPill tone={ENROLL_TONE[student.enrollment_status]}>
-                              {ENROLL_LABEL[student.enrollment_status]}
+                            <StatusPill tone={enrollDisplay(student).tone}>
+                              {enrollDisplay(student).label}
                             </StatusPill>
                             {student.enrollment_status === "failed" &&
                             student.enrollment_failure_reason ? (

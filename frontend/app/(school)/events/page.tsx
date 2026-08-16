@@ -138,7 +138,7 @@ function CreateEventDialog({ onCreated }: { onCreated: () => void }) {
           New event
         </Button>
       </DialogTrigger>
-      <DialogContent title="Create event" description="Upload photos to it, then run distribution.">
+      <DialogContent title="Create event" description="Upload photos to it, then match and announce them.">
         <form onSubmit={onSubmit} className="flex flex-col gap-4">
           <Field label="Name" htmlFor="event-name">
             <Input
@@ -379,7 +379,7 @@ export default function EventsPage() {
     <div className="flex flex-col gap-6">
       <PageHeader
         title="Events"
-        description="Upload event photos and distribute them to the students who appear."
+        description="Upload event photos, then match and announce them to the students who appear."
         actions={
           <div className="flex flex-wrap gap-2">
             <ManageCategoriesDialog onChanged={() => mutate()} />
@@ -409,7 +409,7 @@ export default function EventsPage() {
         <EmptyState
           icon={<CalendarDays className="size-8" aria-hidden="true" />}
           title="No events yet"
-          description="Create an event, upload its photos, and run distribution."
+          description="Create an event, upload its photos, then match and announce them."
           action={<CreateEventDialog onCreated={onCreated} />}
         />
       ) : (
@@ -528,7 +528,7 @@ export default function EventsPage() {
                           <SortableHead label="Date" sortKey="event_date" activeKey={sort} dir={dir} onSort={onSort} />
                           <SortableHead label="Photos" sortKey="media_count" activeKey={sort} dir={dir} onSort={onSort} />
                           <SortableHead label="Matched" sortKey="matched_students" activeKey={sort} dir={dir} onSort={onSort} />
-                          <TableHead>Processing</TableHead>
+                          <TableHead>Matching</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>

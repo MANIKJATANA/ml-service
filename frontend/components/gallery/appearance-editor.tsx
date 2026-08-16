@@ -2,6 +2,7 @@
 
 import * as Popover from "@radix-ui/react-popover";
 import { UserPlus, X } from "lucide-react";
+import Link from "next/link";
 import { useMemo, useState } from "react";
 
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -41,6 +42,7 @@ export function AppearanceEditor({
     [appearances],
   );
   const presentIds = useMemo(() => visible.map((a) => a.student_id), [visible]);
+  const hasConfidence = useMemo(() => visible.some((a) => a.confidence !== null), [visible]);
 
   return (
     <div className="flex flex-col gap-3">
@@ -56,6 +58,18 @@ export function AppearanceEditor({
         </ul>
       )}
       <AddStudents mediaId={mediaId} present={presentIds} onChanged={onChanged} />
+      {/* BP21 (R3-S5-03): explain the % staff are asked to correct, and link the full explainer. */}
+      <p className="text-body-sm text-ink-muted">
+        {hasConfidence
+          ? "Percentages are how sure the match is — a low one is worth a second look. "
+          : null}
+        <Link
+          href="/how-matching-works"
+          className="rounded underline hover:text-ink-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          How photo matching works
+        </Link>
+      </p>
     </div>
   );
 }

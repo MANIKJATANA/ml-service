@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+
 import { Spinner } from "@/components/ui/spinner";
 import { StatusPill } from "@/components/ui/status-pill";
 import type { MediaAppearanceResponse } from "@/lib/api/types";
@@ -23,29 +25,44 @@ export function AppearanceList({
   if (!appearances || appearances.length === 0) {
     return <p className="text-body-sm text-ink-secondary">No students matched in this photo.</p>;
   }
+  const hasConfidence = appearances.some((a) => a.confidence !== null);
   return (
-    <ul className="flex flex-col gap-2.5">
-      {appearances.map((appearance) => (
-        <li key={appearance.student_id} className="flex items-center justify-between gap-2">
-          <span className="min-w-0 flex-1 truncate text-body-sm text-ink">{appearance.name}</span>
-          <div className="flex shrink-0 items-center gap-2">
-            {appearance.verdict === "added" ? (
-              <StatusPill tone="info">Added</StatusPill>
-            ) : appearance.verdict === "confirmed" ? (
-              <StatusPill tone="success">Confirmed</StatusPill>
-            ) : appearance.verdict === "rejected" ? (
-              <StatusPill tone="error">Rejected</StatusPill>
-            ) : appearance.needs_review ? (
-              <StatusPill tone="warning">Review</StatusPill>
-            ) : null}
-            {appearance.confidence !== null ? (
-              <span className="text-tabular tabular-nums text-ink-secondary">
-                {Math.round(appearance.confidence * 100)}%
-              </span>
-            ) : null}
-          </div>
-        </li>
-      ))}
-    </ul>
+    <div className="flex flex-col gap-3">
+      <ul className="flex flex-col gap-2.5">
+        {appearances.map((appearance) => (
+          <li key={appearance.student_id} className="flex items-center justify-between gap-2">
+            <span className="min-w-0 flex-1 truncate text-body-sm text-ink">{appearance.name}</span>
+            <div className="flex shrink-0 items-center gap-2">
+              {appearance.verdict === "added" ? (
+                <StatusPill tone="info">Added</StatusPill>
+              ) : appearance.verdict === "confirmed" ? (
+                <StatusPill tone="success">Confirmed</StatusPill>
+              ) : appearance.verdict === "rejected" ? (
+                <StatusPill tone="error">Rejected</StatusPill>
+              ) : appearance.needs_review ? (
+                <StatusPill tone="warning">Review</StatusPill>
+              ) : null}
+              {appearance.confidence !== null ? (
+                <span className="text-tabular tabular-nums text-ink-secondary">
+                  {Math.round(appearance.confidence * 100)}%
+                </span>
+              ) : null}
+            </div>
+          </li>
+        ))}
+      </ul>
+      {/* BP21 (R3-S5-03): explain the confidence % and link the plain-language explainer. */}
+      <p className="text-body-sm text-ink-muted">
+        {hasConfidence
+          ? "Percentages are how sure the match is — a low one is worth a second look. "
+          : null}
+        <Link
+          href="/how-matching-works"
+          className="rounded underline hover:text-ink-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          How photo matching works
+        </Link>
+      </p>
+    </div>
   );
 }

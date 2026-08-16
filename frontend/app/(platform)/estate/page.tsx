@@ -28,7 +28,7 @@ export default function EstateAnalyticsPage() {
     <div className="flex flex-col gap-6">
       <PageHeader
         title="Estate health"
-        description="How each school is adopting — the funnel from students to delivered photos, and who's stalled."
+        description="How each school is adopting — the funnel from students to announced photos, and who's stalled."
       />
       {isLoading && !estate ? (
         <EstateSkeleton />
@@ -124,7 +124,7 @@ function EstateBody({ e }: { e: EstateAnalyticsResponse }) {
                   <TableHead>Students</TableHead>
                   <TableHead>Enrolled</TableHead>
                   <TableHead>Events</TableHead>
-                  <TableHead>Distributed</TableHead>
+                  <TableHead>Announced</TableHead>
                   <TableHead>Signed in</TableHead>
                   <TableHead>Status</TableHead>
                 </TableRow>

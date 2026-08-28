@@ -138,11 +138,15 @@ async def test_update_event_changes_category_and_term() -> None:
     assert updated.term == "Term 1"
 
 
-async def test_update_empty_term_leaves_it_unchanged() -> None:
-    # BP11b: None/empty term on update = leave unchanged (can't clear, per 0027).
+async def test_update_empty_term_clears_it_but_omitted_leaves_it() -> None:
+    # BP24 (decisions/0079) revises BP11b/0027: an explicit empty/whitespace term now CLEARS it
+    # (a provided field is set/cleared), while OMITTING term leaves it unchanged.
     svc, _, _ = _event_svc(events=[make_event(id="e1", school_id=_S1, term="Fall")])
-    updated = await svc.update_event(school_id=_S1, event_id="e1", term="   ")
-    assert updated.term == "Fall"
+    cleared = await svc.update_event(school_id=_S1, event_id="e1", term="   ")
+    assert cleared.term is None  # explicitly emptied → cleared
+    svc2, _, _ = _event_svc(events=[make_event(id="e2", school_id=_S1, term="Spring")])
+    unchanged = await svc2.update_event(school_id=_S1, event_id="e2", name="x")
+    assert unchanged.term == "Spring"  # omitted → unchanged (UNSET)
 
 
 async def test_list_terms_is_distinct_and_sorted() -> None:

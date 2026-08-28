@@ -40,12 +40,14 @@ from backend.db.models import EventCategory as EventCategoryRow
 from backend.db.models import Media as MediaRow
 from backend.db.models import StudentGroup as StudentGroupRow
 from backend.domain.models import (
+    UNSET,
     Event,
     EventProcessingStatus,
     EventRollup,
     EventSort,
     EventStatus,
     MediaProcessingStatus,
+    UnsetType,
 )
 
 # Processing states that count as "currently distributing" for the dashboard rollup.
@@ -601,9 +603,9 @@ class PostgresEventRepository:
         event_date: date | None = None,
         status: EventStatus | None = None,
         auto_notify: bool | None = None,
-        category_id: str | None = None,
-        term: str | None = None,
-        student_group_id: str | None = None,
+        category_id: str | None | UnsetType = UNSET,
+        term: str | None | UnsetType = UNSET,
+        student_group_id: str | None | UnsetType = UNSET,
     ) -> Event | None:
         sid = opt_uuid(school_id)
         eid = opt_uuid(event_id)
@@ -616,9 +618,10 @@ class PostgresEventRepository:
             row = result.scalar_one_or_none()
             if row is None:
                 return None
-            # Only the fields the caller supplied are changed (partial update); a None
-            # means "leave unchanged" (so term/category/class can't be cleared to null —
-            # BP11b/BP11c, consistent with description/event_date, decisions/0027).
+            # For name/description/event_date/status/auto_notify a None still means "leave
+            # unchanged" (decisions/0027). BP24 (decisions/0079) makes the three TAG fields
+            # tri-state: UNSET = unchanged, an explicit None (or "") = clear to null, a value
+            # = set — so a mis-tagged event can finally be un-tagged.
             if name is not None:
                 row.name = name
             if description is not None:
@@ -629,13 +632,17 @@ class PostgresEventRepository:
                 row.status = status.value
             if auto_notify is not None:
                 row.auto_notify = auto_notify
-            if category_id is not None:
-                row.category_id = req_uuid(category_id, field="category_id")
-            if term is not None:
-                row.term = term
-            if student_group_id is not None:
-                row.student_group_id = req_uuid(
-                    student_group_id, field="student_group_id"
+            if category_id is not UNSET:
+                row.category_id = (
+                    req_uuid(category_id, field="category_id") if category_id else None
+                )
+            if term is not UNSET:
+                row.term = term or None  # "" (a cleared term) collapses to NULL
+            if student_group_id is not UNSET:
+                row.student_group_id = (
+                    req_uuid(student_group_id, field="student_group_id")
+                    if student_group_id
+                    else None
                 )
             await session.flush()
             await session.refresh(row)

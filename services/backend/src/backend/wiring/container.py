@@ -416,6 +416,7 @@ class Container:
                         self.object_store(),
                         self.ml_enrollment_client(),
                         self.thumbnailer(),
+                        self.student_group_repo(),
                         reference_photo_prefix=self._s.reference_photo_prefix,
                         download_url_ttl_s=self._s.download_url_ttl_s,
                     )

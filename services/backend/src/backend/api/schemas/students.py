@@ -56,10 +56,12 @@ class SetReferencePhotoRequest(BaseModel):
 
 class BulkStudentRow(BaseModel):
     """One CSV row (BP7d). Raw strings — validated per row in the service so one bad row
-    doesn't reject the whole import; only the lengths are capped here (abuse guard)."""
+    doesn't reject the whole import; only the lengths are capped here (abuse guard). BP24: an
+    optional ``class_name`` (the CSV's 3rd column) auto-creates/assigns the class."""
 
     name: str = Field(max_length=1000)
     email: str = Field(max_length=1000)
+    class_name: str | None = Field(default=None, max_length=200)
 
 
 class BulkImportRequest(BaseModel):

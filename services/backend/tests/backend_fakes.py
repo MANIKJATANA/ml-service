@@ -14,6 +14,7 @@ from datetime import UTC, date, datetime, timedelta
 from backend.domain.emails import normalize_email
 from backend.domain.errors import ConflictError, NotFoundError, UpstreamError
 from backend.domain.models import (
+    UNSET,
     Appearance,
     DownloadAuditEntry,
     EnrollmentFailureReason,
@@ -43,6 +44,7 @@ from backend.domain.models import (
     StudentAppearanceCounts,
     StudentGroup,
     StudentSort,
+    UnsetType,
     User,
     UserSort,
     UserStatus,
@@ -1515,9 +1517,9 @@ class FakeEventRepo:
         event_date: date | None = None,
         status: EventStatus | None = None,
         auto_notify: bool | None = None,
-        category_id: str | None = None,
-        term: str | None = None,
-        student_group_id: str | None = None,
+        category_id: str | None | UnsetType = UNSET,
+        term: str | None | UnsetType = UNSET,
+        student_group_id: str | None | UnsetType = UNSET,
     ) -> Event | None:
         event = await self.get(school_id, event_id)
         if event is None:
@@ -1533,14 +1535,19 @@ class FakeEventRepo:
             changes["status"] = status
         if auto_notify is not None:
             changes["auto_notify"] = auto_notify
-        if category_id is not None:
-            changes["category_id"] = category_id
-            changes["category_name"] = self._category_name_of(category_id)
-        if term is not None:
-            changes["term"] = term
-        if student_group_id is not None:
-            changes["student_group_id"] = student_group_id
-            changes["student_group_name"] = self._group_name_of(student_group_id)
+        # BP24 tri-state: UNSET = unchanged; None/"" = clear; a value = set (name resolved).
+        if not isinstance(category_id, UnsetType):
+            changes["category_id"] = category_id or None
+            changes["category_name"] = (
+                self._category_name_of(category_id) if category_id else None
+            )
+        if not isinstance(term, UnsetType):
+            changes["term"] = term or None
+        if not isinstance(student_group_id, UnsetType):
+            changes["student_group_id"] = student_group_id or None
+            changes["student_group_name"] = (
+                self._group_name_of(student_group_id) if student_group_id else None
+            )
         updated = replace(event, **changes)  # type: ignore[arg-type]
         self._by_id[event_id] = updated
         return updated

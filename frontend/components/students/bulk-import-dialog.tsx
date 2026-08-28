@@ -109,7 +109,9 @@ export function BulkImportDialog({ onImported }: { onImported: () => void }) {
   async function submit() {
     setSubmitting(true);
     try {
-      const res = await bulkImportStudents(rows.map((r) => ({ name: r.name, email: r.email })));
+      const res = await bulkImportStudents(
+        rows.map((r) => ({ name: r.name, email: r.email, class_name: r.className ?? null })),
+      );
       setResults(res.results);
       setPhase("results");
       onImported();
@@ -141,6 +143,8 @@ export function BulkImportDialog({ onImported }: { onImported: () => void }) {
   }
 
   const createdCount = results.filter((r) => r.status === "created").length;
+  // BP24: show a Class column in the preview only when the CSV actually carried one.
+  const hasClasses = rows.some((r) => r.className);
 
   return (
     <>
@@ -153,13 +157,14 @@ export function BulkImportDialog({ onImported }: { onImported: () => void }) {
         </DialogTrigger>
         <DialogContent
           title="Import students from CSV"
-          description="A CSV with name and email columns. Students are created without a photo (pending) — add each reference photo afterwards to enroll their face."
+          description="A CSV with name and email columns (add an optional class column to sort them into classes). Students are created without a photo (pending) — add each reference photo afterwards to enroll their face."
         >
           {phase === "pick" ? (
             <div className="flex flex-col gap-4">
               <p className="text-body-sm text-ink-secondary">
-                The first row may be a header (<code>name,email</code>); otherwise the first
-                column is the name and the second is the email.
+                The first row may be a header (<code>name,email,class</code>); otherwise the
+                first column is the name and the second is the email. Add a <code>class</code>
+                header to sort students into classes (created automatically by name).
               </p>
               <label
                 className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-button border border-dashed border-hairline-strong bg-surface px-4 py-10 text-center transition-colors hover:bg-surface-2 focus-within:outline-none focus-within:ring-2 focus-within:ring-ring"
@@ -194,6 +199,7 @@ export function BulkImportDialog({ onImported }: { onImported: () => void }) {
                     <TableRow>
                       <TableHead>Name</TableHead>
                       <TableHead>Email</TableHead>
+                      {hasClasses ? <TableHead>Class</TableHead> : null}
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -201,6 +207,11 @@ export function BulkImportDialog({ onImported }: { onImported: () => void }) {
                       <TableRow key={i}>
                         <TableCell>{r.name || "—"}</TableCell>
                         <TableCell>{r.email || "—"}</TableCell>
+                        {hasClasses ? (
+                          <TableCell className="text-ink-secondary">
+                            {r.className || "—"}
+                          </TableCell>
+                        ) : null}
                       </TableRow>
                     ))}
                   </TableBody>

@@ -20,6 +20,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { useToast } from "@/components/ui/toast";
 import {
   assignStudentsToClass,
+  assignStudentsToClassByEmail,
   assignTeachersToClass,
   getClassTeachers,
   removeClassTeacher,
@@ -160,6 +161,117 @@ function AddStudentsDialog({
             </DialogClose>
             <Button onClick={onAdd} loading={saving} disabled={picked.length === 0}>
               Add {picked.length > 0 ? picked.length : ""} to class
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+const MAX_EMAILS = 1000; // mirrors the backend _MAX_ASSIGN cap (a friendlier guard than a 422)
+
+/** Bulk-assign students to a class by pasting a list of emails (BP24) — no 800 search-and-clicks.
+ *  The emails are resolved server-side; the result shows how many were added + which emails
+ *  matched no student (kept in the box to fix + retry). */
+function PasteEmailsDialog({
+  classId,
+  onAdded,
+}: {
+  classId: string;
+  onAdded: () => void;
+}) {
+  const { toast } = useToast();
+  const [open, setOpen] = useState(false);
+  const [text, setText] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [unmatched, setUnmatched] = useState<string[] | null>(null);
+
+  function handleOpenChange(next: boolean) {
+    setOpen(next);
+    if (!next) {
+      setText("");
+      setUnmatched(null);
+    }
+  }
+
+  // Split on commas / semicolons / whitespace / newlines; trim; drop blanks.
+  const emails = text
+    .split(/[\s,;]+/)
+    .map((e) => e.trim())
+    .filter(Boolean);
+
+  async function onAssign() {
+    if (emails.length === 0) return;
+    if (emails.length > MAX_EMAILS) {
+      toast(`Up to ${MAX_EMAILS} emails at a time — paste fewer and try again.`, "error");
+      return;
+    }
+    setSaving(true);
+    setUnmatched(null);
+    try {
+      const { assigned, unmatched: miss } = await assignStudentsToClassByEmail(classId, emails);
+      onAdded();
+      if (miss.length === 0) {
+        toast(`Added ${assigned} student${assigned === 1 ? "" : "s"} to the class.`, "success");
+        handleOpenChange(false);
+      } else {
+        // Some emails matched no student — keep the dialog open + leave only those to fix.
+        toast(
+          assigned === 0
+            ? "No emails matched a student in this school — check for typos."
+            : `Added ${assigned} student${assigned === 1 ? "" : "s"}; ${miss.length} email${miss.length === 1 ? "" : "s"} didn't match.`,
+          "info",
+        );
+        setUnmatched(miss);
+        setText(miss.join("\n"));
+      }
+    } catch (err) {
+      toast(isApiError(err) ? err.message : "Something went wrong", "error");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <DialogTrigger asChild>
+        <Button variant="secondary">Paste emails</Button>
+      </DialogTrigger>
+      <DialogContent
+        title="Add students by email"
+        description="Paste a list of student emails (one per line, or comma-separated) — they're all added to this class at once."
+      >
+        <div className="flex flex-col gap-3">
+          <textarea
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            rows={8}
+            aria-label="Student emails"
+            placeholder={"ada@school.edu\ngrace@school.edu\n…"}
+            className="w-full rounded-button border border-hairline bg-canvas px-3 py-2 text-body text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          />
+          <p className="text-body-sm text-ink-secondary" role="status">
+            {emails.length} email{emails.length === 1 ? "" : "s"} ready.
+          </p>
+          {unmatched && unmatched.length > 0 ? (
+            <div className="rounded-card border border-hairline bg-surface p-3" role="status">
+              <p className="text-body-sm font-medium text-ink">
+                {unmatched.length} didn&apos;t match a student in this school:
+              </p>
+              <p className="mt-1 break-words text-body-sm text-ink-secondary">
+                {unmatched.join(", ")}
+              </p>
+            </div>
+          ) : null}
+          <div className="mt-1 flex justify-end gap-2">
+            <DialogClose asChild>
+              <Button type="button" variant="secondary">
+                Cancel
+              </Button>
+            </DialogClose>
+            <Button onClick={onAssign} loading={saving} disabled={emails.length === 0}>
+              Add {emails.length > 0 ? emails.length : ""} to class
             </Button>
           </div>
         </div>
@@ -421,11 +533,14 @@ function ClassDetailInner({ classId }: { classId: string }) {
                 : undefined
             }
             actions={
-              <AddStudentsDialog
-                classId={classId}
-                excludeIds={new Set(items.map((s) => s.id))}
-                onAdded={refresh}
-              />
+              <div className="flex flex-wrap gap-2">
+                <PasteEmailsDialog classId={classId} onAdded={refresh} />
+                <AddStudentsDialog
+                  classId={classId}
+                  excludeIds={new Set(items.map((s) => s.id))}
+                  onAdded={refresh}
+                />
+              </div>
             }
           />
 
@@ -453,11 +568,14 @@ function ClassDetailInner({ classId }: { classId: string }) {
               title="No students in this class"
               description="Add students to build the class roster."
               action={
-                <AddStudentsDialog
-                  classId={classId}
-                  excludeIds={new Set()}
-                  onAdded={refresh}
-                />
+                <div className="flex flex-wrap justify-center gap-2">
+                  <PasteEmailsDialog classId={classId} onAdded={refresh} />
+                  <AddStudentsDialog
+                    classId={classId}
+                    excludeIds={new Set()}
+                    onAdded={refresh}
+                  />
+                </div>
               }
             />
           ) : (

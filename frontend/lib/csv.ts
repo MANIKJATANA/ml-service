@@ -4,12 +4,15 @@
 export interface CsvStudentRow {
   name: string;
   email: string;
+  className?: string; // BP24: the optional "class" column (auto-create/assign on import)
 }
 
 /**
- * Parse a students CSV into `{name, email}` rows. Accepts an optional header row (cells
- * "name" and "email", any order/case) — otherwise column 0 = name, column 1 = email.
- * Extra columns are ignored; fully-blank lines are skipped.
+ * Parse a students CSV into `{name, email, className?}` rows. Accepts an optional header row
+ * (cells "name" and "email", any order/case) — otherwise column 0 = name, column 1 = email.
+ * BP24: when a header row also has a "class" cell, that column is read into `className`
+ * (auto-create/assign on import); without a header the class column is not inferred. Extra
+ * columns are ignored; fully-blank lines are skipped.
  */
 export function parseStudentCsv(text: string): CsvStudentRow[] {
   // Strip a leading UTF-8 BOM (U+FEFF) that Excel / Windows exports prepend — otherwise
@@ -21,6 +24,7 @@ export function parseStudentCsv(text: string): CsvStudentRow[] {
 
   let nameIdx = 0;
   let emailIdx = 1;
+  let classIdx = -1;
   let start = 0;
   const header = records[0].map((c) => c.trim().toLowerCase());
   const hName = header.indexOf("name");
@@ -28,6 +32,7 @@ export function parseStudentCsv(text: string): CsvStudentRow[] {
   if (hName !== -1 && hEmail !== -1) {
     nameIdx = hName;
     emailIdx = hEmail;
+    classIdx = header.indexOf("class"); // BP24: optional 3rd column (header-detected only)
     start = 1; // the first row is a header, not data
   }
 
@@ -37,7 +42,8 @@ export function parseStudentCsv(text: string): CsvStudentRow[] {
     const name = (cells[nameIdx] ?? "").trim();
     const email = (cells[emailIdx] ?? "").trim();
     if (name === "" && email === "") continue; // skip blank lines
-    rows.push({ name, email });
+    const className = classIdx !== -1 ? (cells[classIdx] ?? "").trim() : "";
+    rows.push(className ? { name, email, className } : { name, email });
   }
   return rows;
 }

@@ -15,6 +15,8 @@ from fastapi import APIRouter, Depends, status
 
 from backend.api.deps import ContainerDep, require_permissions, tenant_of
 from backend.api.schemas.classes import (
+    AssignStudentsByEmailRequest,
+    AssignStudentsByEmailResponse,
     AssignStudentsRequest,
     AssignStudentsResponse,
     AssignTeachersRequest,
@@ -123,6 +125,24 @@ async def assign_students(
         school_id=tenant_of(actor), group_id=group_id, student_ids=body.student_ids
     )
     return AssignStudentsResponse(assigned=assigned)
+
+
+@router.post(
+    "/{group_id}/members/by-email", response_model=AssignStudentsByEmailResponse
+)
+async def assign_students_by_email(
+    group_id: str,
+    body: AssignStudentsByEmailRequest,
+    container: ContainerDep,
+    actor: StudentManager,
+) -> AssignStudentsByEmailResponse:
+    """Bulk-assign students to a class by pasted email (BP24) — no 800 search-and-clicks.
+    Tenant from the token; a foreign class → 404, an unknown email → unmatched (never a
+    cross-tenant enumerate). Returns the count assigned + the emails that matched no student."""
+    assigned, unmatched = await container.class_service().assign_students_by_email(
+        school_id=tenant_of(actor), group_id=group_id, emails=body.emails
+    )
+    return AssignStudentsByEmailResponse(assigned=assigned, unmatched=unmatched)
 
 
 # ---- BP11c teacher delegation: a class's teachers (admin-only) -----------

@@ -14,6 +14,7 @@ from datetime import date, datetime
 from typing import Protocol
 
 from backend.domain.models import (
+    UNSET,
     Appearance,
     DownloadAuditEntry,
     EnrollmentFailureReason,
@@ -43,6 +44,7 @@ from backend.domain.models import (
     StudentAppearanceCounts,
     StudentGroup,
     StudentSort,
+    UnsetType,
     User,
     UserSort,
     UserStatus,
@@ -429,10 +431,15 @@ class EventRepository(Protocol):
         event_date: date | None = None,
         status: EventStatus | None = None,
         auto_notify: bool | None = None,
-        category_id: str | None = None,
-        term: str | None = None,
-        student_group_id: str | None = None,
-    ) -> Event | None: ...
+        category_id: str | None | UnsetType = UNSET,
+        term: str | None | UnsetType = UNSET,
+        student_group_id: str | None | UnsetType = UNSET,
+    ) -> Event | None:
+        """Partial update. BP24 (decisions/0079) makes the three **tag** fields
+        (``category_id``/``term``/``student_group_id``) tri-state: ``UNSET`` = leave unchanged,
+        an explicit ``None`` = **clear** to null, a value = set (revising 0027's "None =
+        unchanged" for these three only). The other fields keep ``None`` = unchanged."""
+        ...
     async def set_status_bulk(
         self, school_id: str, event_ids: Sequence[str], *, status: EventStatus
     ) -> int:

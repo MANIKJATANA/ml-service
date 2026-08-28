@@ -103,6 +103,38 @@ class ClassService:
             school_id, student_group_id=group_id, student_ids=student_ids
         )
 
+    async def assign_students_by_email(
+        self, *, school_id: str, group_id: str, emails: list[str]
+    ) -> tuple[int, list[str]]:
+        """Bulk-assign students to a class by pasted email (BP24) — no 800 search-and-clicks.
+
+        Validates the class (foreign → 404), resolves the emails to in-school students
+        (case-insensitive, tenant-scoped — an unknown email never enumerates cross-tenant),
+        assigns them, and returns ``(assigned, unmatched)`` (the input emails that matched no
+        student, so the admin can fix typos). Blank/duplicate emails are dropped first."""
+        await self.get_class(school_id=school_id, group_id=group_id)
+        # Trim, drop blanks, dedupe case-insensitively (preserve the caller's spelling for the
+        # unmatched report).
+        seen: set[str] = set()
+        cleaned: list[str] = []
+        for e in emails:
+            trimmed = e.strip()
+            if trimmed and trimmed.lower() not in seen:
+                seen.add(trimmed.lower())
+                cleaned.append(trimmed)
+        students = await self._students.resolve_by_emails(school_id, cleaned)
+        matched = {s.email.lower() for s in students}
+        ids = [s.id for s in students]
+        assigned = (
+            await self._students.set_group_bulk(
+                school_id, student_group_id=group_id, student_ids=ids
+            )
+            if ids
+            else 0
+        )
+        unmatched = [e for e in cleaned if e.lower() not in matched]
+        return assigned, unmatched
+
     async def set_student_group(
         self, *, school_id: str, student_id: str, group_id: str | None
     ) -> Student:

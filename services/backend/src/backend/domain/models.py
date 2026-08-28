@@ -9,7 +9,21 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, datetime
-from enum import StrEnum
+from enum import Enum, StrEnum
+
+
+class UnsetType(Enum):
+    """A sentinel distinct from ``None`` (BP24, decisions/0079). Lets a partial PATCH tell
+    "field omitted → leave unchanged" apart from "field explicitly ``null`` → clear it" — the
+    tri-state that makes an event's category/term/class clearable (revising 0027's
+    "None = unchanged"). An ``Enum`` singleton so mypy narrows ``x is UNSET`` cleanly."""
+
+    UNSET = "unset"
+
+
+# The singleton sentinel. Import + use as the default for a clearable optional param:
+# ``category_id: str | None | UnsetType = UNSET``.
+UNSET = UnsetType.UNSET
 
 
 class Role(StrEnum):

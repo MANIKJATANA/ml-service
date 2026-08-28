@@ -94,13 +94,11 @@ function CreateEventDialog({ onCreated }: { onCreated: () => void }) {
   const [classId, setClassId] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
-  const otherId = categories.find((c) => c.name.trim().toLowerCase() === "other")?.id ?? "";
-
   function handleOpenChange(next: boolean) {
     setOpen(next);
-    if (next) {
-      setCategoryId(otherId); // preselect "Other" when the school has it
-    } else {
+    // BP24: a new event starts uncategorized — no silent "Other" preselect (lead L18). Reset
+    // the fields on close so the next open is clean.
+    if (!next) {
       setName("");
       setDescription("");
       setEventDate("");

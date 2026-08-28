@@ -310,7 +310,7 @@ export function createStudent(
 
 /** Bulk-create students from CSV rows (BP7d) — best-effort, photoless (pending). */
 export function bulkImportStudents(
-  rows: { name: string; email: string }[],
+  rows: { name: string; email: string; class_name?: string | null }[],
 ): Promise<BulkImportResponse> {
   return bffFetch<BulkImportResponse>("/api/v1/students/bulk", {
     method: "POST",
@@ -411,6 +411,18 @@ export function assignStudentsToClass(
   );
 }
 
+/** Bulk-assign students to a class by pasted email (BP24) — resolves the emails to in-school
+ *  students; returns how many were assigned + the emails that matched no student. */
+export function assignStudentsToClassByEmail(
+  classId: string,
+  emails: string[],
+): Promise<{ assigned: number; unmatched: string[] }> {
+  return bffFetch<{ assigned: number; unmatched: string[] }>(
+    `/api/v1/classes/${encodeURIComponent(classId)}/members/by-email`,
+    { method: "POST", body: JSON.stringify({ emails }) },
+  );
+}
+
 /** Set (or clear, with `null`) one student's class (student:manage). */
 export function setStudentClass(
   studentId: string,
@@ -506,9 +518,9 @@ export function createEvent(
   });
 }
 
-/** Partial update — only supplied fields change; clearing a field to null is unsupported (0027).
- *  BP11b/BP11c: `category_id`/`term`/`student_group_id` follow the same convention (send to set,
- *  omit to leave unchanged). */
+/** Partial update — only supplied fields change. BP24 (decisions/0079): the three tag fields
+ *  (`category_id`/`term`/`student_group_id`) are clearable — send a value to set, an explicit
+ *  `null` to clear, or omit to leave unchanged. name/description/event_date keep 0027's convention. */
 export function updateEvent(
   eventId: string,
   patch: {
@@ -517,9 +529,9 @@ export function updateEvent(
     event_date?: string;
     status?: EventStatus;
     auto_notify?: boolean;
-    category_id?: string;
-    term?: string;
-    student_group_id?: string;
+    category_id?: string | null;
+    term?: string | null;
+    student_group_id?: string | null;
   },
 ): Promise<EventResponse> {
   return bffFetch<EventResponse>(`/api/v1/events/${encodeURIComponent(eventId)}`, {

@@ -40,7 +40,7 @@ from backend.api.schemas.notifications import (
     NotificationRosterResponse,
     NotifyResultResponse,
 )
-from backend.domain.models import EventSort, EventStatus, SortDir, User
+from backend.domain.models import UNSET, EventSort, EventStatus, SortDir, User
 from backend.domain.permissions import Permission
 
 router = APIRouter(prefix="/v1/events", tags=["events"])
@@ -150,6 +150,10 @@ async def update_event(
     container: ContainerDep,
     actor: EventManager,
 ) -> EventResponse:
+    # BP24: the three TAG fields are tri-state — a field the caller OMITTED passes UNSET
+    # (leave unchanged); a field present in the body (a value OR an explicit null) passes
+    # through, so an explicit null clears it. Pydantic v2 ``model_fields_set`` tells them apart.
+    provided = body.model_fields_set
     event = await container.event_service().update_event(
         school_id=tenant_of(actor),
         event_id=event_id,
@@ -158,9 +162,11 @@ async def update_event(
         event_date=body.event_date,
         status=body.status,
         auto_notify=body.auto_notify,
-        category_id=body.category_id,
-        term=body.term,
-        student_group_id=body.student_group_id,
+        category_id=body.category_id if "category_id" in provided else UNSET,
+        term=body.term if "term" in provided else UNSET,
+        student_group_id=(
+            body.student_group_id if "student_group_id" in provided else UNSET
+        ),
     )
     return EventResponse.from_event(event)
 

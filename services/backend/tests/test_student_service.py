@@ -26,6 +26,7 @@ from backend_fakes import (
     FakeMlClient,
     FakeObjectStore,
     FakeSchoolRepo,
+    FakeStudentGroupRepo,
     FakeStudentRepo,
     FakeThumbnailer,
     FakeUserRepo,
@@ -43,13 +44,16 @@ def _svc(
     ml_client: FakeMlClient | None = None,
     object_store: FakeObjectStore | None = None,
     thumbnailer: FakeThumbnailer | None = None,
+    groups: FakeStudentGroupRepo | None = None,
 ) -> tuple[StudentService, FakeStudentRepo, FakeUserRepo, FakeMlClient]:
     srepo = FakeSchoolRepo(schools or [make_school(id=_S1, max_teachers=5)])
     urepo = FakeUserRepo(users or [])
     strepo = FakeStudentRepo()
+    grepo = groups or FakeStudentGroupRepo()
     urepo.link_cascade(strepo.remove_by_user)  # mirror the FK cascade
     strepo.link_users(urepo.email_of)  # mirror the users JOIN (email on student reads)
     strepo.link_user_status(urepo.status_of)  # BP18d: status on student reads (disable)
+    strepo.link_groups(grepo.name_of)  # BP24: class name on student reads
     ml = ml_client or FakeMlClient()
     svc = StudentService(
         strepo,
@@ -59,6 +63,7 @@ def _svc(
         object_store or FakeObjectStore(),
         ml,
         thumbnailer or FakeThumbnailer(),
+        grepo,
         reference_photo_prefix="reference-photos",
     )
     return svc, strepo, urepo, ml
@@ -402,7 +407,7 @@ async def test_compensating_delete_failure_preserves_original_error() -> None:
 async def test_bulk_create_all_created_photoless_and_pending() -> None:
     svc, strepo, _, ml = _svc()
     results = await svc.bulk_create_students(
-        school_id=_S1, rows=[("Alice", "alice@x.io"), ("Bob", "bob@x.io")],
+        school_id=_S1, rows=[("Alice", "alice@x.io", None), ("Bob", "bob@x.io", None)],
     )
     assert [r.status for r in results] == ["created", "created"]
     assert all(r.temp_password and len(r.temp_password) >= 8 for r in results)
@@ -421,10 +426,10 @@ async def test_bulk_create_isolates_duplicate_invalid_and_error_rows() -> None:
     results = await svc.bulk_create_students(
         school_id=_S1,
         rows=[
-            ("New", "new@x.io"),  # created
-            ("Dupe", "DUP@x.io"),  # duplicate (case-insensitive)
-            ("Bad Email", "not-an-email"),  # invalid
-            ("   ", "blank@x.io"),  # invalid (empty name)
+            ("New", "new@x.io", None),  # created
+            ("Dupe", "DUP@x.io", None),  # duplicate (case-insensitive)
+            ("Bad Email", "not-an-email", None),  # invalid
+            ("   ", "blank@x.io", None),  # invalid (empty name)
         ],
     )
     assert [r.status for r in results] == ["created", "duplicate", "invalid", "invalid"]
@@ -437,7 +442,7 @@ async def test_bulk_create_isolates_duplicate_invalid_and_error_rows() -> None:
 async def test_bulk_create_rejected_up_front_for_suspended_school() -> None:
     svc, _, _, _ = _svc(schools=[make_school(id=_S1, status=SchoolStatus.SUSPENDED)])
     with pytest.raises(ValidationError):
-        await svc.bulk_create_students(school_id=_S1, rows=[("A", "a@x.io")])
+        await svc.bulk_create_students(school_id=_S1, rows=[("A", "a@x.io", None)])
 
 
 # ---- re-enroll ---------------------------------------------------------

@@ -36,6 +36,7 @@ from backend.domain.ports import (
     ObjectStore,
     PasswordHasher,
     SchoolRepository,
+    StudentGroupRepository,
     StudentRepository,
     Thumbnailer,
     UserRepository,
@@ -98,6 +99,7 @@ class StudentService:
         object_store: ObjectStore,
         ml_client: MlEnrollmentClient,
         thumbnailer: Thumbnailer,
+        groups: StudentGroupRepository,
         *,
         reference_photo_prefix: str,
         download_url_ttl_s: int = 3600,
@@ -109,6 +111,7 @@ class StudentService:
         self._object_store = object_store
         self._ml = ml_client
         self._thumbnailer = thumbnailer
+        self._groups = groups  # BP24: bulk CSV import can auto-create/assign a class
         self._prefix = reference_photo_prefix.strip("/")
         self._download_ttl = download_url_ttl_s
 
@@ -230,17 +233,24 @@ class StudentService:
         return ProvisionedStudent(student, prov.temp_password)
 
     async def bulk_create_students(
-        self, *, school_id: str, rows: list[tuple[str, str]]
+        self, *, school_id: str, rows: list[tuple[str, str, str | None]]
     ) -> list[BulkStudentResult]:
-        """Create many students from ``(name, email)`` pairs (BP7d CSV import). Best-effort
-        per row — a bad/duplicate row is recorded and the batch continues. Every student is
-        created **photoless** (``pending``); photos are added later. The active-school
-        check is a **snapshot** taken once up front (a mid-batch suspension isn't
-        re-checked — the same accepted single-admin-sequential-writes race as the teacher
-        cap). Each created row carries its one-time temp password."""
+        """Create many students from ``(name, email, class_name?)`` rows (BP7d CSV import,
+        BP24 optional class). Best-effort per row — a bad/duplicate row is recorded and the
+        batch continues. Every student is created **photoless** (``pending``); photos are
+        added later. BP24: a non-blank ``class_name`` auto-creates the class by name (once per
+        distinct name, case-insensitive, memoized within the batch) and assigns the student —
+        a class blip is logged, never discards the created student. The active-school check is
+        a snapshot taken once up front. Each created row carries its one-time temp password."""
         await self._require_active_school(school_id)
+        # Seed the name→id cache from the school's existing classes so the import reuses them
+        # (and creates each new name at most once across the whole batch).
+        class_cache: dict[str, str] = {
+            g.name.strip().lower(): g.id
+            for g in await self._groups.list_by_school(school_id)
+        }
         results: list[BulkStudentResult] = []
-        for name, email in rows:
+        for name, email, class_name in rows:
             try:
                 clean_name = _clean_name(name)
                 clean_email = validate_email(email)  # per-row; never aborts the batch
@@ -250,6 +260,23 @@ class StudentService:
                     email=clean_email,
                     reference_photo_path=None,
                 )
+                # Assign the class best-effort — the student is already created, so a class
+                # failure must not lose it (it's recorded "created" regardless).
+                cn = class_name.strip() if class_name else ""
+                if cn:
+                    try:
+                        gid = await self._resolve_or_create_class(
+                            school_id, cn, class_cache
+                        )
+                        await self._students.set_group(
+                            prov.student.id, student_group_id=gid
+                        )
+                    except Exception:  # noqa: BLE001
+                        _log.error(
+                            "bulk_student_class_assign_failed",
+                            email=email,
+                            exc_info=True,
+                        )
                 results.append(
                     BulkStudentResult(
                         name=name,
@@ -267,6 +294,24 @@ class StudentService:
                 _log.error("bulk_student_create_failed", email=email, exc_info=True)
                 results.append(BulkStudentResult(name, email, "error"))
         return results
+
+    async def _resolve_or_create_class(
+        self, school_id: str, name: str, cache: dict[str, str]
+    ) -> str:
+        """Return the id of the school's class named ``name`` (case-insensitive), creating it
+        if absent (BP24 CSV class column). ``cache`` (name.lower() → id) is seeded from the
+        existing classes + updated on create, so each distinct name is created at most once
+        per batch. (Class names aren't unique-by-name by design — a rare concurrent second
+        import could create a duplicate; acceptable, documented.)"""
+        key = name.lower()
+        gid = cache.get(key)
+        if gid is None:
+            group = await self._groups.create(
+                school_id=school_id, name=name, grade=None, section=None
+            )
+            gid = group.id
+            cache[key] = gid
+        return gid
 
     async def set_reference_photo(
         self, *, school_id: str, student_id: str, reference_photo_path: str

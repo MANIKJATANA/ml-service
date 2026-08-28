@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BP24 — Two-way doors</title>
+<style>
+  :root{
+    --ink:#0d1729; --ink-2:#5a6578; --ink-3:#7b8494;
+    --canvas:#f8f9fa; --surface:#fff; --hairline:#e3e8ef;
+    --accent:#4f46e5; --accent-soft:#eef2ff;
+    --high:#b45309; --high-soft:#fffbeb;
+    --ok:#15803d; --ok-soft:#f0fdf4;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:ui-sans-serif,system-ui,"Segoe UI",Roboto,sans-serif;background:var(--canvas);color:var(--ink);line-height:1.55;padding:48px 20px}
+  .wrap{max-width:880px;margin:0 auto}
+  h1{font-size:29px;letter-spacing:-.02em;margin-bottom:6px}
+  h2{font-size:18px;letter-spacing:-.01em;margin:42px 0 13px}
+  .sub{color:var(--ink-2);font-size:14.5px;margin-bottom:8px}
+  .meta{font-size:12.5px;color:var(--ink-3);margin-bottom:30px}
+  .meta code{background:var(--surface);border:1px solid var(--hairline);border-radius:4px;padding:1px 5px;font-size:11.5px}
+  .card{background:var(--surface);border:1px solid var(--hairline);border-radius:12px;padding:18px 20px;margin-bottom:14px}
+  .problem{background:var(--high-soft);border:1px solid #f3e2c0;border-radius:12px;padding:16px 20px;margin-bottom:14px;font-size:14px;line-height:1.6}
+  .problem b{color:var(--high)}
+  .problem .chain{margin-top:8px;font-size:13px;color:var(--ink-2)}
+  .problem .chain b{color:var(--ink)}
+  .ord{background:var(--accent-soft);border:1px solid #dfe3ff;border-radius:10px;padding:13px 16px;margin-bottom:14px;font-size:13px;color:var(--ink);line-height:1.55}
+  .ord b{color:var(--accent)}
+  .grp{background:var(--surface);border:1px solid var(--hairline);border-radius:11px;padding:15px 18px;margin-bottom:11px}
+  .grp .top{display:flex;align-items:baseline;gap:9px;flex-wrap:wrap;margin-bottom:9px}
+  .grp .lt{font-weight:700;font-size:11px;color:var(--accent);background:var(--accent-soft);border-radius:6px;padding:2px 8px}
+  .grp .nm{font-weight:700;font-size:15px;letter-spacing:-.01em}
+  .grp .tags{margin-left:auto;display:flex;gap:5px;align-items:center}
+  .grp .tag{font-size:10.5px;color:var(--ink-2);background:var(--canvas);border:1px solid var(--hairline);border-radius:5px;padding:1px 7px;white-space:nowrap}
+  .grp .tag.big{color:var(--high);background:var(--high-soft);border-color:#f3e2c0}
+  .grp .tag.fe{color:var(--ok);background:var(--ok-soft);border-color:#cdeccd}
+  ul.items{list-style:none;margin:0;padding:0}
+  ul.items li{font-size:13.5px;line-height:1.5;color:var(--ink);padding:5px 0 5px 20px;position:relative;border-top:1px solid #f1f3f6}
+  ul.items li:first-child{border-top:none}
+  ul.items li:before{content:"";position:absolute;left:3px;top:12px;width:6px;height:6px;border-radius:2px;background:var(--accent)}
+  ul.items li b{color:var(--ink)}
+  ul.items li .now{color:var(--ink-3);font-size:12.5px}
+  .phase{font-size:13px;font-weight:700;color:var(--ink);background:var(--canvas);border:1px solid var(--hairline);border-left:3px solid var(--accent);border-radius:8px;padding:9px 14px;margin:22px 0 12px}
+  .verify{font-size:13.5px;line-height:1.6;color:var(--ink-2)}
+  .verify b{color:var(--ink)}
+  .note{background:var(--ok-soft);border:1px solid #cdeccd;border-radius:10px;padding:12px 16px;margin:14px 0;font-size:12.5px;color:var(--ink-2);line-height:1.55}
+  .note b{color:var(--ok)}
+  .foot{margin-top:38px;padding-top:16px;border-top:1px solid var(--hairline);font-size:13px;color:var(--ink-2)}
+  .foot code{background:var(--surface);border:1px solid var(--hairline);border-radius:4px;padding:1px 5px;font-size:11.5px}
+  .foot b{color:var(--ink)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>BP24 — Two-way doors</h1>
+  <p class="sub">The next Round-3 build. Make <b>mistakes recoverable</b> and <b>batch work survive errors</b> — so a wrong tag, a typo'd CSV, or a half-finished download is a quick fix, not a dead end.</p>
+  <p class="meta">Plan: <code>C:\Users\…\plans\…jolly-peach.md</code> (approved) · findings: <code>product/06</code> theme P · roadmap: <code>product/07</code> BP24 · this is the explainer to verify <b>before</b> any code · <b>two sub-phases</b> · <b>no database change, no ML change</b></p>
+
+  <h2>The problem we're fixing</h2>
+  <div class="problem">
+    <b>Several everyday actions are "one-way doors" — once you go through, there's no easy way back.</b>
+    <div class="chain">
+      Tag an event with the <b>wrong category or class</b> and you can never clear it — a mis-tagged class quietly mis-scopes a teacher's lists <b>forever</b>, and the only true undo is to delete and re-upload the whole event. Assigning <b>800 imported students into ~25 classes</b> is ~800 search-and-clicks. A CSV import with <b>30 typo'd emails</b> makes you hand-retype them into a new file. The staff "Download all" can say <b>"Downloaded 40"</b> when only 12 saved (or none did). And the new teacher you just added <b>doesn't show up</b> until you reload; the "who's opened their photos?" roster is an <b>unpaginated wall</b> you scan by eye.
+    </div>
+  </div>
+
+  <div class="ord">
+    <b>Your calls (already made):</b> <b>include the clearable-tags fix</b> (it revises a locked decision, 0027 — with your sign-off); do <b>both</b> class-at-scale shapes (a CSV class column <b>and</b> a paste-emails box); and ship in <b>two sub-phases</b> — the backend-touching work first, then the front-end sweep.
+  </div>
+
+  <div class="phase">Sub-phase A — the doors (the parts that touch the server)</div>
+
+  <div class="grp">
+    <div class="top"><span class="lt">1</span><span class="nm">Clearable event tags</span>
+      <span class="tags"><span class="tag big">revises decision 0027</span></span></div>
+    <ul class="items">
+      <li><b>You can now un-set a tag.</b> An event's category, class, and term become <b>clearable</b> — pick "No category" / "School-wide" / empty and it actually clears, so a mistake is fixable in place (no delete-and-recreate). <span class="now">Under the hood: a careful three-state rule — left alone = unchanged, explicitly emptied = cleared, set = set — so nothing clears by accident. Documented as a small revision to the locked 0027 convention.</span></li>
+      <li><b>Stop auto-tagging as "Other".</b> Creating an event no longer silently pre-picks the "Other" category — a new event starts genuinely <b>uncategorized</b> unless you choose one.</li>
+    </ul>
+  </div>
+
+  <div class="grp">
+    <div class="top"><span class="lt">3</span><span class="nm">Classes at CSV scale — both ways</span></div>
+    <ul class="items">
+      <li><b>A "class" column in the student CSV.</b> Add an optional third column to the import and each student is <b>auto-created into that class</b> (classes made on the fly by name) — one upload onboards a whole school <i>with</i> its classes. A CSV without the column works exactly as today.</li>
+      <li><b>A "paste emails" box on a class page.</b> Paste a list of student emails and they're all <b>assigned to that class at once</b> — with a clear "these N were added, these emails didn't match" result. No more 800 clicks.</li>
+    </ul>
+  </div>
+
+  <div class="phase">Sub-phase B — the sweep (front-end only: batch work survives errors)</div>
+
+  <div class="grp">
+    <div class="top"><span class="lt">2</span><span class="nm">The CSV error loop</span>
+      <span class="tags"><span class="tag fe">front-end only</span></span></div>
+    <ul class="items">
+      <li><b>See problems before you submit.</b> The import <b>preview</b> flags duplicate and clearly-invalid rows up front (instead of you discovering them only in the results).</li>
+      <li><b>"Download skipped rows".</b> After an import, export the rows that <i>didn't</i> import as a CSV — fix the typos and re-import, with no hand-transcribing.</li>
+    </ul>
+  </div>
+
+  <div class="grp">
+    <div class="top"><span class="lt">4</span><span class="nm">Honest downloads</span>
+      <span class="tags"><span class="tag fe">front-end only</span></span></div>
+    <ul class="items">
+      <li><b>Tell the truth about a partial download.</b> The staff "Download all" gets the same honest messages the student page already uses — "saved N of M" when some fail, the browser-cap notice when it applies, and <b>silence when you simply cancelled</b> the save dialog (instead of a false "success").</li>
+    </ul>
+  </div>
+
+  <div class="grp">
+    <div class="top"><span class="lt">5</span><span class="nm">The residue</span>
+      <span class="tags"><span class="tag fe">front-end only</span></span></div>
+    <ul class="items">
+      <li><b>New teacher appears instantly.</b> Adding a teacher now refreshes the staff list on the spot (today it only shows after a reload).</li>
+      <li><b>"Who hasn't opened?" in one click.</b> The notify roster collapses behind its summary and gains a <b>"Not opened" filter</b>, so the students who need a nudge surface immediately instead of being scanned for by eye.</li>
+    </ul>
+  </div>
+
+  <div class="note">
+    <b>A note on the one risky bit:</b> the clearable-tags change (A·1) revises a rule that was deliberately locked (decision 0027, "emptying a field leaves it unchanged"). We scope the change to the <b>three tag fields only</b> and use a careful three-state rule so a field is never cleared or kept by accident — the two review passes will verify that truth table before it ships.
+  </div>
+
+  <h2>How we'll work</h2>
+  <div class="ord">
+    <b>Two sub-phases, each brought back to you.</b> <b>A</b> (the doors) lands first — the server change + its screens — then the full check (server: format + types + tests + the layering rule, on a throwaway database; app: types + lint + build) and a <b>2× self-review</b>, then to you. Then <b>B</b> (the front-end sweep) the same way. <b>Nothing is committed until you say so.</b> <b>No database migration, no ML change, no new dependency.</b>
+  </div>
+
+  <h2>How we'll check it</h2>
+  <div class="card verify">
+    The full gate stays green each sub-phase, plus a walk: <b>clear</b> an event's category / class / term and confirm it sticks (and that leaving a field alone doesn't change it); a new event starts uncategorized; a CSV with a class column creates + assigns; a paste-emails box adds a batch and names the unmatched; the preview flags a duplicate/typo and "download skipped rows" re-imports cleanly; a partial staff download reads honestly and a cancelled one stays silent; a newly-added teacher appears immediately; the roster filters to "Not opened".
+  </div>
+
+  <p class="foot">Not in this build (noted honestly): <b>undo-toasts</b> for deleting a student/class/category (confirm-first stays — BP18 already removed the worst consequence); true <b>server-side pagination</b> of the roster (the collapse + filter is enough at real scale); clearing an event's <i>description/date</i> (nobody asked — only the three tag fields become clearable). <b>No database change, no ML change, no new permission, no new dependency.</b> After BP24, the Round-3 roadmap's recommended tail is done — the remaining open items are the parked set (BP12/15/16) and the earlier <b>blocked</b> BP22 slice 4 (student "This isn't me" safety), whenever you re-open them.</p>
+
+</div>
+</body>
+</html>

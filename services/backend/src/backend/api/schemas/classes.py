@@ -9,8 +9,9 @@ requires ``class:manage`` (school_admin); reads + student assignment ride on
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Annotated
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StringConstraints
 
 from backend.domain.models import StudentGroup, StudentGroupListing
 
@@ -79,6 +80,26 @@ class ClassListItem(ClassResponse):
 
 class AssignStudentsResponse(BaseModel):
     assigned: int
+
+
+# One pasted email (BP24). Length-capped (abuse guard); the batch count reuses the id cap.
+_Email = Annotated[str, StringConstraints(min_length=1, max_length=320)]
+
+
+class AssignStudentsByEmailRequest(BaseModel):
+    """Bulk-assign students to a class by pasted email (BP24). Emails are resolved to in-school
+    students in the service (case-insensitive; an unknown email → unmatched, never a
+    cross-tenant enumerate)."""
+
+    emails: list[_Email] = Field(min_length=1, max_length=_MAX_ASSIGN)
+
+
+class AssignStudentsByEmailResponse(BaseModel):
+    """The by-email assign result: how many were assigned + the emails that matched no student
+    in this school (so the admin can fix typos)."""
+
+    assigned: int
+    unmatched: list[str]
 
 
 # ---- BP11c teacher delegation (decisions/0060) --------------------------

@@ -75,27 +75,27 @@ function EditEventDialog({
 
   async function onSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    // Send only changed fields. The backend can't clear a field to null (0027), so an
-    // emptied optional field is omitted (left unchanged) rather than cleared.
+    // Send only CHANGED fields. BP24: the three tag fields (category/term/class) are now
+    // clearable — a changed tag sends its value, an EMPTIED one sends explicit `null` (which
+    // the backend's tri-state PATCH clears), and an unchanged one is omitted. name/description/
+    // date keep 0027's "empty = leave unchanged" (nothing asks to clear them).
     const patch: {
       name?: string;
       description?: string;
       event_date?: string;
-      category_id?: string;
-      term?: string;
-      student_group_id?: string;
+      category_id?: string | null;
+      term?: string | null;
+      student_group_id?: string | null;
     } = {};
     if (name.trim() && name.trim() !== event.name) patch.name = name.trim();
     if (description.trim() && description.trim() !== (event.description ?? "")) {
       patch.description = description.trim();
     }
     if (eventDate && eventDate !== (event.event_date ?? "")) patch.event_date = eventDate;
-    // Changing to a different category works; "No category" (empty) can't clear it (0027).
-    if (categoryId && categoryId !== (event.category_id ?? "")) patch.category_id = categoryId;
-    if (term.trim() && term.trim() !== (event.term ?? "")) patch.term = term.trim();
-    // Changing the class works; "School-wide" (empty) can't clear it once set (0027).
-    if (classId && classId !== (event.student_group_id ?? "")) {
-      patch.student_group_id = classId;
+    if (categoryId !== (event.category_id ?? "")) patch.category_id = categoryId || null;
+    if (term.trim() !== (event.term ?? "")) patch.term = term.trim() || null;
+    if (classId !== (event.student_group_id ?? "")) {
+      patch.student_group_id = classId || null;
     }
     if (Object.keys(patch).length === 0) {
       toast("No changes to save.", "info");
@@ -123,7 +123,7 @@ function EditEventDialog({
           Edit
         </Button>
       </DialogTrigger>
-      <DialogContent title="Edit event" description="Emptying an optional field leaves it unchanged.">
+      <DialogContent title="Edit event" description="Category, class, and term can be cleared by choosing the empty option.">
         <form onSubmit={onSubmit} className="flex flex-col gap-4">
           <Field label="Name" htmlFor="edit-event-name">
             <Input
@@ -160,8 +160,8 @@ function EditEventDialog({
                 onChange={(e) => setCategoryId(e.target.value)}
                 className="h-10 rounded-button border border-hairline bg-canvas px-3 text-body text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
-                {/* Once categorized, clearing isn't supported (0027) — omit the no-op option. */}
-                {!event.category_id ? <option value="">No category</option> : null}
+                {/* BP24: always offer the empty option — selecting it clears the category. */}
+                <option value="">No category</option>
                 {categories.map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.name}
@@ -187,8 +187,8 @@ function EditEventDialog({
                   onChange={(e) => setClassId(e.target.value)}
                   className="h-10 rounded-button border border-hairline bg-canvas px-3 text-body text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
-                  {/* Once tagged, clearing isn't supported (0027) — omit the no-op option. */}
-                  {!event.student_group_id ? <option value="">School-wide</option> : null}
+                  {/* BP24: always offer the empty option — selecting it clears the class. */}
+                  <option value="">School-wide</option>
                   {classes.map((c) => (
                     <option key={c.id} value={c.id}>
                       {c.name}

@@ -1828,3 +1828,46 @@ async def test_bp23_student_activity_filters(
     # B's student is unaffected by A's filters and only shows in B's scope.
     assert sb not in never_signed and sb not in never_opened
     assert set(await students.list_ids(b.id, never_signed_in=True)) == {sb}
+
+
+# ---- BP24 clearable event tags (decisions/0079) -------------------------
+
+
+async def test_bp24_event_update_clears_and_leaves_tags(
+    sm: async_sessionmaker[AsyncSession],
+) -> None:
+    # The tri-state PATCH on the real repo: UNSET (omitted) leaves a tag unchanged; an explicit
+    # None clears it to NULL; a value sets it — the 0027 revision, on Postgres.
+    schools = PostgresSchoolRepository(sm)
+    events = PostgresEventRepository(sm)
+    categories = PostgresEventCategoryRepository(sm)
+    groups = PostgresStudentGroupRepository(sm)
+    a = await schools.create(name="A", max_teachers=5)
+    cat = await categories.create(school_id=a.id, name="Sports")
+    grp = await groups.create(school_id=a.id, name="3B", grade=None, section=None)
+    ev = await events.create(
+        school_id=a.id, name="E", description=None, event_date=None, created_by=None,
+        category_id=cat.id, term="Fall", student_group_id=grp.id,
+    )
+    assert ev.category_id == cat.id and ev.term == "Fall" and ev.student_group_id == grp.id
+
+    # UNSET (the three tag args omitted) leaves them unchanged; only name changes.
+    u1 = await events.update(a.id, ev.id, name="Renamed")
+    assert u1 is not None
+    assert u1.name == "Renamed"
+    assert u1.category_id == cat.id and u1.term == "Fall" and u1.student_group_id == grp.id
+
+    # An explicit None clears all three (to NULL) — the names come back None too.
+    u2 = await events.update(
+        a.id, ev.id, category_id=None, term=None, student_group_id=None
+    )
+    assert u2 is not None
+    assert u2.category_id is None and u2.category_name is None
+    assert u2.term is None
+    assert u2.student_group_id is None and u2.student_group_name is None
+
+    # Re-setting from cleared works (a value sets it again).
+    u3 = await events.update(a.id, ev.id, category_id=cat.id)
+    assert u3 is not None
+    assert u3.category_id == cat.id and u3.category_name == "Sports"
+    assert u3.term is None  # the still-omitted term stays cleared

@@ -15,11 +15,13 @@ from datetime import UTC, date, datetime, timedelta
 
 from backend.domain.errors import NotFoundError, ValidationError
 from backend.domain.models import (
+    UNSET,
     Event,
     EventJob,
     EventProcessingStatus,
     EventStatus,
     MediaProcessingStatus,
+    UnsetType,
 )
 from backend.domain.ports import (
     EventCategoryRepository,
@@ -136,12 +138,18 @@ class EventService:
         event_date: date | None = None,
         status: EventStatus | None = None,
         auto_notify: bool | None = None,
-        category_id: str | None = None,
-        term: str | None = None,
-        student_group_id: str | None = None,
+        category_id: str | None | UnsetType = UNSET,
+        term: str | None | UnsetType = UNSET,
+        student_group_id: str | None | UnsetType = UNSET,
     ) -> Event:
+        """Partial update. BP24 (decisions/0079): the three TAG fields are tri-state — ``UNSET``
+        leaves them unchanged, an explicit ``None`` clears them, a value sets them (a real id is
+        still validated → foreign → 404). name/description/date/status/auto_notify keep ``None``
+        = unchanged (0027)."""
         await self._validate_category(school_id, category_id)
         await self._validate_group(school_id, student_group_id)
+        # UNSET passes straight through (leave unchanged); a real/empty value is cleaned.
+        cleaned_term = term if isinstance(term, UnsetType) else _clean_term(term)
         updated = await self._events.update(
             school_id,
             event_id,
@@ -151,7 +159,7 @@ class EventService:
             status=status,
             auto_notify=auto_notify,
             category_id=category_id,
-            term=_clean_term(term),
+            term=cleaned_term,
             student_group_id=student_group_id,
         )
         if updated is None:
@@ -159,11 +167,12 @@ class EventService:
         return updated
 
     async def _validate_category(
-        self, school_id: str, category_id: str | None
+        self, school_id: str, category_id: str | None | UnsetType
     ) -> None:
         """A non-null category must belong to the caller's school — else 404, never a
-        cross-tenant tag (BP11b)."""
-        if category_id is None:
+        cross-tenant tag (BP11b). Only a real id is validated: ``UNSET`` (unchanged) and
+        ``None`` (clear, BP24) skip the check."""
+        if not isinstance(category_id, str):
             return
         if await self._categories.get(school_id, category_id) is None:
             raise NotFoundError(f"category not found: {category_id}")
@@ -178,11 +187,12 @@ class EventService:
         )
 
     async def _validate_group(
-        self, school_id: str, student_group_id: str | None
+        self, school_id: str, student_group_id: str | None | UnsetType
     ) -> None:
         """A non-null class must belong to the caller's school — else 404, never a
-        cross-tenant tag (BP11c)."""
-        if student_group_id is None:
+        cross-tenant tag (BP11c). Only a real id is validated: ``UNSET`` (unchanged) and
+        ``None`` (clear, BP24) skip the check."""
+        if not isinstance(student_group_id, str):
             return
         if await self._groups.get(school_id, student_group_id) is None:
             raise NotFoundError(f"class not found: {student_group_id}")

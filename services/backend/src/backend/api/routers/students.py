@@ -95,7 +95,7 @@ async def bulk_import_students(
     created row carries its one-time temp password; the school is the token's."""
     results = await container.student_service().bulk_create_students(
         school_id=tenant_of(actor),
-        rows=[(r.name, r.email) for r in body.students],
+        rows=[(r.name, r.email, r.class_name) for r in body.students],
     )
     return BulkImportResponse.from_results(results)
 

@@ -68,15 +68,18 @@ class CreateEventRequest(BaseModel):
 
 
 class UpdateEventRequest(BaseModel):
-    """Partial update; only the fields supplied are changed. (Clearing a field to
-    null is not supported in v1 — 0027.)"""
+    """Partial update; only the fields supplied are changed. BP24 (decisions/0079): the three
+    TAG fields (``category_id``/``term``/``student_group_id``) are now **clearable** — OMIT a
+    field to leave it unchanged, or send it as an explicit ``null`` to clear it (the route
+    tells them apart via ``model_fields_set``). name/description/event_date/status/auto_notify
+    keep 0027's "omitted-or-null = unchanged"."""
 
     name: str | None = Field(default=None, min_length=1, max_length=200)
     description: str | None = Field(default=None, max_length=2000)
     event_date: date | None = None
     status: EventStatus | None = None
     auto_notify: bool | None = None  # BP4: auto-announce to students on completion
-    # BP11b/BP11c: None = leave unchanged (so term/category/class can't be cleared to null — 0027).
+    # BP24: an explicit null clears; omitted leaves unchanged.
     category_id: str | None = Field(default=None, max_length=64)
     term: str | None = Field(default=None, max_length=100)
     student_group_id: str | None = Field(default=None, max_length=64)

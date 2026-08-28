@@ -24,6 +24,7 @@ from backend_fakes import (
     FakeMlClient,
     FakeObjectStore,
     FakeSchoolRepo,
+    FakeStudentGroupRepo,
     FakeStudentRepo,
     FakeThumbnailer,
     FakeUserRepo,
@@ -51,6 +52,7 @@ def _svc(
         store or FakeObjectStore(),
         FakeMlClient(),
         FakeThumbnailer(),
+        FakeStudentGroupRepo(),
         reference_photo_prefix="reference-photos",
     )
 

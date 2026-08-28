@@ -55,7 +55,13 @@ function staffStatus(user: UserResponse): {
   return { tone: "success", label: "Active" };
 }
 
-function CreateTeacherDialog({ onInvited }: { onInvited: (invite: Invite) => void }) {
+function CreateTeacherDialog({
+  onInvited,
+  onCreated,
+}: {
+  onInvited: (invite: Invite) => void;
+  onCreated: () => void;
+}) {
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
   const [email, setEmail] = useState("");
@@ -72,6 +78,7 @@ function CreateTeacherDialog({ onInvited }: { onInvited: (invite: Invite) => voi
     try {
       const { user, temp_password } = await createStaff(email.trim());
       toast(`Teacher ${user.email} added.`, "success");
+      onCreated(); // BP24 (R3-S3-01): refresh the roster so the new teacher appears at once
       handleOpenChange(false);
       onInvited({ email: user.email, tempPassword: temp_password });
     } catch (err) {
@@ -362,7 +369,7 @@ function StaffContent() {
             ? `${total} ${total === 1 ? "teacher" : "teachers"} managing students, events, and galleries.`
             : "Teachers who manage students, events, and galleries."
         }
-        actions={<CreateTeacherDialog onInvited={setInvite} />}
+        actions={<CreateTeacherDialog onInvited={setInvite} onCreated={() => mutate()} />}
       />
 
       {isInitialLoading ? (
@@ -387,7 +394,7 @@ function StaffContent() {
           icon={<Users className="size-8" aria-hidden="true" />}
           title="No teachers yet"
           description="Add a teacher to help manage this school."
-          action={<CreateTeacherDialog onInvited={setInvite} />}
+          action={<CreateTeacherDialog onInvited={setInvite} onCreated={() => mutate()} />}
         />
       ) : (
         <div className="flex flex-col gap-4">

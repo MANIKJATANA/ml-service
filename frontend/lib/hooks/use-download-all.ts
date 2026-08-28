@@ -42,11 +42,14 @@ export interface DownloadAllOptions {
   zipName?: string;
 }
 
-/** The outcome of a "download all": how many were saved, and whether the non-streaming
- *  fallback capped the set (so the caller can be honest about "the first N"). */
+/** The outcome of a "download all": how many were saved, whether the non-streaming fallback
+ *  capped the set (so the caller can be honest about "the first N"), and — BP24 — whether the
+ *  user dismissed the save dialog (so `saved: 0` from a cancel reads differently from
+ *  `saved: 0` because every fetch failed). */
 export interface DownloadAllResult {
   saved: number;
   capped: boolean;
+  cancelled: boolean;
 }
 
 function nameFor(index: number, contentType: string | null, entryBase?: (i: number) => string): string {
@@ -63,7 +66,7 @@ async function streamToDisk(
   mediaIds: string[],
   onProgress: () => void,
   opts?: DownloadAllOptions,
-): Promise<number> {
+): Promise<{ saved: number; cancelled: boolean }> {
   let handle: SaveFileHandle;
   try {
     handle = await picker({
@@ -71,7 +74,8 @@ async function streamToDisk(
       types: [{ description: "Zip archive", accept: { "application/zip": [".zip"] } }],
     });
   } catch {
-    return 0; // the user dismissed the save dialog — a silent no-op, not an error
+    // BP24: the user dismissed the save dialog — a silent no-op, distinct from all-failed.
+    return { saved: 0, cancelled: true };
   }
   const writable = await handle.createWritable();
   let saved = 0;
@@ -98,7 +102,7 @@ async function streamToDisk(
   const stream = downloadZip(entries()).body;
   if (stream === null) throw new Error("no zip stream");
   await stream.pipeTo(writable); // pipeTo closes the file when the source is done
-  return saved;
+  return { saved, cancelled: false };
 }
 
 /** Fetch each photo's blob (bounded concurrency, order-preserving), then buffer them into one
@@ -155,27 +159,31 @@ async function bufferedSave(
  * stays bounded to the in-flight fetch and a 900-photo set survives. Elsewhere it falls back
  * to buffering the archive in memory, capped at {@link BUFFERED_CAP} so it can't OOM.
  *
- * `done`/`total` drive a progress label; `onDownloadAll` resolves with `{saved, capped}` —
- * `capped` is true when the non-streaming fallback trimmed a >{@link BUFFERED_CAP} set (so the
- * caller can say "the first N"), and it throws only if nothing could be fetched. A cancelled
- * save dialog resolves to `{saved: 0, capped: false}` (a silent no-op). BP20: pass `opts` to
- * name the zip + its entries by event/date (staff callers omit it → legacy naming).
+ * `done`/`total` drive a progress label; `onDownloadAll` resolves with `{saved, capped,
+ * cancelled}` — `capped` is true when the non-streaming fallback trimmed a >{@link BUFFERED_CAP}
+ * set (so the caller can say "the first N"); `cancelled` is true when the user dismissed the
+ * save dialog (BP24 — a silent no-op, `saved: 0`); and it throws only if nothing could be
+ * fetched (the buffered all-failed path). BP20: pass `opts` to name the zip + its entries by
+ * event/date (staff callers omit it → legacy naming).
  */
 export function useDownloadAll(mediaIds: string[], opts?: DownloadAllOptions) {
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(0);
 
   async function onDownloadAll(): Promise<DownloadAllResult> {
-    if (busy || mediaIds.length === 0) return { saved: 0, capped: false };
+    if (busy || mediaIds.length === 0) return { saved: 0, capped: false, cancelled: false };
     setBusy(true);
     setDone(0);
     try {
       const picker = savePicker();
       const bump = () => setDone((d) => d + 1);
-      if (picker) return { saved: await streamToDisk(picker, mediaIds, bump, opts), capped: false };
+      if (picker) {
+        const { saved, cancelled } = await streamToDisk(picker, mediaIds, bump, opts);
+        return { saved, capped: false, cancelled };
+      }
       const capped = mediaIds.length > BUFFERED_CAP;
       const saved = await bufferedSave(mediaIds.slice(0, BUFFERED_CAP), bump, opts);
-      return { saved, capped };
+      return { saved, capped, cancelled: false };
     } finally {
       setBusy(false);
     }

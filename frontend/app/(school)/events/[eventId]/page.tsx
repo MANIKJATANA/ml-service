@@ -6,6 +6,7 @@ import { useParams } from "next/navigation";
 import { type FormEvent, useEffect, useState } from "react";
 import { mutate as globalMutate } from "swr";
 
+import { FilterChips } from "@/components/gallery/filter-chips";
 import { Breadcrumb } from "@/components/ui/breadcrumb";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -216,6 +217,9 @@ function EditEventDialog({
 
 /** Staff announce controls (BP4): auto-announce toggle, manual "Announce to students", and
  *  the announced/seen roster. Announcing needs a finished (matched) active event. */
+// BP24: how many roster rows to show before "Show all" (the roster can be hundreds).
+const ROSTER_PREVIEW = 12;
+
 function DistributionCard({
   event,
   refresh,
@@ -229,6 +233,15 @@ function DistributionCard({
   const [notifying, setNotifying] = useState(false);
   const [togglingAuto, setTogglingAuto] = useState(false);
   const [confirmAnnounceOpen, setConfirmAnnounceOpen] = useState(false);
+  // BP24 (R3-A2-10): the roster can be hundreds of rows — filter to the actionable "not opened"
+  // cohort + collapse behind a preview so "who needs a nudge?" is one click, not an eye-scan.
+  const [rosterFilter, setRosterFilter] = useState<"all" | "not_opened">("all");
+  const [showAllRoster, setShowAllRoster] = useState(false);
+  const rosterStudents = roster?.students ?? [];
+  const notOpenedStudents = rosterStudents.filter((s) => !s.seen);
+  const filteredRoster =
+    rosterFilter === "not_opened" ? notOpenedStudents : rosterStudents;
+  const shownRoster = showAllRoster ? filteredRoster : filteredRoster.slice(0, ROSTER_PREVIEW);
 
   // BP22 (R3-A3-08): the review debt right where Announce lives — Σ ambiguous candidates the
   // read still lists (it already drops corrected pairs, so this is the overlay-correct count).
@@ -343,42 +356,77 @@ function DistributionCard({
         }}
       />
 
-      {roster && roster.students.length > 0 ? (
-        <div className="overflow-hidden rounded-card border border-hairline">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Student</TableHead>
-                <TableHead>Photos</TableHead>
-                <TableHead>Downloaded</TableHead>
-                <TableHead>First opened</TableHead>
-                <TableHead>Status</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {roster.students.map((s) => (
-                <TableRow key={s.student_id}>
-                  <TableCell>{s.name}</TableCell>
-                  <TableCell className="tabular-nums text-ink-secondary">
-                    {s.media_count}
-                  </TableCell>
-                  {/* BP23: downloads + the persistent ever-opened date (unlike the reset-on-
-                      reannounce "Opened" status). */}
-                  <TableCell className="tabular-nums text-ink-secondary">
-                    {s.download_count}
-                  </TableCell>
-                  <TableCell className="text-ink-secondary">
-                    {s.first_seen_at ? formatDate(s.first_seen_at) : "—"}
-                  </TableCell>
-                  <TableCell>
-                    <StatusPill tone={s.seen ? "success" : "neutral"}>
-                      {s.seen ? "Opened" : "Not opened"}
-                    </StatusPill>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+      {rosterStudents.length > 0 ? (
+        <div className="flex flex-col gap-2">
+          {/* BP24: filter to the actionable "not opened" cohort in one click. */}
+          <FilterChips
+            ariaLabel="Filter roster"
+            items={[
+              { id: "all", label: "All", count: rosterStudents.length },
+              { id: "not_opened", label: "Not opened", count: notOpenedStudents.length },
+            ]}
+            activeId={rosterFilter}
+            onSelect={(id) => {
+              setRosterFilter(id === "not_opened" ? "not_opened" : "all");
+              setShowAllRoster(false);
+            }}
+          />
+          {filteredRoster.length === 0 ? (
+            <p className="text-body-sm text-ink-secondary" role="status">
+              Everyone matched has opened their photos.
+            </p>
+          ) : (
+            <>
+              <div className="overflow-hidden rounded-card border border-hairline">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Student</TableHead>
+                      <TableHead>Photos</TableHead>
+                      <TableHead>Downloaded</TableHead>
+                      <TableHead>First opened</TableHead>
+                      <TableHead>Status</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {shownRoster.map((s) => (
+                      <TableRow key={s.student_id}>
+                        <TableCell>{s.name}</TableCell>
+                        <TableCell className="tabular-nums text-ink-secondary">
+                          {s.media_count}
+                        </TableCell>
+                        {/* BP23: downloads + the persistent ever-opened date (unlike the reset-
+                            on-reannounce "Opened" status). */}
+                        <TableCell className="tabular-nums text-ink-secondary">
+                          {s.download_count}
+                        </TableCell>
+                        <TableCell className="text-ink-secondary">
+                          {s.first_seen_at ? formatDate(s.first_seen_at) : "—"}
+                        </TableCell>
+                        <TableCell>
+                          <StatusPill tone={s.seen ? "success" : "neutral"}>
+                            {s.seen ? "Opened" : "Not opened"}
+                          </StatusPill>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+              {filteredRoster.length > ROSTER_PREVIEW ? (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="w-fit"
+                  onClick={() => setShowAllRoster((v) => !v)}
+                >
+                  {showAllRoster
+                    ? "Show fewer"
+                    : `Show all ${filteredRoster.length}`}
+                </Button>
+              ) : null}
+            </>
+          )}
         </div>
       ) : null}
     </Card>

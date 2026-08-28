@@ -38,7 +38,7 @@ function AllPhotos({ eventId }: { eventId: string }) {
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const selectedIds = [...selected];
-  const { busy, done, total: dlTotal, onDownloadAll } = useDownloadAll(selectedIds);
+  const { busy, done, total: dlTotal, cap: dlCap, onDownloadAll } = useDownloadAll(selectedIds);
   const isInitialLoading = isLoading && items.length === 0;
 
   function exitSelect() {
@@ -56,14 +56,32 @@ function AllPhotos({ eventId }: { eventId: string }) {
   async function downloadSelected() {
     if (selectedIds.length === 0) return;
     try {
-      const { saved } = await onDownloadAll();
-      if (saved > 0) {
-        toast(`Downloaded ${saved} ${saved === 1 ? "photo" : "photos"}.`, "success");
-        exitSelect();
+      // BP24: unify on the honest toast (mirrors the student page) — distinguish a user-cancel
+      // (silent, stay in select mode) from a partial / capped / all-failed save.
+      const { saved, capped, cancelled } = await onDownloadAll();
+      if (cancelled) return; // dismissed the save dialog — no false "success"
+      if (saved === 0) {
+        toast("Couldn't download those photos. Please try again.", "error");
+        return; // stay in select mode so they can retry
       }
-      // saved === 0 => the user dismissed the save dialog; stay in select mode.
+      if (capped) {
+        toast(
+          `Saved the first ${dlCap} of ${dlTotal} photos. To get the rest, select fewer at a time, or use desktop Chrome or Edge.`,
+          "info",
+          { sticky: true },
+        );
+      } else if (saved < dlTotal) {
+        toast(
+          `Saved ${saved} of ${dlTotal} photos — ${dlTotal - saved} couldn't be saved right now. Try again.`,
+          "info",
+          { sticky: true },
+        );
+      } else {
+        toast(`Downloaded ${saved} ${saved === 1 ? "photo" : "photos"}.`, "success");
+      }
+      exitSelect();
     } catch {
-      toast("Couldn't download those photos.", "error");
+      toast("Couldn't download those photos. Please try again.", "error");
     }
   }
 

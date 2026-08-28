@@ -40,6 +40,48 @@ const RESULT_LABEL: Record<BulkStudentResult["status"], string> = {
   error: "Error",
 };
 
+// A light client-side email shape check (the server validates authoritatively — this only
+// pre-flags obvious typos before submit).
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+type RowFlag = "ok" | "duplicate" | "invalid";
+
+/** BP24: pre-flag the parsed rows before submit — an in-file duplicate email (case-insensitive)
+ *  or an obviously invalid row (blank name/email or malformed email) — so problems are seen in
+ *  the preview, not discovered only in the results. */
+function flagRows(rows: CsvStudentRow[]): RowFlag[] {
+  const seen = new Set<string>();
+  return rows.map((r) => {
+    const name = r.name.trim();
+    const email = r.email.trim();
+    if (!name || !email || !EMAIL_RE.test(email)) return "invalid";
+    const key = email.toLowerCase();
+    if (seen.has(key)) return "duplicate";
+    seen.add(key);
+    return "ok";
+  });
+}
+
+const FLAG_TONE: Record<RowFlag, "success" | "warning" | "error"> = {
+  ok: "success",
+  duplicate: "warning",
+  invalid: "error",
+};
+const FLAG_LABEL: Record<RowFlag, string> = {
+  ok: "Ready",
+  duplicate: "Duplicate",
+  invalid: "Invalid",
+};
+
+/** Trigger a client-side CSV download (shared by the credentials + skipped-rows exports). */
+function saveCsv(filename: string, csv: string): void {
+  const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
 type Phase = "pick" | "preview" | "results";
 
 /** Import a class of students from a CSV of name+email (BP7d). Multi-step: choose file →
@@ -129,22 +171,33 @@ export function BulkImportDialog({ onImported }: { onImported: () => void }) {
 
   function downloadCredentials() {
     const created = results.filter((r) => r.status === "created" && r.temp_password);
-    const csv = toCsv(
-      ["name", "email", "temporary_password"],
-      created.map((r) => [r.name, r.email, r.temp_password ?? ""]),
+    saveCsv(
+      "student-credentials.csv",
+      toCsv(
+        ["name", "email", "temporary_password"],
+        created.map((r) => [r.name, r.email, r.temp_password ?? ""]),
+      ),
     );
-    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = "student-credentials.csv";
-    link.click();
-    URL.revokeObjectURL(url);
     setDownloaded(true);
   }
 
+  // BP24: export the rows that DIDN'T import (duplicate/invalid/error) as a name+email CSV, so
+  // the admin can fix the typos and re-import — no hand-transcribing (R3-A2-11).
+  function downloadSkipped() {
+    const skipped = results.filter((r) => r.status !== "created");
+    saveCsv(
+      "skipped-rows.csv",
+      toCsv(["name", "email"], skipped.map((r) => [r.name, r.email])),
+    );
+  }
+
   const createdCount = results.filter((r) => r.status === "created").length;
+  const skippedCount = results.length - createdCount;
   // BP24: show a Class column in the preview only when the CSV actually carried one.
   const hasClasses = rows.some((r) => r.className);
+  // BP24: pre-flag duplicate/invalid rows in the preview (the server still validates).
+  const flags = flagRows(rows);
+  const willSkip = flags.filter((f) => f !== "ok").length;
 
   return (
     <>
@@ -190,8 +243,11 @@ export function BulkImportDialog({ onImported }: { onImported: () => void }) {
           ) : phase === "preview" ? (
             <div className="flex flex-col gap-4">
               <p role="status" className="text-body-sm text-ink-secondary">
-                {rows.length} {rows.length === 1 ? "student" : "students"} ready to import.
-                Duplicate or invalid rows are skipped and reported.
+                {rows.length - willSkip} of {rows.length}{" "}
+                {rows.length === 1 ? "row" : "rows"} ready to import
+                {willSkip > 0
+                  ? ` — ${willSkip} flagged (duplicate or invalid) will be skipped.`
+                  : "."}
               </p>
               <div className="max-h-64 overflow-y-auto rounded-card border border-hairline">
                 <Table>
@@ -200,6 +256,7 @@ export function BulkImportDialog({ onImported }: { onImported: () => void }) {
                       <TableHead>Name</TableHead>
                       <TableHead>Email</TableHead>
                       {hasClasses ? <TableHead>Class</TableHead> : null}
+                      <TableHead>Status</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -212,6 +269,12 @@ export function BulkImportDialog({ onImported }: { onImported: () => void }) {
                             {r.className || "—"}
                           </TableCell>
                         ) : null}
+                        <TableCell>
+                          {/* BP24: pre-flag duplicates/invalids before submit. */}
+                          <StatusPill tone={FLAG_TONE[flags[i]]}>
+                            {FLAG_LABEL[flags[i]]}
+                          </StatusPill>
+                        </TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -258,13 +321,20 @@ export function BulkImportDialog({ onImported }: { onImported: () => void }) {
                   </TableBody>
                 </Table>
               </div>
-              {/* Download is the emphasized action — the temp passwords are shown once. */}
-              <div className="mt-1 flex justify-end gap-2">
+              {/* Download credentials is the emphasized action — the temp passwords are shown
+                  once. BP24: also export the skipped rows to fix-and-reimport. */}
+              <div className="mt-1 flex flex-wrap justify-end gap-2">
                 <DialogClose asChild>
                   <Button type="button" variant="secondary">
                     Done
                   </Button>
                 </DialogClose>
+                {skippedCount > 0 ? (
+                  <Button type="button" variant="secondary" onClick={downloadSkipped}>
+                    <Download className="size-4" aria-hidden="true" />
+                    Download skipped rows
+                  </Button>
+                ) : null}
                 {createdCount > 0 ? (
                   <Button type="button" onClick={downloadCredentials}>
                     <Download className="size-4" aria-hidden="true" />

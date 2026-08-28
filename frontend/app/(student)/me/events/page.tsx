@@ -102,20 +102,25 @@ function PhotoArea({
 
   async function handleDownloadAll() {
     try {
-      const { saved, capped } = await onDownloadAll();
-      if (capped) {
+      const { saved, capped, cancelled } = await onDownloadAll();
+      if (cancelled) return; // dismissed the save dialog — silent, not an error
+      if (saved === 0) {
+        // BP24: an all-failed run is now flagged (was silently indistinguishable from cancel).
+        toast("Couldn't save your photos right now. Please try again.", "error");
+      } else if (capped) {
         toast(
           `Saved the first ${cap} of ${total} photos. To get them all, filter by an event and download each one, or open this page in desktop Chrome or Edge.`,
           "info",
           { sticky: true },
         );
-      } else if (saved > 0 && saved < total) {
+      } else if (saved < total) {
         toast(
           `Saved ${saved} of ${total} photos — ${total - saved} couldn't be saved right now. Try downloading again.`,
           "info",
           { sticky: true },
         );
       }
+      // saved === total → silent (the completed save is its own feedback)
     } catch {
       toast("Couldn't prepare your download. Please try again.", "error");
     }

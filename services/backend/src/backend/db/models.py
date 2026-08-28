@@ -425,6 +425,13 @@ class Media(Base):
     # BP17: a stored downscaled sibling of storage_path (display-only tile preview). Null for
     # pre-BP17 media + all video; the ML worker reads storage_path (the full-res).
     thumbnail_path: Mapped[str | None] = mapped_column(String, nullable=True)
+    # BP23 (migration 0019): who uploaded this photo. SET NULL so a row outlives its uploader's
+    # account; null for pre-BP23 rows. Attribution only — the pipeline never reads it.
+    uploaded_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     media_type: Mapped[str] = mapped_column(String, nullable=False)
     processing_status: Mapped[str] = mapped_column(
         String, nullable=False, server_default=text("'pending'")

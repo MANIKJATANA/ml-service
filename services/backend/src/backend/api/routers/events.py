@@ -135,10 +135,12 @@ async def bulk_event_status(
 async def get_event(
     event_id: str, container: ContainerDep, actor: EventManager
 ) -> EventResponse:
-    event = await container.event_service().get_event(
+    detail = await container.event_service().get_event_detail(
         school_id=tenant_of(actor), event_id=event_id
     )
-    return EventResponse.from_event(event)
+    return EventResponse.from_event(
+        detail.event, created_by_email=detail.created_by_email
+    )
 
 
 @router.patch("/{event_id}", response_model=EventResponse)

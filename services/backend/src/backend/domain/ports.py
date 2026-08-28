@@ -187,12 +187,16 @@ class StudentRepository(Protocol):
         status: EnrollmentStatus | None = None,
         student_group_id: str | None = None,
         scope_group_ids: Sequence[str] | None = None,
+        never_signed_in: bool = False,
+        never_opened: bool = False,
     ) -> list[Student]:
         """One page of the students list (BP9), searched/filtered/sorted in SQL. Only
         row-native ``sort`` members reach here; count-column sorts take the id-scan path
         (``list_ids``). BP11a: ``student_group_id`` filters to one class. BP11c:
         ``scope_group_ids`` limits results to that set of classes — a teacher's "focus"
-        scope (``None`` = no scope; ``[]`` = a teacher with no classes = no students)."""
+        scope (``None`` = no scope; ``[]`` = a teacher with no classes = no students). BP23:
+        ``never_signed_in``/``never_opened`` filter to students who never signed in / never
+        opened a distribution (same-schema — never the ML seam)."""
         ...
     async def count_page(
         self,
@@ -202,9 +206,11 @@ class StudentRepository(Protocol):
         status: EnrollmentStatus | None = None,
         student_group_id: str | None = None,
         scope_group_ids: Sequence[str] | None = None,
+        never_signed_in: bool = False,
+        never_opened: bool = False,
     ) -> int:
-        """Total students matching the same ``q``/``status``/class filter + focus scope (the
-        page's ``total``)."""
+        """Total students matching the same ``q``/``status``/class filter + focus scope +
+        BP23 activity filters (the page's ``total``)."""
         ...
     async def list_ids(
         self,
@@ -214,6 +220,8 @@ class StudentRepository(Protocol):
         status: EnrollmentStatus | None = None,
         student_group_id: str | None = None,
         scope_group_ids: Sequence[str] | None = None,
+        never_signed_in: bool = False,
+        never_opened: bool = False,
     ) -> list[str]:
         """All matching student ids (id-only, no join) — the count-sort path fetches these,
         sorts them by a school-wide count dict in-Python, then hydrates one page via
@@ -396,6 +404,16 @@ class EventRepository(Protocol):
         """Events created at/after ``since`` per school (BP14 stalled-school heuristic).
         Cross-tenant (``school:manage`` only)."""
         ...
+    async def first_distributed_at_by_school(self) -> dict[str, datetime]:
+        """Earliest announce time per school (BP23 estate — days-to-first-delivery), =
+        ``min(coalesce(notified_at, completed_at))`` under the announced predicate. One grouped
+        scan, cross-tenant (``school:manage`` only); a never-announced school is absent."""
+        ...
+    async def last_event_created_at_by_school(self) -> dict[str, datetime]:
+        """Most recent event ``created_at`` per school (BP23 estate — the "no event since …"
+        idle anchor). One grouped MAX scan, cross-tenant (``school:manage`` only); a school
+        with no events is absent."""
+        ...
     async def monthly_event_date_counts(self, school_id: str) -> dict[str, int]:
         """Events per calendar month by their ``event_date`` (BP14 trend — when the event
         happened, not when the row was created), keyed ``'YYYY-MM'``. Undated events are
@@ -499,6 +517,7 @@ class MediaRepository(Protocol):
         storage_path: str,
         media_type: MediaType,
         thumbnail_path: str | None = None,
+        uploaded_by: str | None = None,
     ) -> Media: ...
     async def get(self, school_id: str, media_id: str) -> Media | None: ...
     async def list_by_event(self, school_id: str, event_id: str) -> list[Media]: ...
@@ -662,6 +681,13 @@ class MatchCorrectionRepository(Protocol):
         self, school_id: str, student_id: str
     ) -> list[MatchCorrection]: ...
     async def count_resolved(self, school_id: str) -> int: ...
+    async def monthly_verdict_counts(
+        self, school_id: str
+    ) -> dict[str, dict[MatchVerdict, int]]:
+        """Corrections per calendar month × verdict (BP23 "Quality"), keyed ``'YYYY-MM'`` →
+        verdict → count, on ``created_at``. Feeds the confirm-rate / reject-rate trend
+        (``added`` excluded from the precision denominator). One grouped scan, tenant-scoped."""
+        ...
 
 
 class DownloadAuditRepository(Protocol):
@@ -702,6 +728,17 @@ class DownloadAuditRepository(Protocol):
         event_id: str | None = None,
         student_id: str | None = None,
     ) -> int: ...
+    async def count_distinct_saver_students(self, school_id: str) -> int:
+        """Distinct students who saved >=1 of their OWN photos (BP23 "Saved a photo") —
+        distinct ``subject_student_id`` (non-null only on a self-download, so staff downloads
+        are excluded). One DISTINCT scan, tenant-scoped."""
+        ...
+    async def download_counts_by_student_for_event(
+        self, school_id: str, event_id: str
+    ) -> dict[str, int]:
+        """Per-student self-download count for one event (BP23 roster "Downloaded"). One
+        grouped scan, tenant-scoped; only students with >=1 self-download appear."""
+        ...
 
 
 class NotificationReadRepository(Protocol):
@@ -720,6 +757,22 @@ class NotificationReadRepository(Protocol):
     async def count_distinct_seen_students(self, school_id: str) -> int:
         """Distinct students who have opened >=1 distribution (BP14 engagement) — the
         engagement-rate numerator. One grouped/DISTINCT scan, tenant-scoped."""
+        ...
+    async def distinct_opened_event_ids(self, school_id: str) -> list[str]:
+        """Distinct event ids with >=1 opener (BP23 event-reach). The service intersects these
+        with the currently-announced events so reach never over-reports. Seam-free — never the
+        ML roster. One DISTINCT scan, tenant-scoped."""
+        ...
+    async def monthly_first_open_counts(self, school_id: str) -> dict[str, int]:
+        """First-opens per calendar month (BP23 engagement trend), keyed ``'YYYY-MM'`` on the
+        immutable ``created_at``. A decline-capable line. One grouped scan, tenant-scoped."""
+        ...
+    async def first_seen_for_event(
+        self, school_id: str, event_id: str
+    ) -> dict[str, datetime]:
+        """Per-student FIRST-open time for one event (BP23 roster "ever opened") — the
+        immutable ``created_at``, distinct from ``list_for_event``'s reset-on-reannounce
+        ``seen_at``. Tenant-scoped."""
         ...
 
 

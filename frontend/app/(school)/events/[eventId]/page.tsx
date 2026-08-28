@@ -350,6 +350,8 @@ function DistributionCard({
               <TableRow>
                 <TableHead>Student</TableHead>
                 <TableHead>Photos</TableHead>
+                <TableHead>Downloaded</TableHead>
+                <TableHead>First opened</TableHead>
                 <TableHead>Status</TableHead>
               </TableRow>
             </TableHeader>
@@ -359,6 +361,14 @@ function DistributionCard({
                   <TableCell>{s.name}</TableCell>
                   <TableCell className="tabular-nums text-ink-secondary">
                     {s.media_count}
+                  </TableCell>
+                  {/* BP23: downloads + the persistent ever-opened date (unlike the reset-on-
+                      reannounce "Opened" status). */}
+                  <TableCell className="tabular-nums text-ink-secondary">
+                    {s.download_count}
+                  </TableCell>
+                  <TableCell className="text-ink-secondary">
+                    {s.first_seen_at ? formatDate(s.first_seen_at) : "—"}
                   </TableCell>
                   <TableCell>
                     <StatusPill tone={s.seen ? "success" : "neutral"}>
@@ -570,6 +580,13 @@ export default function EventDetailPage() {
                   <dt className="text-body-sm text-ink-secondary">Created</dt>
                   <dd className="text-body text-ink">{formatDate(event.created_at)}</dd>
                 </div>
+                {/* BP23: who created this event (resolved on the detail read). */}
+                {event.created_by_email ? (
+                  <div className="flex flex-col gap-1">
+                    <dt className="text-body-sm text-ink-secondary">Created by</dt>
+                    <dd className="text-body text-ink">{event.created_by_email}</dd>
+                  </div>
+                ) : null}
               </dl>
             </div>
           </Card>

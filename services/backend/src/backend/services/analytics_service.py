@@ -19,9 +19,11 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 from backend.domain.errors import NotFoundError
-from backend.domain.models import EnrollmentStatus, Event, Role
+from backend.domain.models import EnrollmentStatus, Event, MatchVerdict, Role
 from backend.domain.ports import (
+    DownloadAuditRepository,
     EventRepository,
+    MatchCorrectionRepository,
     MediaRepository,
     NotificationReadRepository,
     SchoolRepository,
@@ -49,11 +51,26 @@ class TermRollup:
 
 @dataclass(frozen=True, slots=True)
 class MonthPoint:
-    """One point on the month-by-month trend (``month`` = ``'YYYY-MM'``)."""
+    """One point on the month-by-month trend (``month`` = ``'YYYY-MM'``). ``first_opens`` (BP23)
+    is the count of student first-opens that month — an engagement line that *can* decline."""
 
     month: str
     photos: int
     events: int
+    first_opens: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class QualityPoint:
+    """One month of matching-quality ground truth (BP23 "Quality"). Raw verdict counts — the FE
+    renders confirm-rate = ``confirmed / (confirmed + rejected)`` + a separate rejected rate;
+    ``added`` (report-a-miss, a recall signal) is shown on its own, never in the precision
+    denominator. Descriptive only — no model change (that stays parked BP15)."""
+
+    month: str
+    confirmed: int
+    rejected: int
+    added: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,17 +84,24 @@ class SchoolAnalytics:
     students_enrolled: int
     students_signed_in: int
     students_engaged: int  # distinct students who have opened >=1 distribution
+    students_saved: int  # BP23: distinct students who saved >=1 of their own photos
     events_total: int
     events_distributed: int  # announced
+    events_opened: int  # BP23: distinct announced events with >=1 opener (reach numerator)
     photos_total: int
     terms: tuple[TermRollup, ...]
     months: tuple[MonthPoint, ...]
+    quality: tuple[QualityPoint, ...]  # BP23: monthly correction verdicts (matching quality)
 
 
 @dataclass(frozen=True, slots=True)
 class SchoolFunnel:
     """One school's adoption funnel for the estate view. ``stalled`` = the enrollment wall
-    (students imported, none enrolled); ``idle`` = enrolled but no recent event activity."""
+    (students imported, none enrolled); ``idle`` = enrolled but no recent event activity.
+
+    BP23 age axis: ``created_at`` (school age), ``not_started`` (no event created yet),
+    ``days_to_first_delivery`` (signup → first announce, None if never), ``stalled_since``
+    (the most recent event's time — "no event since …"; None if never created one)."""
 
     school_id: str
     school_name: str
@@ -89,6 +113,10 @@ class SchoolFunnel:
     signed_in_students: int
     stalled: bool
     idle: bool
+    created_at: datetime
+    not_started: bool
+    days_to_first_delivery: int | None
+    stalled_since: datetime | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -121,6 +149,8 @@ class AnalyticsService:
         events: EventRepository,
         media: MediaRepository,
         reads: NotificationReadRepository,
+        corrections: MatchCorrectionRepository,
+        audit: DownloadAuditRepository,
     ) -> None:
         self._schools = schools
         self._users = users
@@ -128,6 +158,8 @@ class AnalyticsService:
         self._events = events
         self._media = media
         self._reads = reads
+        self._corrections = corrections
+        self._audit = audit
 
     async def school_analytics(self, *, school_id: str) -> SchoolAnalytics:
         school = await self._schools.get(school_id)
@@ -139,6 +171,9 @@ class AnalyticsService:
             school_id, Role.STUDENT
         )
         engaged = await self._reads.count_distinct_seen_students(school_id)
+        # BP23: the opened-event ids (reach) + distinct students who saved a photo.
+        opened_event_ids = set(await self._reads.distinct_opened_event_ids(school_id))
+        saved = await self._audit.count_distinct_saver_students(school_id)
 
         # Events + photos + per-term all derive from one events pass (bounded: ~120/yr) plus
         # the grouped photo-per-event scan — no separate status_counts/count_distributed
@@ -146,10 +181,20 @@ class AnalyticsService:
         events = await self._events.list_by_school(school_id)
         photos_by_event = await self._media.counts_by_event(school_id)
         terms = _term_rollups(events, photos_by_event)
+        announced_ids = {e.id for e in events if _announced(e)}
+        events_distributed = len(announced_ids)
+        # Reach = "of the currently-ANNOUNCED events, how many were opened" — the honest
+        # intersection (in-Python, seam-free), so it never over-reports an event opened then
+        # un-announced (auto_notify toggled off), and is a true floor bounded by events_distributed.
+        events_opened = len(announced_ids & opened_event_ids)
 
         monthly_photos = await self._media.monthly_upload_counts(school_id)
         monthly_events = await self._events.monthly_event_date_counts(school_id)
-        months = _trend(monthly_photos, monthly_events)
+        # BP23: first-opens trend (a decline-capable engagement line) + matching-quality verdicts.
+        monthly_first_opens = await self._reads.monthly_first_open_counts(school_id)
+        monthly_verdicts = await self._corrections.monthly_verdict_counts(school_id)
+        months = _trend(monthly_photos, monthly_events, monthly_first_opens)
+        quality = _quality(monthly_verdicts)
 
         return SchoolAnalytics(
             school_name=school.name,
@@ -157,11 +202,14 @@ class AnalyticsService:
             students_enrolled=enrollment[EnrollmentStatus.ENROLLED],
             students_signed_in=signed_in,
             students_engaged=engaged,
+            students_saved=saved,
             events_total=len(events),
-            events_distributed=sum(1 for e in events if _announced(e)),
+            events_distributed=events_distributed,
+            events_opened=events_opened,
             photos_total=sum(photos_by_event.values()),
             terms=terms,
             months=months,
+            quality=quality,
         )
 
     async def estate_analytics(self) -> EstateAnalytics:
@@ -174,16 +222,26 @@ class AnalyticsService:
         distributed_by = await self._events.distributed_counts_by_school()
         since = datetime.now(UTC) - timedelta(days=_STALL_WINDOW_DAYS)
         recent_by = await self._events.recent_event_counts_by_school(since)
+        # BP23 age axis: first-announce time (days-to-first-delivery) + last-event time (idle).
+        first_distributed_by = await self._events.first_distributed_at_by_school()
+        last_event_by = await self._events.last_event_created_at_by_school()
 
         funnels: list[SchoolFunnel] = []
         for s in schools:
             students = students_by.get(s.id, 0)
             enrolled = enrolled_by.get(s.id, 0)
             recent = recent_by.get(s.id, 0)
+            events = events_by.get(s.id, 0)
             # The enrollment wall: students imported, none enrolled → can't be turned on.
             stalled = students > 0 and enrolled == 0
             # Past the wall but gone quiet: enrolled students, no recent event.
             idle = not stalled and enrolled > 0 and recent == 0
+            first_dist = first_distributed_by.get(s.id)
+            days_to_first = (
+                max(0, (first_dist - s.created_at).days)
+                if first_dist is not None
+                else None
+            )
             funnels.append(
                 SchoolFunnel(
                     school_id=s.id,
@@ -191,11 +249,15 @@ class AnalyticsService:
                     teachers=role_counts.get(s.id, {}).get(Role.TEACHER, 0),
                     students=students,
                     enrolled=enrolled,
-                    events=events_by.get(s.id, 0),
+                    events=events,
                     distributed=distributed_by.get(s.id, 0),
                     signed_in_students=signed_in.get(s.id, {}).get(Role.STUDENT, 0),
                     stalled=stalled,
                     idle=idle,
+                    created_at=s.created_at,
+                    not_started=events == 0,
+                    days_to_first_delivery=days_to_first,
+                    stalled_since=last_event_by.get(s.id),
                 )
             )
 
@@ -233,12 +295,36 @@ def _term_rollups(
 
 
 def _trend(
-    photos: dict[str, int], events: dict[str, int]
+    photos: dict[str, int],
+    events: dict[str, int],
+    first_opens: dict[str, int],
 ) -> tuple[MonthPoint, ...]:
-    """Merge the per-month photo + event counts into a sorted trend, keeping the most recent
-    ``_TREND_MONTHS`` months (each key is a sortable ``'YYYY-MM'``)."""
-    months = sorted(set(photos) | set(events))[-_TREND_MONTHS:]
+    """Merge the per-month photo + event + first-open counts into a sorted trend, keeping the
+    most recent ``_TREND_MONTHS`` months (each key is a sortable ``'YYYY-MM'``)."""
+    months = sorted(set(photos) | set(events) | set(first_opens))[-_TREND_MONTHS:]
     return tuple(
-        MonthPoint(month=m, photos=photos.get(m, 0), events=events.get(m, 0))
+        MonthPoint(
+            month=m,
+            photos=photos.get(m, 0),
+            events=events.get(m, 0),
+            first_opens=first_opens.get(m, 0),
+        )
+        for m in months
+    )
+
+
+def _quality(
+    monthly_verdicts: dict[str, dict[MatchVerdict, int]],
+) -> tuple[QualityPoint, ...]:
+    """Fold the grouped month × verdict counts into a sorted quality trend (most recent
+    ``_TREND_MONTHS`` months). Raw counts — the FE computes the confirm/reject rates."""
+    months = sorted(monthly_verdicts)[-_TREND_MONTHS:]
+    return tuple(
+        QualityPoint(
+            month=m,
+            confirmed=monthly_verdicts[m].get(MatchVerdict.CONFIRMED, 0),
+            rejected=monthly_verdicts[m].get(MatchVerdict.REJECTED, 0),
+            added=monthly_verdicts[m].get(MatchVerdict.ADDED, 0),
+        )
         for m in months
     )

@@ -533,6 +533,44 @@ class PostgresEventRepository:
             )
             return {str(school_id): n for school_id, n in result.all()}
 
+    async def first_distributed_at_by_school(self) -> dict[str, datetime]:
+        """Earliest announce time per school (BP23 estate — days-to-first-delivery).
+
+        Announce time = ``coalesce(notified_at, completed_at)`` under the same announced
+        predicate as ``distributed_counts_by_school`` (a manual push wins, else the auto
+        completion). One grouped MIN scan, cross-tenant (``school:manage`` only); a school with
+        no announced event is absent (caller reads None)."""
+        announce_at = func.coalesce(EventRow.notified_at, EventRow.completed_at)
+        async with self._sessionmaker() as session:
+            result = await session.execute(
+                select(EventRow.school_id, func.min(announce_at))
+                .where(
+                    or_(
+                        EventRow.notified_at.is_not(None),
+                        and_(
+                            EventRow.auto_notify.is_(True),
+                            EventRow.completed_at.is_not(None),
+                        ),
+                    )
+                )
+                .group_by(EventRow.school_id)
+            )
+            return {str(sid): ts for sid, ts in result.all() if ts is not None}
+
+    async def last_event_created_at_by_school(self) -> dict[str, datetime]:
+        """Most recent event ``created_at`` per school (BP23 estate — the honest "no event
+        since …" idle anchor; not ``schools.updated_at``, which unrelated admin edits bump).
+
+        One grouped MAX scan, cross-tenant (``school:manage`` only); a school that never
+        created an event is absent (caller reads None)."""
+        async with self._sessionmaker() as session:
+            result = await session.execute(
+                select(EventRow.school_id, func.max(EventRow.created_at)).group_by(
+                    EventRow.school_id
+                )
+            )
+            return {str(sid): ts for sid, ts in result.all() if ts is not None}
+
     async def monthly_event_date_counts(self, school_id: str) -> dict[str, int]:
         """Events per calendar month by their ``event_date`` (BP14 trend), keyed ``'YYYY-MM'``.
 

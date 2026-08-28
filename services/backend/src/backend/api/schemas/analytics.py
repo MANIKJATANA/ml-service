@@ -8,6 +8,8 @@ so the percentage rounding lives in one place.
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from pydantic import BaseModel
 
 from backend.services.analytics_service import (
@@ -29,6 +31,17 @@ class MonthPointResponse(BaseModel):
     month: str  # 'YYYY-MM'
     photos: int
     events: int
+    first_opens: int  # BP23: student first-opens that month (the engagement line)
+
+
+class QualityPointResponse(BaseModel):
+    """One month of matching-quality verdicts (BP23). The FE renders confirm-rate =
+    confirmed/(confirmed+rejected) + a separate rejected rate; ``added`` is shown on its own."""
+
+    month: str  # 'YYYY-MM'
+    confirmed: int
+    rejected: int
+    added: int
 
 
 class SchoolAnalyticsResponse(BaseModel):
@@ -37,11 +50,14 @@ class SchoolAnalyticsResponse(BaseModel):
     students_enrolled: int
     students_signed_in: int
     students_engaged: int
+    students_saved: int  # BP23
     events_total: int
     events_distributed: int
+    events_opened: int  # BP23: reach numerator (denominator = events_distributed)
     photos_total: int
     terms: list[TermRollupResponse]
     months: list[MonthPointResponse]
+    quality: list[QualityPointResponse]  # BP23
 
     @classmethod
     def from_analytics(cls, a: SchoolAnalytics) -> SchoolAnalyticsResponse:
@@ -51,8 +67,10 @@ class SchoolAnalyticsResponse(BaseModel):
             students_enrolled=a.students_enrolled,
             students_signed_in=a.students_signed_in,
             students_engaged=a.students_engaged,
+            students_saved=a.students_saved,
             events_total=a.events_total,
             events_distributed=a.events_distributed,
+            events_opened=a.events_opened,
             photos_total=a.photos_total,
             terms=[
                 TermRollupResponse(
@@ -64,8 +82,22 @@ class SchoolAnalyticsResponse(BaseModel):
                 for t in a.terms
             ],
             months=[
-                MonthPointResponse(month=m.month, photos=m.photos, events=m.events)
+                MonthPointResponse(
+                    month=m.month,
+                    photos=m.photos,
+                    events=m.events,
+                    first_opens=m.first_opens,
+                )
                 for m in a.months
+            ],
+            quality=[
+                QualityPointResponse(
+                    month=qp.month,
+                    confirmed=qp.confirmed,
+                    rejected=qp.rejected,
+                    added=qp.added,
+                )
+                for qp in a.quality
             ],
         )
 
@@ -81,6 +113,11 @@ class SchoolFunnelResponse(BaseModel):
     signed_in_students: int
     stalled: bool  # the enrollment wall: students imported, none enrolled
     idle: bool  # enrolled but no event created in the recent window
+    # BP23 age axis (the FE sorts/derives from these client-side over the full estate list).
+    created_at: datetime
+    not_started: bool  # no event created yet
+    days_to_first_delivery: int | None  # signup → first announce (None if never)
+    stalled_since: datetime | None  # most recent event time ("no event since …")
 
 
 class EstateAnalyticsResponse(BaseModel):
@@ -107,6 +144,10 @@ class EstateAnalyticsResponse(BaseModel):
                     signed_in_students=f.signed_in_students,
                     stalled=f.stalled,
                     idle=f.idle,
+                    created_at=f.created_at,
+                    not_started=f.not_started,
+                    days_to_first_delivery=f.days_to_first_delivery,
+                    stalled_since=f.stalled_since,
                 )
                 for f in a.schools
             ],

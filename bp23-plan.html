@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BP23 — Run it on numbers</title>
+<style>
+  :root{
+    --ink:#0d1729; --ink-2:#5a6578; --ink-3:#7b8494;
+    --canvas:#f8f9fa; --surface:#fff; --hairline:#e3e8ef;
+    --accent:#4f46e5; --accent-soft:#eef2ff;
+    --high:#b45309; --high-soft:#fffbeb;
+    --ok:#15803d; --ok-soft:#f0fdf4;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:ui-sans-serif,system-ui,"Segoe UI",Roboto,sans-serif;background:var(--canvas);color:var(--ink);line-height:1.55;padding:48px 20px}
+  .wrap{max-width:880px;margin:0 auto}
+  h1{font-size:29px;letter-spacing:-.02em;margin-bottom:6px}
+  h2{font-size:18px;letter-spacing:-.01em;margin:42px 0 13px}
+  .sub{color:var(--ink-2);font-size:14.5px;margin-bottom:8px}
+  .meta{font-size:12.5px;color:var(--ink-3);margin-bottom:30px}
+  .meta code{background:var(--surface);border:1px solid var(--hairline);border-radius:4px;padding:1px 5px;font-size:11.5px}
+  .card{background:var(--surface);border:1px solid var(--hairline);border-radius:12px;padding:18px 20px;margin-bottom:14px}
+  .problem{background:var(--high-soft);border:1px solid #f3e2c0;border-radius:12px;padding:16px 20px;margin-bottom:14px;font-size:14px;line-height:1.6}
+  .problem b{color:var(--high)}
+  .problem .chain{margin-top:8px;font-size:13px;color:var(--ink-2)}
+  .problem .chain b{color:var(--ink)}
+  .ord{background:var(--accent-soft);border:1px solid #dfe3ff;border-radius:10px;padding:13px 16px;margin-bottom:14px;font-size:13px;color:var(--ink);line-height:1.55}
+  .ord b{color:var(--accent)}
+  .grp{background:var(--surface);border:1px solid var(--hairline);border-radius:11px;padding:15px 18px;margin-bottom:11px}
+  .grp .top{display:flex;align-items:baseline;gap:9px;flex-wrap:wrap;margin-bottom:9px}
+  .grp .lt{font-weight:700;font-size:11px;color:var(--accent);background:var(--accent-soft);border-radius:6px;padding:2px 8px}
+  .grp .nm{font-weight:700;font-size:15px;letter-spacing:-.01em}
+  .grp .tags{margin-left:auto;display:flex;gap:5px;align-items:center}
+  .grp .tag{font-size:10.5px;color:var(--ink-2);background:var(--canvas);border:1px solid var(--hairline);border-radius:5px;padding:1px 7px;white-space:nowrap}
+  .grp .tag.big{color:var(--high);background:var(--high-soft);border-color:#f3e2c0}
+  ul.items{list-style:none;margin:0;padding:0}
+  ul.items li{font-size:13.5px;line-height:1.5;color:var(--ink);padding:5px 0 5px 20px;position:relative;border-top:1px solid #f1f3f6}
+  ul.items li:first-child{border-top:none}
+  ul.items li:before{content:"";position:absolute;left:3px;top:12px;width:6px;height:6px;border-radius:2px;background:var(--accent)}
+  ul.items li b{color:var(--ink)}
+  ul.items li .now{color:var(--ink-3);font-size:12.5px}
+  .verify{font-size:13.5px;line-height:1.6;color:var(--ink-2)}
+  .verify b{color:var(--ink)}
+  .note{background:var(--ok-soft);border:1px solid #cdeccd;border-radius:10px;padding:12px 16px;margin:14px 0;font-size:12.5px;color:var(--ink-2);line-height:1.55}
+  .note b{color:var(--ok)}
+  .foot{margin-top:38px;padding-top:16px;border-top:1px solid var(--hairline);font-size:13px;color:var(--ink-2)}
+  .foot code{background:var(--surface);border:1px solid var(--hairline);border-radius:4px;padding:1px 5px;font-size:11.5px}
+  .foot b{color:var(--ink)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>BP23 — Run it on numbers</h1>
+  <p class="sub">The next Round-3 build. Turn on the <b>numbers the product already collects but never shows you</b> — so you can actually answer "is it working?", "who's engaged?", and "is matching accurate?" — plus start recording <b>who uploaded what</b> before that history is lost for good.</p>
+  <p class="meta">Plan: <code>C:\Users\…\plans\…jolly-peach.md</code> (approved) · findings: <code>product/06</code> theme O · roadmap: <code>product/07</code> BP23 · this is the explainer to verify <b>before</b> any code · <b>one phase, four groups</b> · touches the <b>server + the app</b> · <b>one small database change</b> (a new "uploaded by" column) · no ML change</p>
+
+  <h2>The problem we're fixing</h2>
+  <div class="problem">
+    <b>The product quietly gathers the data to answer its own hardest questions — and reads almost none of it.</b>
+    <div class="chain">
+      Three that matter most: <b>(1)</b> the "delivery rate" measures the <b>button you clicked</b> (did we announce?), not the <b>audience</b> (did anyone actually open their photos?) — a school can read 100% "announced" while almost nobody looked. <b>(2)</b> Every time a teacher confirms or rejects a match, we save that verdict — the ground truth for "is matching getting <b>better or worse</b>?" — and we never total it up, so a rising wrong-match rate is invisible. <b>(3)</b> Pricing rides on how many teachers a school has, yet we don't show <b>when each teacher last signed in</b>, we hide <b>who created an event</b>, and we <b>don't record who uploaded a photo at all</b> — and that last one can't be recovered later, so every day we wait loses more of it.
+    </div>
+  </div>
+
+  <div class="ord">
+    <b>Your call (already made):</b> take <b>all four groups</b> below, in <b>one phase</b>. It's a bigger, server-side build than the recent app-only ones; the two rounds of self-review are the safety net.
+  </div>
+
+  <h2>What we're building — four groups, one phase</h2>
+
+  <div class="grp">
+    <div class="top"><span class="lt">A</span><span class="nm">Attribution — stop losing the history</span>
+      <span class="tags"><span class="tag big">the urgent one</span><span class="tag">1 DB change</span></span></div>
+    <ul class="items">
+      <li><b>Record who uploaded each photo</b> — a new "uploaded by" stamp on every photo from now on. <span class="now">This is the one database change; the value of it grows every day it's on, and it can't be backfilled.</span></li>
+      <li><b>Show when each teacher last signed in</b> — a "Last sign-in" column on the staff list (we already record it; we just never showed it). Now you can see who's actually using their seat.</li>
+      <li><b>Show who created an event</b> — a "Created by" line on the event page (again, already stored, just hidden).</li>
+    </ul>
+  </div>
+
+  <div class="grp">
+    <div class="top"><span class="lt">B</span><span class="nm">Measure the flagship claims</span>
+      <span class="tags"><span class="tag big">2 of the 3 Highs</span></span></div>
+    <ul class="items">
+      <li><b>Honest reach</b> — beside "Announce rate", a new <b>"Open rate"</b>: of the events you announced, how many had <b>at least one student open</b> their photos. So "we announced everything" can no longer hide "nobody looked." <span class="now">(An exact per-event "what % of each audience opened" needs a bigger change and is noted as out-of-scope — see the honest limits.)</span></li>
+      <li><b>"Saved a photo" rate</b> — how many students have actually saved at least one of their own photos (a real "did it land?" signal).</li>
+      <li><b>An engagement line that can go down</b> — a month-by-month trend of first-time opens, so a <b>drop-off</b> is visible instead of a single all-time number that only ever grows.</li>
+      <li><b>Is matching accurate?</b> — a new <b>"Quality"</b> section: the <b>confirm rate</b> (of the matches staff reviewed, how many they kept) and the separate <b>wrong-person rate</b>, month by month — so accuracy trends become visible. <span class="now">This shows the numbers; it doesn't change the matching model (that's a separate, parked project).</span></li>
+    </ul>
+  </div>
+
+  <div class="grp">
+    <div class="top"><span class="lt">C</span><span class="nm">Answers behind the numbers</span></div>
+    <ul class="items">
+      <li><b>"Which students?" lists</b> — filter the students list to <b>"never signed in"</b> or <b>"never opened their photos"</b>, and make the dashboard alerts <b>click through</b> to the exact filtered list (instead of a dead-end number).</li>
+      <li><b>A per-child engagement card</b> — on a student's page: events they appear in, photos opened, last opened, downloads. So a parent's "did my child get their pictures?" is answerable at a glance.</li>
+      <li><b>A richer notify roster</b> — beside "Opened", show <b>downloads</b> and a persistent <b>"first opened"</b> date (the current "Opened" resets when you re-announce; this one doesn't).</li>
+    </ul>
+  </div>
+
+  <div class="grp">
+    <div class="top"><span class="lt">D</span><span class="nm">Estate view — which schools are stuck</span>
+      <span class="tags"><span class="tag">platform admin only</span></span></div>
+    <ul class="items">
+      <li><b>An "age" axis on the adoption funnel</b> — school age, <b>days to first delivery</b> (how long from signup to actually sending photos), <b>"not started"</b>, and <b>"no event since …"</b> — plus a <b>sortable</b> table — so you can spot a school that signed up and stalled, and step in.</li>
+    </ul>
+  </div>
+
+  <div class="note">
+    <b>A note on doing this right:</b> a design pass caught two traps and steered around them — the honest "reach" number is computed <b>without</b> ever cross-wiring the matching engine to the rest of the database (a hard architectural line we keep), and the per-child engagement lives on <b>its own quick screen</b> so it never slows the everyday student pages. Both are folded into the plan.
+  </div>
+
+  <h2>How we'll work</h2>
+  <div class="ord">
+    <b>One phase</b> — all four groups, then the full check (server: format + types + tests + the layering rule; app: types + lint + build), the one database change <b>tested on a throwaway database</b> (never your live one), and a <b>2× self-review</b> (round 1 correctness + tenant safety + the no-cross-wiring rule; round 2 "are the numbers honest?"), then brought back to you. <b>Nothing is committed until you say so.</b>
+  </div>
+
+  <h2>How we'll check it</h2>
+  <div class="card verify">
+    The full gate stays green, the database change applies and rolls back cleanly on a throwaway copy, and every new number has a real-database test proving its math + that it only ever counts <b>one school's</b> data. Then a walk: a newly-uploaded photo records its uploader; the staff list shows Last sign-in; the event page shows Created-by; the analytics show Open-rate + Saved + the first-opens trend + the Quality section; a dashboard alert clicks through to the right filtered list; a student's page shows the engagement card; the roster shows downloads + first-opened; and the estate funnel shows the age columns and sorts.
+  </div>
+
+  <p class="foot">Not in this build (noted honestly): the exact <b>audience-weighted</b> open rate (what % of each event's audience opened) needs a bigger recording change — we ship "events with ≥1 opener" now; <b>storage/cost</b> tracking and true <b>history-over-time</b> lines stay parked; "no event since …" is our honest stand-in for "stalled" (there's no dedicated activity clock yet); and improving the matching <b>model</b> itself stays parked (<code>BP15</code>) — BP23 shows the accuracy numbers, it doesn't change the matching. <b>One database change (a nullable "uploaded by" column), no ML change, no new permission, no new dependency.</b></p>
+
+</div>
+</body>
+</html>

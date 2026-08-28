@@ -35,6 +35,7 @@ from backend.api.schemas.students import (
     MatchPhotosResponse,
     ProvisionedStudentResponse,
     SetReferencePhotoRequest,
+    StudentEngagementResponse,
     StudentListPageResponse,
     StudentResponse,
     UpdateStudentRequest,
@@ -42,6 +43,7 @@ from backend.api.schemas.students import (
 )
 from backend.api.schemas.users import UpdateUserStatusRequest
 from backend.domain.models import (
+    ActivityFilter,
     EnrollmentStatus,
     MediaVariant,
     SortDir,
@@ -137,11 +139,15 @@ async def list_students(
     status: Annotated[EnrollmentStatus | None, Query()] = None,
     student_group_id: Annotated[str | None, Query(max_length=64)] = None,
     mine: Annotated[bool, Query()] = False,
+    login: Annotated[ActivityFilter | None, Query()] = None,
+    opened: Annotated[ActivityFilter | None, Query()] = None,
 ) -> StudentListPageResponse:
     """One page of the students list (BP9): server search (name/email), sort (incl. the
     whole-list appearance/event count columns), an enrollment-status filter, and (BP11a) an
     optional class filter (``student_group_id``). BP11c: ``mine=true`` limits a teacher's list
-    to the students in their assigned classes (their "focus"); ignored for an admin."""
+    to the students in their assigned classes (their "focus"); ignored for an admin. BP23:
+    ``login=never`` filters to students who never signed in; ``opened=never`` to students who
+    never opened a distribution (the "which students?" lists behind the analytics rates)."""
     scope = await resolve_focus_group_ids(container, actor, mine)
     page = await container.listing_service().list_students_page(
         school_id=tenant_of(actor),
@@ -153,6 +159,8 @@ async def list_students(
         status=status,
         student_group_id=student_group_id,
         scope_group_ids=scope,
+        never_signed_in=login is ActivityFilter.NEVER,
+        never_opened=opened is ActivityFilter.NEVER,
     )
     return StudentListPageResponse.from_page(page)
 
@@ -182,6 +190,19 @@ async def update_student(
         group_id=body.student_group_id,
     )
     return StudentResponse.from_student(student)
+
+
+@router.get("/{student_id}/engagement", response_model=StudentEngagementResponse)
+async def student_engagement(
+    student_id: str, container: ContainerDep, actor: StudentManager
+) -> StudentEngagementResponse:
+    """One student's reach + engagement (BP23) — events/photos they appear in, how many
+    they've opened + last-open, and their own downloads. Tenant from the token (a foreign
+    student → 404); a separate read so the write-path StudentResponse stays lean."""
+    engagement = await container.engagement_service().student_engagement(
+        school_id=tenant_of(actor), student_id=student_id
+    )
+    return StudentEngagementResponse.from_engagement(engagement)
 
 
 @router.get("/{student_id}/reference-photo", response_model=DownloadResponse)

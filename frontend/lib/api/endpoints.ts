@@ -35,6 +35,7 @@ import type {
   SchoolStatus,
   SchoolWithRollup,
   SortDir,
+  StudentEngagementResponse,
   StudentInEventResponse,
   StudentListPageResponse,
   StudentResponse,
@@ -64,6 +65,8 @@ export interface ListParams {
   date_from?: string; // BP11b: event_date >= (the calendar month window)
   date_to?: string; // BP11b: event_date <=
   mine?: boolean; // BP11c: a teacher's "focus" — scope the list to their assigned classes
+  login?: string; // BP23: students list "never signed in" activity filter (`never`)
+  opened?: string; // BP23: students list "never opened photos" activity filter (`never`)
 }
 
 function listQuery(params: ListParams): string {
@@ -81,6 +84,8 @@ function listQuery(params: ListParams): string {
   if (params.date_from) q.set("date_from", params.date_from);
   if (params.date_to) q.set("date_to", params.date_to);
   if (params.mine) q.set("mine", "true");
+  if (params.login) q.set("login", params.login);
+  if (params.opened) q.set("opened", params.opened);
   return q.toString();
 }
 
@@ -246,6 +251,16 @@ export function getStudents(params: ListParams): Promise<StudentListPageResponse
 
 export function getStudent(studentId: string): Promise<StudentResponse> {
   return bffFetch<StudentResponse>(`/api/v1/students/${encodeURIComponent(studentId)}`);
+}
+
+/** One student's reach + engagement (BP23) — a separate read (staff-only) so the write-path
+ *  student response stays lean; powers the student-detail "Engagement" card. */
+export function getStudentEngagement(
+  studentId: string,
+): Promise<StudentEngagementResponse> {
+  return bffFetch<StudentEngagementResponse>(
+    `/api/v1/students/${encodeURIComponent(studentId)}/engagement`,
+  );
 }
 
 /** Re-issue a one-time temp password for a student who lost theirs (BP18a) — recovery

@@ -20,6 +20,7 @@ from backend.domain.models import (
     Student,
     UserStatus,
 )
+from backend.services.engagement_service import StudentEngagement
 from backend.services.listing_service import StudentListing
 from backend.services.pagination import Page
 from backend.services.student_service import (
@@ -225,6 +226,27 @@ class MatchPhotosResponse(BaseModel):
     @classmethod
     def from_targets(cls, targets: list[ResolvedPhotoTarget]) -> MatchPhotosResponse:
         return cls(results=[PhotoMatchResult.from_target(t) for t in targets])
+
+
+class StudentEngagementResponse(BaseModel):
+    """One student's reach + engagement (BP23) — its own read so ``StudentResponse`` stays
+    a cheap write-path projection. Powers the student-detail "Engagement" card."""
+
+    events_appearing: int
+    photos_appearing: int
+    events_opened: int
+    last_opened_at: datetime | None
+    downloads: int
+
+    @classmethod
+    def from_engagement(cls, e: StudentEngagement) -> StudentEngagementResponse:
+        return cls(
+            events_appearing=e.events_appearing,
+            photos_appearing=e.photos_appearing,
+            events_opened=e.events_opened,
+            last_opened_at=e.last_opened_at,
+            downloads=e.downloads,
+        )
 
 
 class StudentListItem(StudentResponse):

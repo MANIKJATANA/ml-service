@@ -21,6 +21,7 @@ from backend.adapters.repositories._common import (
     opt_uuid,
     req_uuid,
 )
+from backend.db.models import NotificationRead as ReadRow
 from backend.db.models import Student as StudentRow
 from backend.db.models import StudentGroup as StudentGroupRow
 from backend.db.models import User as UserRow
@@ -176,12 +177,20 @@ class PostgresStudentRepository:
         status: EnrollmentStatus | None,
         student_group_id: str | None,
         scope_group_ids: Sequence[str] | None = None,
+        *,
+        never_signed_in: bool = False,
+        never_opened: bool = False,
     ) -> list[ColumnElement[bool]]:
         """The shared WHERE clauses for the paginated students reads (BP9 + BP11a class
         filter + BP11c focus scope). A malformed ``student_group_id`` yields no rows (never
         an ``IS NULL`` that would wrongly match un-classed students). ``scope_group_ids`` (a
         teacher's focus) limits to that set of classes — unlike events, an un-classed student
-        is **not** included (they're no teacher's student); an empty scope yields no rows."""
+        is **not** included (they're no teacher's student); an empty scope yields no rows.
+
+        BP23: ``never_signed_in`` filters to students whose login never signed in
+        (``users.last_login_at IS NULL`` — the select already INNER JOINs ``users``);
+        ``never_opened`` to students who never opened any distribution (a same-schema
+        ``NOT EXISTS`` anti-join over ``notification_reads`` — never the ML ``matches`` seam)."""
         conds: list[ColumnElement[bool]] = [StudentRow.school_id == sid]
         if status is not None:
             conds.append(StudentRow.enrollment_status == status.value)
@@ -196,6 +205,17 @@ class PostgresStudentRepository:
             ]
             conds.append(
                 StudentRow.student_group_id.in_(gids) if gids else false()
+            )
+        if never_signed_in:
+            conds.append(UserRow.last_login_at.is_(None))
+        if never_opened:
+            conds.append(
+                ~select(ReadRow.id)
+                .where(
+                    ReadRow.student_id == StudentRow.id,
+                    ReadRow.school_id == sid,
+                )
+                .exists()
             )
         if q:
             term = ilike_term(q)
@@ -219,6 +239,8 @@ class PostgresStudentRepository:
         status: EnrollmentStatus | None = None,
         student_group_id: str | None = None,
         scope_group_ids: Sequence[str] | None = None,
+        never_signed_in: bool = False,
+        never_opened: bool = False,
     ) -> list[Student]:
         sid = opt_uuid(school_id)
         if sid is None:
@@ -232,7 +254,12 @@ class PostgresStudentRepository:
         async with self._sessionmaker() as session:
             result = await session.execute(
                 self._select_with_email_and_class()
-                .where(*self._filtered(sid, q, status, student_group_id, scope_group_ids))
+                .where(
+                    *self._filtered(
+                        sid, q, status, student_group_id, scope_group_ids,
+                        never_signed_in=never_signed_in, never_opened=never_opened,
+                    )
+                )
                 .order_by(*order)
                 .offset(offset)
                 .limit(limit)
@@ -247,6 +274,8 @@ class PostgresStudentRepository:
         status: EnrollmentStatus | None = None,
         student_group_id: str | None = None,
         scope_group_ids: Sequence[str] | None = None,
+        never_signed_in: bool = False,
+        never_opened: bool = False,
     ) -> int:
         sid = opt_uuid(school_id)
         if sid is None:
@@ -256,7 +285,12 @@ class PostgresStudentRepository:
                 select(func.count())
                 .select_from(StudentRow)
                 .join(UserRow, StudentRow.user_id == UserRow.id)
-                .where(*self._filtered(sid, q, status, student_group_id, scope_group_ids))
+                .where(
+                    *self._filtered(
+                        sid, q, status, student_group_id, scope_group_ids,
+                        never_signed_in=never_signed_in, never_opened=never_opened,
+                    )
+                )
             )
             return int(result.scalar_one())
 
@@ -268,6 +302,8 @@ class PostgresStudentRepository:
         status: EnrollmentStatus | None = None,
         student_group_id: str | None = None,
         scope_group_ids: Sequence[str] | None = None,
+        never_signed_in: bool = False,
+        never_opened: bool = False,
     ) -> list[str]:
         sid = opt_uuid(school_id)
         if sid is None:
@@ -276,7 +312,12 @@ class PostgresStudentRepository:
             result = await session.execute(
                 select(StudentRow.id)
                 .join(UserRow, StudentRow.user_id == UserRow.id)
-                .where(*self._filtered(sid, q, status, student_group_id, scope_group_ids))
+                .where(
+                    *self._filtered(
+                        sid, q, status, student_group_id, scope_group_ids,
+                        never_signed_in=never_signed_in, never_opened=never_opened,
+                    )
+                )
             )
             return [str(r) for r in result.scalars().all()]
 

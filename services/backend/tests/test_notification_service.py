@@ -23,6 +23,7 @@ from backend.domain.models import (
 )
 from backend.services.notification_service import NotificationService
 from backend_fakes import (
+    FakeDownloadAuditRepo,
     FakeEventRepo,
     FakeMatchCorrectionRepo,
     FakeMlResultsReader,
@@ -48,6 +49,7 @@ def _svc(
     corrections: list[MatchCorrection] | None = None,
     reads: FakeNotificationReadRepo | None = None,
     notifier: FakeNotificationChannel | None = None,
+    audit: FakeDownloadAuditRepo | None = None,
 ) -> NotificationService:
     return NotificationService(
         FakeEventRepo(events or []),
@@ -56,6 +58,7 @@ def _svc(
         reads or FakeNotificationReadRepo(),
         notifier or FakeNotificationChannel(),
         FakeMatchCorrectionRepo(corrections or []),
+        audit or FakeDownloadAuditRepo(),
     )
 
 
@@ -86,6 +89,7 @@ async def test_notify_event_fans_out_to_matched_students_and_stamps() -> None:
         FakeNotificationReadRepo(),
         notifier,
         FakeMatchCorrectionRepo(),
+        FakeDownloadAuditRepo(),
     )
 
     count = await svc.notify_event(school_id=_S1, event_id="e1")
@@ -132,6 +136,7 @@ async def test_notify_event_with_no_matched_students_returns_zero() -> None:
         FakeNotificationReadRepo(),
         FakeNotificationChannel(),
         FakeMatchCorrectionRepo(),
+        FakeDownloadAuditRepo(),
     )
     assert await svc.notify_event(school_id=_S1, event_id="e1") == 0
     event = await events.get(_S1, "e1")
@@ -319,6 +324,7 @@ async def test_composite_notifier_isolates_a_failing_channel() -> None:
         FakeNotificationReadRepo(),
         composite,
         FakeMatchCorrectionRepo(),
+        FakeDownloadAuditRepo(),
     )
     # The failing channel must not abort the notify nor the healthy channel.
     count = await svc.notify_event(school_id=_S1, event_id="e1")

@@ -153,6 +153,7 @@ def _event_svc(*, events: list[Event] | None = None) -> tuple[EventService, Fake
         FakeEventJobProducer(),
         FakeEventCategoryRepo(),
         FakeStudentGroupRepo(),
+        FakeUserRepo(),
     )
     return svc, erepo
 

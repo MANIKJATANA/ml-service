@@ -71,6 +71,7 @@ class MediaService:
         event_id: str,
         storage_path: str,
         media_type: MediaType,
+        uploaded_by: str | None = None,
     ) -> Media:
         await self._require_active_event(school_id=school_id, event_id=event_id)
 
@@ -88,12 +89,14 @@ class MediaService:
                 self._object_store, self._thumbnailer, storage_path
             )
 
+        # BP23: stamp who uploaded it (the route actor) for attribution — never the pipeline.
         return await self._media.create(
             school_id=school_id,
             event_id=event_id,
             storage_path=storage_path,
             media_type=media_type,
             thumbnail_path=thumbnail_path,
+            uploaded_by=uploaded_by,
         )
 
     # ---- reads ----------------------------------------------------------

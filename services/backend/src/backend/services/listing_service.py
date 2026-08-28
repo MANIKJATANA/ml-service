@@ -272,11 +272,14 @@ class ListingService:
         status: EnrollmentStatus | None = None,
         student_group_id: str | None = None,
         scope_group_ids: Sequence[str] | None = None,
+        never_signed_in: bool = False,
+        never_opened: bool = False,
     ) -> Page[StudentListing]:
         """One page of the students list (BP9). Count sorts (appearance/event) take the
         whole-list id-scan path; row-native sorts page directly in SQL. BP11a:
         ``student_group_id`` filters to one class. BP11c: ``scope_group_ids`` is a teacher's
-        focus (limit to their classes) — both threaded through both paths."""
+        focus (limit to their classes). BP23: ``never_signed_in``/``never_opened`` activity
+        filters — all threaded through both paths."""
         counts = await self._reader.student_appearance_counts(school_id)
         if sort in STUDENT_COUNT_SORTS:
             ids = await self._students.list_ids(
@@ -285,6 +288,8 @@ class ListingService:
                 status=status,
                 student_group_id=student_group_id,
                 scope_group_ids=scope_group_ids,
+                never_signed_in=never_signed_in,
+                never_opened=never_opened,
             )
             total = len(ids)
 
@@ -316,6 +321,8 @@ class ListingService:
                 status=status,
                 student_group_id=student_group_id,
                 scope_group_ids=scope_group_ids,
+                never_signed_in=never_signed_in,
+                never_opened=never_opened,
             )
             total = await self._students.count_page(
                 school_id,
@@ -323,6 +330,8 @@ class ListingService:
                 status=status,
                 student_group_id=student_group_id,
                 scope_group_ids=scope_group_ids,
+                never_signed_in=never_signed_in,
+                never_opened=never_opened,
             )
         items = [_student_listing(s, counts) for s in students]
         return Page(items=items, total=total, limit=limit, offset=offset)

@@ -53,6 +53,7 @@ from backend.domain.models import (
     MediaType,
     Role,
     StudentSort,
+    UserSort,
     UserStatus,
 )
 from sqlalchemy.exc import IntegrityError
@@ -1522,3 +1523,308 @@ async def test_bp14_analytics_grouped_aggregates(
     await reads.mark_seen(school_id=a.id, student_id=a2_id, event_id=ea1)
     assert await reads.count_distinct_seen_students(a.id) == 2
     assert await reads.count_distinct_seen_students(b.id) == 0
+
+
+# ---- BP23 instrumentation aggregates (decisions/0078) -------------------
+
+
+async def test_bp23_media_uploaded_by_round_trip_and_set_null(
+    sm: async_sessionmaker[AsyncSession],
+) -> None:
+    # media.uploaded_by (migration 0019) persists + defaults None, and its FK is SET NULL —
+    # deleting the uploader's account leaves the row with a null uploader (never orphaned).
+    schools = PostgresSchoolRepository(sm)
+    users = PostgresUserRepository(sm)
+    events = PostgresEventRepository(sm)
+    media = PostgresMediaRepository(sm)
+    a = await schools.create(name="A", max_teachers=5)
+    uploader = await users.create(
+        school_id=a.id, email="t@a.io", password_hash="h", role=Role.TEACHER
+    )
+    ev = await events.create(
+        school_id=a.id, name="E", description=None, event_date=None, created_by=None
+    )
+    attributed = await media.create(
+        school_id=a.id, event_id=ev.id, storage_path="events/a/e/p.jpg",
+        media_type=MediaType.IMAGE, uploaded_by=uploader.id,
+    )
+    assert attributed.uploaded_by == uploader.id
+    anon = await media.create(
+        school_id=a.id, event_id=ev.id, storage_path="events/a/e/q.jpg",
+        media_type=MediaType.IMAGE,  # no uploader -> None
+    )
+    assert anon.uploaded_by is None
+
+    # SET NULL on uploader delete (the row outlives the account).
+    await users.delete(uploader.id)
+    reread = await media.get(a.id, attributed.id)
+    assert reread is not None and reread.uploaded_by is None
+
+
+async def test_bp23_last_login_at_exposed_and_sortable(
+    sm: async_sessionmaker[AsyncSession],
+) -> None:
+    # last_login_at is mapped onto the read model + is a row-native sort (nulls last on ASC).
+    schools = PostgresSchoolRepository(sm)
+    users = PostgresUserRepository(sm)
+    a = await schools.create(name="A", max_teachers=5)
+    t1 = await users.create(
+        school_id=a.id, email="t1@a.io", password_hash="h", role=Role.TEACHER
+    )
+    await users.create(
+        school_id=a.id, email="t2@a.io", password_hash="h", role=Role.TEACHER
+    )
+    # Fresh accounts have a null last_login_at.
+    assert (await users.get(t1.id)).last_login_at is None  # type: ignore[union-attr]
+    await users.touch_last_login(t1.id)
+    assert (await users.get(t1.id)).last_login_at is not None  # type: ignore[union-attr]
+
+    # Sorting by last_login_at ASC puts the never-signed-in account last (NULLS LAST).
+    page = await users.list_page_by_role(
+        a.id, Role.TEACHER, limit=10, offset=0, sort=UserSort.LAST_LOGIN_AT,
+        descending=False,
+    )
+    assert [u.email for u in page] == ["t1@a.io", "t2@a.io"]
+
+
+async def test_bp23_notification_read_reach_and_first_open_aggregates(
+    sm: async_sessionmaker[AsyncSession],
+) -> None:
+    schools = PostgresSchoolRepository(sm)
+    users = PostgresUserRepository(sm)
+    students = PostgresStudentRepository(sm)
+    events = PostgresEventRepository(sm)
+    reads = PostgresNotificationReadRepository(sm)
+    a = await schools.create(name="A", max_teachers=5)
+    b = await schools.create(name="B", max_teachers=5)
+
+    async def _student(school_id: str, email: str) -> str:
+        login = await users.create(
+            school_id=school_id, email=email, password_hash="h", role=Role.STUDENT
+        )
+        s = await students.create(
+            school_id=school_id, user_id=login.id, name=email, reference_photo_path="p"
+        )
+        return s.id
+
+    sa1 = await _student(a.id, "a1@a.io")
+    sa2 = await _student(a.id, "a2@a.io")
+    sb1 = await _student(b.id, "b1@b.io")
+    ea1 = (await events.create(school_id=a.id, name="E1", description=None,
+                               event_date=None, created_by=None)).id
+    ea2 = (await events.create(school_id=a.id, name="E2", description=None,
+                               event_date=None, created_by=None)).id
+    eb1 = (await events.create(school_id=b.id, name="EB", description=None,
+                               event_date=None, created_by=None)).id
+
+    await reads.mark_seen(school_id=a.id, student_id=sa1, event_id=ea1)
+    await reads.mark_seen(school_id=a.id, student_id=sa2, event_id=ea1)
+    await reads.mark_seen(school_id=a.id, student_id=sa1, event_id=ea2)
+    await reads.mark_seen(school_id=b.id, student_id=sb1, event_id=eb1)
+
+    # reach: A has 2 distinct opened events (ea1, ea2); B has 1; tenant-scoped.
+    assert set(await reads.distinct_opened_event_ids(a.id)) == {ea1, ea2}
+    assert set(await reads.distinct_opened_event_ids(b.id)) == {eb1}
+    assert await reads.distinct_opened_event_ids("not-a-uuid") == []
+
+    # first-open trend: 3 first-opens for A, all in the current month (created_at now()).
+    a_trend = await reads.monthly_first_open_counts(a.id)
+    assert sum(a_trend.values()) == 3 and len(a_trend) == 1
+
+    # first_seen_for_event: ea1 has sa1 + sa2 (their immutable created_at), keyed by student.
+    ea1_first = await reads.first_seen_for_event(a.id, ea1)
+    assert set(ea1_first) == {sa1, sa2}
+    assert await reads.first_seen_for_event("not-a-uuid", ea1) == {}
+
+
+async def test_bp23_download_audit_saver_aggregates(
+    sm: async_sessionmaker[AsyncSession],
+) -> None:
+    schools = PostgresSchoolRepository(sm)
+    users = PostgresUserRepository(sm)
+    students = PostgresStudentRepository(sm)
+    events = PostgresEventRepository(sm)
+    media = PostgresMediaRepository(sm)
+    audit = PostgresDownloadAuditRepository(sm)
+    a = await schools.create(name="A", max_teachers=5)
+    b = await schools.create(name="B", max_teachers=5)
+
+    async def _student(school_id: str, email: str) -> tuple[str, str]:
+        login = await users.create(
+            school_id=school_id, email=email, password_hash="h", role=Role.STUDENT
+        )
+        s = await students.create(
+            school_id=school_id, user_id=login.id, name=email, reference_photo_path="p"
+        )
+        return login.id, s.id
+
+    staff = await users.create(
+        school_id=a.id, email="staff@a.io", password_hash="h", role=Role.SCHOOL_ADMIN
+    )
+    a_login, a_student = await _student(a.id, "a1@a.io")
+    b_login, b_student = await _student(b.id, "b1@b.io")
+    ev = await events.create(school_id=a.id, name="E", description=None,
+                             event_date=None, created_by=None)
+    m = await media.create(school_id=a.id, event_id=ev.id, storage_path="p.jpg",
+                           media_type=MediaType.IMAGE)
+    evb = await events.create(school_id=b.id, name="EB", description=None,
+                              event_date=None, created_by=None)
+    mb = await media.create(school_id=b.id, event_id=evb.id, storage_path="pb.jpg",
+                            media_type=MediaType.IMAGE)
+
+    # A student self-download (counts) + a staff download of the same media (must NOT count).
+    await audit.record(school_id=a.id, media_id=m.id, event_id=ev.id,
+                       actor_user_id=a_login, actor_role="student",
+                       subject_student_id=a_student)
+    await audit.record(school_id=a.id, media_id=m.id, event_id=ev.id,
+                       actor_user_id=a_login, actor_role="student",
+                       subject_student_id=a_student)  # a second self-save
+    await audit.record(school_id=a.id, media_id=m.id, event_id=ev.id,
+                       actor_user_id=staff.id, actor_role="school_admin",
+                       subject_student_id=None)
+    await audit.record(school_id=b.id, media_id=mb.id, event_id=evb.id,
+                       actor_user_id=b_login, actor_role="student",
+                       subject_student_id=b_student)
+
+    # distinct savers: A = 1 (only a_student; staff excluded), B = 1; tenant-scoped.
+    assert await audit.count_distinct_saver_students(a.id) == 1
+    assert await audit.count_distinct_saver_students(b.id) == 1
+    assert await audit.count_distinct_saver_students("not-a-uuid") == 0
+
+    # per-event per-student download count: a_student has 2 saves in ev; B never leaks.
+    counts = await audit.download_counts_by_student_for_event(a.id, ev.id)
+    assert counts == {a_student: 2}
+    assert await audit.download_counts_by_student_for_event(a.id, evb.id) == {}
+
+
+async def test_bp23_match_correction_monthly_verdicts(
+    sm: async_sessionmaker[AsyncSession],
+) -> None:
+    schools = PostgresSchoolRepository(sm)
+    users = PostgresUserRepository(sm)
+    students = PostgresStudentRepository(sm)
+    events = PostgresEventRepository(sm)
+    media = PostgresMediaRepository(sm)
+    corr = PostgresMatchCorrectionRepository(sm)
+    a = await schools.create(name="A", max_teachers=5)
+    b = await schools.create(name="B", max_teachers=5)
+    staff = await users.create(school_id=a.id, email="t@a.io", password_hash="h",
+                               role=Role.TEACHER)
+    ev = await events.create(school_id=a.id, name="E", description=None,
+                             event_date=None, created_by=None)
+
+    async def _student_media(email: str, path: str) -> tuple[str, str]:
+        login = await users.create(school_id=a.id, email=email, password_hash="h",
+                                   role=Role.STUDENT)
+        s = await students.create(school_id=a.id, user_id=login.id, name=email,
+                                  reference_photo_path="p")
+        m = await media.create(school_id=a.id, event_id=ev.id, storage_path=path,
+                               media_type=MediaType.IMAGE)
+        return s.id, m.id
+
+    s1, m1 = await _student_media("s1@a.io", "p1.jpg")
+    s2, m2 = await _student_media("s2@a.io", "p2.jpg")
+    s3, m3 = await _student_media("s3@a.io", "p3.jpg")
+    for sid, mid, verdict in (
+        (s1, m1, MatchVerdict.CONFIRMED),
+        (s2, m2, MatchVerdict.REJECTED),
+        (s3, m3, MatchVerdict.ADDED),
+    ):
+        await corr.upsert(school_id=a.id, media_id=mid, student_id=sid, event_id=ev.id,
+                          verdict=verdict, corrected_by=staff.id, reason=None,
+                          resolves_review=False)
+
+    monthly = await corr.monthly_verdict_counts(a.id)
+    # All in the current month (created_at now()); one bucket, one of each verdict.
+    assert len(monthly) == 1
+    per = next(iter(monthly.values()))
+    assert per == {
+        MatchVerdict.CONFIRMED: 1,
+        MatchVerdict.REJECTED: 1,
+        MatchVerdict.ADDED: 1,
+    }
+    # tenant-scoped: B has no corrections.
+    assert await corr.monthly_verdict_counts(b.id) == {}
+
+
+async def test_bp23_estate_age_aggregates(
+    sm: async_sessionmaker[AsyncSession],
+) -> None:
+    schools = PostgresSchoolRepository(sm)
+    events = PostgresEventRepository(sm)
+    a = await schools.create(name="A", max_teachers=5)
+    b = await schools.create(name="B", max_teachers=5)
+
+    # A: two announced events (mark_notified). B: one un-announced event (auto but not completed).
+    ea1 = await events.create(school_id=a.id, name="E1", description=None,
+                              event_date=None, created_by=None)
+    ea2 = await events.create(school_id=a.id, name="E2", description=None,
+                              event_date=None, created_by=None)
+    await events.mark_notified(ea1.id)
+    await events.mark_notified(ea2.id)
+    eb1 = await events.create(school_id=b.id, name="EB", description=None,
+                              event_date=None, created_by=None)  # not announced
+
+    # first_distributed_at: A present = min(notified_at of ea1, ea2); B absent (un-announced).
+    first_dist = await events.first_distributed_at_by_school()
+    ea1n = await events.get(a.id, ea1.id)
+    ea2n = await events.get(a.id, ea2.id)
+    assert ea1n is not None and ea2n is not None
+    assert ea1n.notified_at is not None and ea2n.notified_at is not None
+    assert first_dist[a.id] == min(ea1n.notified_at, ea2n.notified_at)
+    assert b.id not in first_dist
+
+    # last_event_created_at: A = max(ea1, ea2 created_at); B = eb1 created_at (present).
+    last_created = await events.last_event_created_at_by_school()
+    assert last_created[a.id] == max(ea1.created_at, ea2.created_at)
+    assert last_created[b.id] == eb1.created_at
+
+
+async def test_bp23_student_activity_filters(
+    sm: async_sessionmaker[AsyncSession],
+) -> None:
+    # never_signed_in (users.last_login_at IS NULL) + never_opened (a same-schema NOT EXISTS
+    # over notification_reads) — tenant-scoped, threaded through list_ids/count_page.
+    schools = PostgresSchoolRepository(sm)
+    users = PostgresUserRepository(sm)
+    students = PostgresStudentRepository(sm)
+    events = PostgresEventRepository(sm)
+    reads = PostgresNotificationReadRepository(sm)
+    a = await schools.create(name="A", max_teachers=5)
+    b = await schools.create(name="B", max_teachers=5)
+
+    async def _student(school_id: str, email: str) -> tuple[str, str]:
+        login = await users.create(school_id=school_id, email=email, password_hash="h",
+                                   role=Role.STUDENT)
+        s = await students.create(school_id=school_id, user_id=login.id, name=email,
+                                  reference_photo_path="p")
+        return login.id, s.id
+
+    u1, s1 = await _student(a.id, "s1@a.io")
+    _u2, s2 = await _student(a.id, "s2@a.io")
+    _u3, s3 = await _student(a.id, "s3@a.io")
+    _ub, sb = await _student(b.id, "sb@b.io")  # other school — must never leak
+
+    ev = await events.create(school_id=a.id, name="E", description=None,
+                             event_date=None, created_by=None)
+    await users.touch_last_login(u1)  # s1 signed in
+    await reads.mark_seen(school_id=a.id, student_id=s2, event_id=ev.id)  # s2 opened
+
+    # never signed in -> s2, s3 (u2, u3 never logged in); s1 excluded; B never leaks.
+    never_signed = set(await students.list_ids(a.id, never_signed_in=True))
+    assert never_signed == {s2, s3}
+    assert await students.count_page(a.id, never_signed_in=True) == 2
+
+    # never opened -> s1, s3 (s2 has a read); tenant-scoped.
+    never_opened = set(await students.list_ids(a.id, never_opened=True))
+    assert never_opened == {s1, s3}
+
+    # combined -> s3 only (never signed in AND never opened).
+    both = set(
+        await students.list_ids(a.id, never_signed_in=True, never_opened=True)
+    )
+    assert both == {s3}
+
+    # B's student is unaffected by A's filters and only shows in B's scope.
+    assert sb not in never_signed and sb not in never_opened
+    assert set(await students.list_ids(b.id, never_signed_in=True)) == {sb}

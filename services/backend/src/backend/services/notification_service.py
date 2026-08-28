@@ -26,6 +26,7 @@ from backend.domain.models import (
     Student,
 )
 from backend.domain.ports import (
+    DownloadAuditRepository,
     EventRepository,
     MatchCorrectionRepository,
     MlResultsReader,
@@ -50,11 +51,17 @@ class StudentNotification:
 
 @dataclass(frozen=True, slots=True)
 class RosterEntry:
-    """A matched student for the staff roster + whether they've opened the photos."""
+    """A matched student for the staff roster + whether they've opened the photos.
+
+    ``seen`` resets when the event is re-announced (it compares against the last announce);
+    ``first_seen_at`` (BP23) is the persistent TRUE ever-opened time, and ``download_count``
+    is how many of this event's photos the student has saved."""
 
     student: Student
     media_count: int
     seen: bool
+    first_seen_at: datetime | None = None
+    download_count: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,6 +96,7 @@ class NotificationService:
         reads: NotificationReadRepository,
         notifier: NotificationChannel,
         corrections: MatchCorrectionRepository,
+        audit: DownloadAuditRepository,
     ) -> None:
         self._events = events
         self._reader = reader
@@ -96,6 +104,7 @@ class NotificationService:
         self._reads = reads
         self._notifier = notifier
         self._corrections = corrections
+        self._audit = audit
 
     # ---- staff: manual notify + roster ---------------------------------
 
@@ -133,12 +142,19 @@ class NotificationService:
         event = await self._require_event(school_id, event_id)
         effective = _effective_announced_at(event)
         reads = await self._reads.list_for_event(school_id, event_id)
+        # BP23: the persistent first-open (survives a re-announce) + per-student saves.
+        first_seen = await self._reads.first_seen_for_event(school_id, event_id)
+        downloads = await self._audit.download_counts_by_student_for_event(
+            school_id, event_id
+        )
         matched = await self._matched_students(school_id, event_id)
         entries = [
             RosterEntry(
                 student=student,
                 media_count=media_count,
                 seen=_is_seen(reads.get(student.id), effective),
+                first_seen_at=first_seen.get(student.id),
+                download_count=downloads.get(student.id, 0),
             )
             for student, media_count in matched
         ]

@@ -20,6 +20,7 @@ from backend_fakes import (
     FakeEventRepo,
     FakeMediaRepo,
     FakeStudentGroupRepo,
+    FakeUserRepo,
     make_event,
     make_media,
 )
@@ -40,7 +41,12 @@ def _svc(
     erepo.link_categories(crepo.name_of)
     prod = producer or FakeEventJobProducer()
     grepo = FakeStudentGroupRepo()
-    return EventService(erepo, mrepo, prod, crepo, grepo), erepo, mrepo, prod
+    return (
+        EventService(erepo, mrepo, prod, crepo, grepo, FakeUserRepo()),
+        erepo,
+        mrepo,
+        prod,
+    )
 
 
 # ---- CRUD --------------------------------------------------------------

@@ -130,10 +130,20 @@ class EventSort(StrEnum):
 
 
 class UserSort(StrEnum):
-    """Staff/admin rows are ``users`` — no ``name`` column, so email is the only text sort."""
+    """Staff/admin rows are ``users`` — no ``name`` column, so email is the only text sort.
+    BP23 adds ``last_login_at`` (row-native — nulls sort last on ASC)."""
 
     EMAIL = "email"
     CREATED_AT = "created_at"
+    LAST_LOGIN_AT = "last_login_at"  # BP23: the "Last sign-in" staff column sort
+
+
+class ActivityFilter(StrEnum):
+    """A "never did the thing" list filter (BP23). The one value ``never`` selects students
+    who have never signed in / never opened their photos; absence of the param = no filter.
+    Used as an API ``Query`` type so a bad value 422s for free."""
+
+    NEVER = "never"
 
 
 class SchoolSort(StrEnum):
@@ -185,6 +195,9 @@ class User:
     # Bumped on every password change/reset (BP18d); the token's `tv` claim is compared to
     # this on each request + refresh, so a changed/reset password revokes all older sessions.
     token_version: int = 0
+    # Last successful interactive login (migration 0016); None until first sign-in, never
+    # stamped on refresh. BP23 exposes it on the read model — the staff "Last sign-in" column.
+    last_login_at: datetime | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -384,6 +397,9 @@ class Media:
     # pre-BP17 media and — by FE convention, not a backend invariant — video (which keeps a
     # browser poster). The ML pipeline always reads storage_path (the full-res).
     thumbnail_path: str | None = None
+    # BP23 (migration 0019): who uploaded this photo (a users.id), or None for pre-BP23 rows +
+    # a since-deleted uploader (ON DELETE SET NULL). Attribution only — the pipeline ignores it.
+    uploaded_by: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

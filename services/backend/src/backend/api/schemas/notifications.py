@@ -63,6 +63,10 @@ class RosterEntryResponse(BaseModel):
     name: str
     media_count: int
     seen: bool
+    # BP23: the persistent ever-opened time (distinct from ``seen``, which resets on
+    # re-announce) + how many of the event's photos the student has saved.
+    first_seen_at: datetime | None = None
+    download_count: int = 0
 
 
 class NotificationRosterResponse(BaseModel):
@@ -91,6 +95,8 @@ class NotificationRosterResponse(BaseModel):
                     name=e.student.name,
                     media_count=e.media_count,
                     seen=e.seen,
+                    first_seen_at=e.first_seen_at,
+                    download_count=e.download_count,
                 )
                 for e in roster.entries
             ],

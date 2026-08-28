@@ -38,10 +38,12 @@ import { useStaff } from "@/lib/hooks/use-staff";
 import { useUrlParams } from "@/lib/hooks/use-url-state";
 import { formatDate } from "@/lib/utils";
 
-// Default direction when a column is first selected (BP9): email A→Z, added newest-first.
+// Default direction when a column is first selected (BP9): email A→Z, added + last-sign-in
+// newest-first (BP23).
 const SORT_DEFAULT_DIR: Record<string, SortDir> = {
   email: "asc",
   created_at: "desc",
+  last_login_at: "desc",
 };
 
 function staffStatus(user: UserResponse): {
@@ -403,6 +405,7 @@ function StaffContent() {
                       <SortableHead label="Email" sortKey="email" activeKey={sort} dir={dir} onSort={onSort} />
                       <TableHead>Status</TableHead>
                       <TableHead>Classes</TableHead>
+                      <SortableHead label="Last sign-in" sortKey="last_login_at" activeKey={sort} dir={dir} onSort={onSort} />
                       <SortableHead label="Added" sortKey="created_at" activeKey={sort} dir={dir} onSort={onSort} />
                       <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
@@ -420,6 +423,9 @@ function StaffContent() {
                           </TableCell>
                           <TableCell className="max-w-[16rem]">
                             <ClassesCell teacher={teacher} />
+                          </TableCell>
+                          <TableCell className="text-ink-secondary">
+                            {teacher.last_login_at ? formatDate(teacher.last_login_at) : "Never"}
                           </TableCell>
                           <TableCell className="text-ink-secondary">
                             {formatDate(teacher.created_at)}

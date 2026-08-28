@@ -21,6 +21,7 @@ export interface UserResponse {
   must_change_password: boolean;
   created_at: string; // BP2: staff "added" date + admin roster
   name: string | null; // BP18b: the student's display name on /me; null for staff/platform
+  last_login_at: string | null; // BP23: last sign-in (null = never); the staff "Last sign-in" column
 }
 
 /** A provisioned/re-invited staff or admin account + its ONE-TIME temp password (BP7c).
@@ -185,6 +186,9 @@ export interface EventResponse {
   // BP11c: the class this event belongs to (null = untagged/school-wide); name denormalized.
   student_group_id: string | null;
   student_group_name: string | null;
+  // BP23: the creator's email, resolved on the single-event detail read (null on list rows +
+  // for a system/since-deleted creator). Powers the event-detail "Created by" line.
+  created_by_email?: string | null;
 }
 
 /** A tenant-configurable event category (BP11b, decisions/0059). */
@@ -375,6 +379,15 @@ export interface MonthPointResponse {
   month: string; // 'YYYY-MM'
   photos: number;
   events: number;
+  first_opens: number; // BP23: student first-opens that month (the decline-capable engagement line)
+}
+/** BP23: one month of matching-quality verdicts. The FE renders confirm-rate =
+ *  confirmed/(confirmed+rejected) + a separate rejected rate; `added` is shown on its own. */
+export interface QualityPointResponse {
+  month: string; // 'YYYY-MM'
+  confirmed: number;
+  rejected: number;
+  added: number;
 }
 export interface SchoolAnalyticsResponse {
   school_name: string;
@@ -382,11 +395,23 @@ export interface SchoolAnalyticsResponse {
   students_enrolled: number;
   students_signed_in: number;
   students_engaged: number;
+  students_saved: number; // BP23: distinct students who saved >=1 of their own photos
   events_total: number;
   events_distributed: number;
+  events_opened: number; // BP23: distinct announced events with >=1 opener (reach numerator)
   photos_total: number;
   terms: TermRollupResponse[];
   months: MonthPointResponse[];
+  quality: QualityPointResponse[]; // BP23: monthly correction verdicts (matching quality)
+}
+
+/** BP23: one student's reach + engagement (staff read behind the student-detail card). */
+export interface StudentEngagementResponse {
+  events_appearing: number;
+  photos_appearing: number;
+  events_opened: number;
+  last_opened_at: string | null;
+  downloads: number;
 }
 
 /** One school's adoption funnel for the platform estate view (BP14). `stalled` = the
@@ -402,6 +427,11 @@ export interface SchoolFunnelResponse {
   signed_in_students: number;
   stalled: boolean;
   idle: boolean;
+  // BP23 age axis (the FE sorts/derives client-side over the full estate list).
+  created_at: string;
+  not_started: boolean; // no event created yet
+  days_to_first_delivery: number | null; // signup → first announce (null if never)
+  stalled_since: string | null; // most recent event time ("no event since …")
 }
 export interface EstateAnalyticsResponse {
   schools: SchoolFunnelResponse[];
@@ -438,6 +468,10 @@ export interface NotificationRosterStudent {
   name: string;
   media_count: number;
   seen: boolean;
+  // BP23: the persistent ever-opened time (distinct from `seen`, which resets on re-announce)
+  // + how many of the event's photos the student has saved.
+  first_seen_at: string | null;
+  download_count: number;
 }
 export interface NotificationRosterResponse {
   announced: boolean;

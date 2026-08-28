@@ -115,6 +115,8 @@ _EVENT_SORT_KEYS: dict[EventSort, Callable[[Event], object]] = {
 _USER_SORT_KEYS: dict[UserSort, Callable[[User], object]] = {
     UserSort.EMAIL: lambda u: u.email,
     UserSort.CREATED_AT: lambda u: u.created_at,
+    # BP23: nulls (never signed in) sort last on ASC — mirror the adapter (Postgres NULLS LAST).
+    UserSort.LAST_LOGIN_AT: lambda u: (u.last_login_at is None, u.last_login_at or _NOW),
 }
 _SCHOOL_SORT_KEYS: dict[SchoolSort, Callable[[School], object]] = {
     SchoolSort.NAME: lambda s: s.name,
@@ -132,6 +134,7 @@ def make_user(
     status: UserStatus = UserStatus.ACTIVE,
     must_change_password: bool = False,
     token_version: int = 0,
+    last_login_at: datetime | None = None,
 ) -> User:
     return User(
         id=id,
@@ -144,6 +147,7 @@ def make_user(
         created_at=_NOW,
         updated_at=_NOW,
         token_version=token_version,
+        last_login_at=last_login_at,
     )
 
 
@@ -285,6 +289,7 @@ def make_media(
     processing_status: MediaProcessingStatus = MediaProcessingStatus.PENDING,
     completed_at: datetime | None = None,
     thumbnail_path: str | None = None,
+    uploaded_by: str | None = None,
     created_at: datetime = _NOW,
 ) -> Media:
     return Media(
@@ -296,6 +301,7 @@ def make_media(
         processing_status=processing_status,
         completed_at=completed_at,
         thumbnail_path=thumbnail_path,
+        uploaded_by=uploaded_by,
         created_at=created_at,
         updated_at=_NOW,
     )
@@ -456,6 +462,11 @@ class FakeUserRepo:
         user = self._by_id.get(user_id)
         return user.status if user is not None else UserStatus.ACTIVE
 
+    def signed_in_of(self, user_id: str) -> bool:
+        """Sync helper: has this login ever signed in? — mirrors last_login_at IS NOT NULL
+        (BP23 never-signed-in filter)."""
+        return user_id in self._signed_in
+
     async def get_by_email(self, email: str) -> User | None:
         return self._by_email.get(normalize_email(email))
 
@@ -563,6 +574,9 @@ class FakeUserRepo:
     async def touch_last_login(self, user_id: str) -> None:
         if user_id in self._by_id:
             self._signed_in.add(user_id)
+            # BP23: also stamp the read-model field (the count aggregates still read
+            # ``_signed_in`` so existing tests that poke it directly keep working).
+            self.mutate(user_id, last_login_at=_NOW)
 
     async def count_signed_in_by_school_and_role(
         self, school_id: str, role: Role
@@ -678,12 +692,24 @@ class FakeStudentRepo:
         # email/class, status is written to the USER row (set_status), so it must be resolved
         # on every read (not snapshotted at create) for a disable to surface. Defaults active.
         self._status_of: Callable[[str], UserStatus] = lambda _uid: UserStatus.ACTIVE
+        # BP23: has the student's login ever signed in? (by user_id) / has the student opened
+        # any distribution? (by student_id) — mirror the users.last_login_at IS NULL filter +
+        # the notification_reads NOT EXISTS anti-join. Default: unknown → treated as "never"
+        # (so an unwired fake with never_* filters matches everyone, like an empty DB).
+        self._signed_in_of: Callable[[str], bool] = lambda _uid: False
+        self._opened_of: Callable[[str], bool] = lambda _sid: False
 
     def link_users(self, resolver: Callable[[str], str]) -> None:
         self._email_of = resolver
 
     def link_user_status(self, resolver: Callable[[str], UserStatus]) -> None:
         self._status_of = resolver
+
+    def link_login_activity(self, resolver: Callable[[str], bool]) -> None:
+        self._signed_in_of = resolver  # by user_id → has ever signed in (BP23)
+
+    def link_opened(self, resolver: Callable[[str], bool]) -> None:
+        self._opened_of = resolver  # by student_id → has opened >=1 distribution (BP23)
 
     def link_groups(self, resolver: Callable[[str], str | None]) -> None:
         self._group_name_of = resolver
@@ -744,11 +770,18 @@ class FakeStudentRepo:
         status: EnrollmentStatus | None,
         student_group_id: str | None = None,
         scope_group_ids: Sequence[str] | None = None,
+        never_signed_in: bool = False,
+        never_opened: bool = False,
     ) -> bool:
         # BP11c focus: an un-classed student is in no teacher's scope (unlike events).
         in_scope = scope_group_ids is None or (
             s.student_group_id is not None and s.student_group_id in scope_group_ids
         )
+        # BP23 activity filters: exclude those who HAVE signed in / HAVE opened.
+        if never_signed_in and self._signed_in_of(s.user_id):
+            return False
+        if never_opened and self._opened_of(s.id):
+            return False
         return (
             s.school_id == school_id
             and (status is None or s.enrollment_status is status)
@@ -769,11 +802,16 @@ class FakeStudentRepo:
         status: EnrollmentStatus | None = None,
         student_group_id: str | None = None,
         scope_group_ids: Sequence[str] | None = None,
+        never_signed_in: bool = False,
+        never_opened: bool = False,
     ) -> list[Student]:
         rows = [
             s
             for s in self._by_id.values()
-            if self._match(s, school_id, q, status, student_group_id, scope_group_ids)
+            if self._match(
+                s, school_id, q, status, student_group_id, scope_group_ids,
+                never_signed_in, never_opened,
+            )
         ]
         page = _page(
             rows,
@@ -792,11 +830,16 @@ class FakeStudentRepo:
         status: EnrollmentStatus | None = None,
         student_group_id: str | None = None,
         scope_group_ids: Sequence[str] | None = None,
+        never_signed_in: bool = False,
+        never_opened: bool = False,
     ) -> int:
         return sum(
             1
             for s in self._by_id.values()
-            if self._match(s, school_id, q, status, student_group_id, scope_group_ids)
+            if self._match(
+                s, school_id, q, status, student_group_id, scope_group_ids,
+                never_signed_in, never_opened,
+            )
         )
 
     async def list_ids(
@@ -807,11 +850,16 @@ class FakeStudentRepo:
         status: EnrollmentStatus | None = None,
         student_group_id: str | None = None,
         scope_group_ids: Sequence[str] | None = None,
+        never_signed_in: bool = False,
+        never_opened: bool = False,
     ) -> list[str]:
         return [
             s.id
             for s in self._by_id.values()
-            if self._match(s, school_id, q, status, student_group_id, scope_group_ids)
+            if self._match(
+                s, school_id, q, status, student_group_id, scope_group_ids,
+                never_signed_in, never_opened,
+            )
         ]
 
     async def list_by_ids(
@@ -1419,6 +1467,35 @@ class FakeEventRepo:
                 counts[e.school_id] = counts.get(e.school_id, 0) + 1
         return counts
 
+    async def first_distributed_at_by_school(self) -> dict[str, datetime]:
+        # BP23: earliest announce time per school = min(coalesce(notified_at, completed_at))
+        # under the announced predicate. Mirrors the real MIN grouped scan.
+        out: dict[str, datetime] = {}
+        for e in self._by_id.values():
+            announced = e.notified_at is not None or (
+                e.auto_notify and e.completed_at is not None
+            )
+            if not announced:
+                continue
+            announce_at = e.notified_at if e.notified_at is not None else e.completed_at
+            if announce_at is None:
+                continue
+            cur = out.get(e.school_id)
+            if cur is None or announce_at < cur:
+                out[e.school_id] = announce_at
+        return out
+
+    async def last_event_created_at_by_school(self) -> dict[str, datetime]:
+        # BP23: most recent event created_at per school (the "no event since" idle anchor).
+        out: dict[str, datetime] = {}
+        for e in self._by_id.values():
+            if e.created_at is None:
+                continue
+            cur = out.get(e.school_id)
+            if cur is None or e.created_at > cur:
+                out[e.school_id] = e.created_at
+        return out
+
     async def monthly_event_date_counts(self, school_id: str) -> dict[str, int]:
         counts: dict[str, int] = {}
         for e in self._by_id.values():
@@ -1670,6 +1747,7 @@ class FakeMediaRepo:
         storage_path: str,
         media_type: MediaType,
         thumbnail_path: str | None = None,
+        uploaded_by: str | None = None,
     ) -> Media:
         self._seq += 1
         media = make_media(
@@ -1679,6 +1757,7 @@ class FakeMediaRepo:
             storage_path=storage_path,
             media_type=media_type,
             thumbnail_path=thumbnail_path,
+            uploaded_by=uploaded_by,
         )
         self._by_id[media.id] = media
         return media
@@ -1926,6 +2005,20 @@ class FakeMatchCorrectionRepo:
     async def count_resolved(self, school_id: str) -> int:
         return sum(1 for c in self._by_pair.values() if c.resolves_review)
 
+    async def monthly_verdict_counts(
+        self, school_id: str
+    ) -> dict[str, dict[MatchVerdict, int]]:
+        # BP23: the fake MatchCorrection VO carries no created_at, so bucket every correction
+        # into one month (_NOW). Enough to test the confirm/reject/added counts + FE rate math;
+        # the real month bucketing is covered by the gated Postgres round-trip.
+        if not self._by_pair:
+            return {}
+        month = _NOW.strftime("%Y-%m")
+        per: dict[MatchVerdict, int] = {}
+        for c in self._by_pair.values():
+            per[c.verdict] = per.get(c.verdict, 0) + 1
+        return {month: per}
+
 
 class FakeDownloadAuditRepo:
     """DownloadAuditRepository double: an in-memory append-only list (BP8b).
@@ -2016,6 +2109,30 @@ class FakeDownloadAuditRepo:
             rows = [r for r in rows if r.subject_student_id == student_id]
         return rows
 
+    async def count_distinct_saver_students(self, school_id: str) -> int:
+        # BP23: distinct students who self-downloaded (subject_student_id non-null == a save).
+        return len(
+            {
+                r.subject_student_id
+                for r in self._rows
+                if r.school_id == school_id and r.subject_student_id is not None
+            }
+        )
+
+    async def download_counts_by_student_for_event(
+        self, school_id: str, event_id: str
+    ) -> dict[str, int]:
+        # BP23 roster "Downloaded": per-student self-download count for one event.
+        counts: dict[str, int] = {}
+        for r in self._rows:
+            if (
+                r.school_id == school_id
+                and r.event_id == event_id
+                and r.subject_student_id is not None
+            ):
+                counts[r.subject_student_id] = counts.get(r.subject_student_id, 0) + 1
+        return counts
+
     @property
     def rows(self) -> list[DownloadAuditEntry]:
         """Test accessor: every recorded row, in insertion order."""
@@ -2023,15 +2140,21 @@ class FakeDownloadAuditRepo:
 
 
 class FakeNotificationReadRepo:
-    """NotificationReadRepository double: (student_id, event_id) -> seen_at."""
+    """NotificationReadRepository double: (student_id, event_id) -> seen_at.
+
+    Also tracks the immutable ``created_at`` (the TRUE first-open) via ``setdefault`` — so it
+    survives a re-open/re-notify while ``seen_at`` moves forward (BP23 first-open vs seen)."""
 
     def __init__(self) -> None:
         self._seen: dict[tuple[str, str], datetime] = {}
+        self._created: dict[tuple[str, str], datetime] = {}
 
     async def mark_seen(
         self, *, school_id: str, student_id: str, event_id: str
     ) -> None:
-        self._seen[(student_id, event_id)] = _NOW
+        key = (student_id, event_id)
+        self._seen[key] = _NOW
+        self._created.setdefault(key, _NOW)  # first-open never moves
 
     async def list_for_student(
         self, school_id: str, student_id: str
@@ -2052,9 +2175,40 @@ class FakeNotificationReadRepo:
         # tests seed one school, so distinct students == the engagement numerator.
         return len({sid for (sid, _eid) in self._seen})
 
+    async def distinct_opened_event_ids(self, school_id: str) -> list[str]:
+        # BP23 reach: the distinct event ids with >=1 opener (the service intersects with the
+        # announced set). School-agnostic like the other reads here (tests seed one school).
+        return list({eid for (_sid, eid) in self._seen})
+
+    async def monthly_first_open_counts(self, school_id: str) -> dict[str, int]:
+        # BP23 first-open trend: bucket the immutable first-open times by 'YYYY-MM'.
+        counts: dict[str, int] = {}
+        for when in self._created.values():
+            key = when.strftime("%Y-%m")
+            counts[key] = counts.get(key, 0) + 1
+        return counts
+
+    async def first_seen_for_event(
+        self, school_id: str, event_id: str
+    ) -> dict[str, datetime]:
+        # BP23 roster "ever opened": the immutable first-open, keyed by student.
+        return {
+            sid: created
+            for (sid, eid), created in self._created.items()
+            if eid == event_id
+        }
+
+    def has_opened(self, student_id: str) -> bool:
+        """Sync helper: has this student opened >=1 distribution? — mirrors the
+        notification_reads EXISTS anti-join (BP23 never-opened filter)."""
+        return any(sid == student_id for (sid, _eid) in self._seen)
+
     def set_seen(self, student_id: str, event_id: str, when: datetime) -> None:
-        """Test helper: seed a read at a specific time (re-notify resurface tests)."""
-        self._seen[(student_id, event_id)] = when
+        """Test helper: seed a read at a specific time (re-notify resurface tests). The
+        first-open (created_at) is set once (setdefault) so it never moves on a later reseed."""
+        key = (student_id, event_id)
+        self._seen[key] = when
+        self._created.setdefault(key, when)
 
 
 class FakeNotificationChannel:
@@ -2142,6 +2296,13 @@ class SeededContainer(Container):
             self._seed_students.link_users(self._seed_users.email_of)
             # BP18d: the student read model reflects the linked login's status (disable).
             self._seed_students.link_user_status(self._seed_users.status_of)
+            # BP23: the never-signed-in filter reads the login's sign-in state.
+            self._seed_students.link_login_activity(self._seed_users.signed_in_of)
+        # BP23: the never-opened filter reads whether the student has any notification read.
+        if isinstance(self._seed_students, FakeStudentRepo) and isinstance(
+            self._seed_notification_reads, FakeNotificationReadRepo
+        ):
+            self._seed_students.link_opened(self._seed_notification_reads.has_opened)
         # Wire the class↔student links (BP11a): the student read carries its class name, the
         # classes list shows member counts, and deleting a class un-assigns its students —
         # and (BP11c) un-tags its events (both students.student_group_id + events.student_group_id

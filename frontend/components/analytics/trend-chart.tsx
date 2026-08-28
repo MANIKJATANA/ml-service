@@ -24,7 +24,7 @@ export function TrendChart({
   label,
 }: {
   months: MonthPointResponse[];
-  metric: "photos" | "events";
+  metric: "photos" | "events" | "first_opens";
   label: string;
 }) {
   if (months.length === 0) {

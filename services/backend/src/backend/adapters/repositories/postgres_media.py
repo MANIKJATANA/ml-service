@@ -44,6 +44,7 @@ def _to_media(row: MediaRow) -> Media:
         created_at=row.created_at,
         updated_at=row.updated_at,
         thumbnail_path=row.thumbnail_path,
+        uploaded_by=str(row.uploaded_by) if row.uploaded_by is not None else None,
     )
 
 
@@ -61,9 +62,11 @@ class PostgresMediaRepository:
         storage_path: str,
         media_type: MediaType,
         thumbnail_path: str | None = None,
+        uploaded_by: str | None = None,
     ) -> Media:
         sid = req_uuid(school_id, field="school_id")
         eid = req_uuid(event_id, field="event_id")
+        uid = req_uuid(uploaded_by, field="uploaded_by") if uploaded_by is not None else None
         async with self._sessionmaker() as session, session.begin():
             row = MediaRow(
                 school_id=sid,
@@ -71,6 +74,7 @@ class PostgresMediaRepository:
                 storage_path=storage_path,
                 media_type=media_type.value,
                 thumbnail_path=thumbnail_path,
+                uploaded_by=uid,
             )
             session.add(row)
             await session.flush()

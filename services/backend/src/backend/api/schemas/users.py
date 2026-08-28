@@ -41,6 +41,9 @@ class UserResponse(BaseModel):
     # BP18b: the student's display name on /me (the shell shows it); null for staff/platform,
     # whose accounts have no name (only an email). Additive — defaults null on every other read.
     name: str | None = None
+    # BP23: last successful sign-in (null = never signed in). The staff/admin roster shows it
+    # as a "Last sign-in" column; harmless on /me. Additive.
+    last_login_at: datetime | None = None
 
     @classmethod
     def from_user(cls, user: User, *, name: str | None = None) -> UserResponse:
@@ -53,6 +56,7 @@ class UserResponse(BaseModel):
             must_change_password=user.must_change_password,
             created_at=user.created_at,
             name=name,
+            last_login_at=user.last_login_at,
         )
 
 

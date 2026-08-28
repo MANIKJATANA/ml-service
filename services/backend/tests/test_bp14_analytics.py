@@ -19,7 +19,9 @@ from backend.domain.models import EnrollmentStatus, Role, User
 from backend.main import create_app
 from backend.services.analytics_service import AnalyticsService
 from backend_fakes import (
+    FakeDownloadAuditRepo,
     FakeEventRepo,
+    FakeMatchCorrectionRepo,
     FakeMediaRepo,
     FakeNotificationReadRepo,
     FakeSchoolRepo,
@@ -52,6 +54,8 @@ def _school_svc(
     media: FakeMediaRepo,
     reads: FakeNotificationReadRepo,
     schools: FakeSchoolRepo | None = None,
+    corrections: FakeMatchCorrectionRepo | None = None,
+    audit: FakeDownloadAuditRepo | None = None,
 ) -> AnalyticsService:
     return AnalyticsService(
         schools or FakeSchoolRepo([make_school(id=_S1)]),
@@ -60,6 +64,8 @@ def _school_svc(
         events,
         media,
         reads,
+        corrections or FakeMatchCorrectionRepo(),
+        audit or FakeDownloadAuditRepo(),
     )
 
 
@@ -277,7 +283,14 @@ async def test_estate_analytics_funnel_stalled_and_idle() -> None:
         ]
     )
     estate = await AnalyticsService(
-        schools, users, students, events, FakeMediaRepo(), FakeNotificationReadRepo()
+        schools,
+        users,
+        students,
+        events,
+        FakeMediaRepo(),
+        FakeNotificationReadRepo(),
+        FakeMatchCorrectionRepo(),
+        FakeDownloadAuditRepo(),
     ).estate_analytics()
 
     by_id = {f.school_id: f for f in estate.schools}

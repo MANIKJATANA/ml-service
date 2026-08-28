@@ -21,9 +21,11 @@ from backend.domain.errors import ConflictError, NotFoundError
 from backend.domain.models import Role, User, UserSort, UserStatus
 
 # Row-native sort columns (BP9). Users have no name column, so email is the only text sort.
+# BP23 adds last_login_at (Postgres sorts nulls last on ASC — "never signed in" trails).
 _SORT_COLS = {
     UserSort.EMAIL: UserRow.email,
     UserSort.CREATED_AT: UserRow.created_at,
+    UserSort.LAST_LOGIN_AT: UserRow.last_login_at,
 }
 
 
@@ -39,6 +41,7 @@ def _to_user(row: UserRow) -> User:
         created_at=row.created_at,
         updated_at=row.updated_at,
         token_version=row.token_version,
+        last_login_at=row.last_login_at,
     )
 
 
@@ -251,10 +254,14 @@ class PostgresUserRepository:
         if key is None:
             return []
         col = _SORT_COLS.get(sort, UserRow.created_at)
+        # nulls_last() so a never-signed-in account (last_login_at IS NULL) always sits at the
+        # bottom, in BOTH directions (BP23) — else Postgres' default puts NULLs first on DESC,
+        # so "sort by Last sign-in, newest first" would surprisingly lead with "Never" rows. A
+        # no-op for the NOT NULL email/created_at columns.
         order = (
-            (col.desc(), UserRow.id.desc())
+            (col.desc().nulls_last(), UserRow.id.desc())
             if descending
-            else (col.asc(), UserRow.id.asc())
+            else (col.asc().nulls_last(), UserRow.id.asc())
         )
         async with self._sessionmaker() as session:
             result = await session.execute(

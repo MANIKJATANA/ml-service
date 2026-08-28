@@ -58,6 +58,7 @@ async def register_media(
         event_id=event_id,
         storage_path=body.storage_path,
         media_type=body.media_type,
+        uploaded_by=actor.id,  # BP23: attribution — who uploaded this photo
     )
     return MediaResponse.from_media(media)
 

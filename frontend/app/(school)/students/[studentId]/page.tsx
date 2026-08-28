@@ -3,7 +3,7 @@
 import { AlertTriangle, Ban, CircleCheck, ImagePlus, KeyRound, RefreshCw, Trash2 } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
 import { type FormEvent, useState } from "react";
-import { mutate as globalMutate } from "swr";
+import useSWR, { mutate as globalMutate } from "swr";
 
 import { FilterChips } from "@/components/gallery/filter-chips";
 import { GridSkeleton } from "@/components/gallery/grid-skeleton";
@@ -25,6 +25,7 @@ import { useToast } from "@/components/ui/toast";
 import {
   deleteStudent,
   enrollStudent,
+  getStudentEngagement,
   resendStudentInvite,
   setStudentClass,
   setStudentReferencePhoto,
@@ -232,6 +233,39 @@ function StudentEventPhotos({ studentId, eventId }: { studentId: string; eventId
       }))}
       canManageAppearances
     />
+  );
+}
+
+/** One student's reach + engagement (BP23) — events/photos they appear in, how many they've
+ *  opened + when, and their own downloads. Its own read (staff-only). Renders nothing on a
+ *  load/error so it never blocks the profile. */
+function EngagementCard({ studentId }: { studentId: string }) {
+  const { data } = useSWR(`student-engagement:${studentId}`, () =>
+    getStudentEngagement(studentId),
+  );
+  if (!data) return null;
+  const stats: { label: string; value: string }[] = [
+    { label: "Events they're in", value: data.events_appearing.toLocaleString() },
+    { label: "Photos they're in", value: data.photos_appearing.toLocaleString() },
+    { label: "Events opened", value: data.events_opened.toLocaleString() },
+    {
+      label: "Last opened",
+      value: data.last_opened_at ? formatDate(data.last_opened_at) : "—",
+    },
+    { label: "Downloads", value: data.downloads.toLocaleString() },
+  ];
+  return (
+    <Card className="flex flex-col gap-4 p-6">
+      <h2 className="text-headline text-ink">Engagement</h2>
+      <dl className="grid gap-6 sm:grid-cols-3">
+        {stats.map((s) => (
+          <div key={s.label} className="flex flex-col gap-1">
+            <dt className="text-body-sm text-ink-secondary">{s.label}</dt>
+            <dd className="text-body font-medium tabular-nums text-ink">{s.value}</dd>
+          </div>
+        ))}
+      </dl>
+    </Card>
   );
 }
 
@@ -513,6 +547,7 @@ export default function StudentDetailPage() {
           {student.enrollment_status === "failed" ? (
             <EnrollmentFailureNote reason={student.enrollment_failure_reason} />
           ) : null}
+          <EngagementCard studentId={studentId} />
           <AppearsInSection studentId={studentId} />
         </>
       )}

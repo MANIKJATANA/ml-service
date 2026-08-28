@@ -1,7 +1,8 @@
 "use client";
 
-import { AlertTriangle, MoonStar } from "lucide-react";
+import { AlertTriangle, ChevronDown, ChevronUp, MoonStar } from "lucide-react";
 import Link from "next/link";
+import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -20,6 +21,33 @@ import {
 } from "@/components/ui/table";
 import type { EstateAnalyticsResponse, SchoolFunnelResponse } from "@/lib/api/types";
 import { useEstateAnalytics } from "@/lib/hooks/use-estate-analytics";
+import { formatDate } from "@/lib/utils";
+
+// BP23: the estate list is fully materialized (unpaginated), so the funnel sorts client-side.
+type SortKey =
+  | "school_name"
+  | "teachers"
+  | "students"
+  | "enrolled"
+  | "events"
+  | "distributed"
+  | "signed_in_students"
+  | "days_to_first_delivery"
+  | "stalled_since";
+
+// A comparable value per sortable column (nulls pushed to the end on ASC).
+const ACCESSOR: Record<SortKey, (f: SchoolFunnelResponse) => number | string> = {
+  school_name: (f) => f.school_name.toLowerCase(),
+  teachers: (f) => f.teachers,
+  students: (f) => f.students,
+  enrolled: (f) => f.enrolled,
+  events: (f) => f.events,
+  distributed: (f) => f.distributed,
+  signed_in_students: (f) => f.signed_in_students,
+  days_to_first_delivery: (f) =>
+    f.days_to_first_delivery ?? Number.POSITIVE_INFINITY,
+  stalled_since: (f) => f.stalled_since ?? "", // "" (never) sorts before any ISO date
+};
 
 export default function EstateAnalyticsPage() {
   const { estate, error, isLoading, mutate } = useEstateAnalytics();
@@ -56,8 +84,75 @@ function statusOf(f: SchoolFunnelResponse): { tone: "success" | "warning" | "err
   return { tone: "success", label: "Healthy" };
 }
 
+/** A click-to-sort funnel header (BP23) — toggles direction on the active column. */
+function SortHead({
+  label,
+  k,
+  sortKey,
+  dir,
+  onSort,
+  numeric,
+}: {
+  label: string;
+  k: SortKey;
+  sortKey: SortKey;
+  dir: "asc" | "desc";
+  onSort: (k: SortKey) => void;
+  numeric?: boolean;
+}) {
+  const active = sortKey === k;
+  return (
+    <TableHead
+      className={numeric ? "text-right" : undefined}
+      aria-sort={active ? (dir === "asc" ? "ascending" : "descending") : "none"}
+    >
+      <button
+        type="button"
+        onClick={() => onSort(k)}
+        aria-label={`Sort by ${label}${active ? (dir === "asc" ? ", ascending" : ", descending") : ""}`}
+        className={`inline-flex items-center gap-1 rounded-sm font-medium focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent ${
+          active ? "text-ink" : "hover:text-ink"
+        } ${numeric ? "flex-row-reverse" : ""}`}
+      >
+        {label}
+        {active ? (
+          dir === "asc" ? (
+            <ChevronUp className="size-3.5" aria-hidden="true" />
+          ) : (
+            <ChevronDown className="size-3.5" aria-hidden="true" />
+          )
+        ) : null}
+      </button>
+    </TableHead>
+  );
+}
+
 function EstateBody({ e }: { e: EstateAnalyticsResponse }) {
   const needsAttention = e.schools.filter((s) => s.stalled || s.idle);
+  const [sortKey, setSortKey] = useState<SortKey>("school_name");
+  const [dir, setDir] = useState<"asc" | "desc">("asc");
+
+  function onSort(k: SortKey) {
+    if (k === sortKey) {
+      setDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(k);
+      // Text default A→Z; numeric/date columns default to most-interesting-first (desc).
+      setDir(k === "school_name" ? "asc" : "desc");
+    }
+  }
+
+  const get = ACCESSOR[sortKey];
+  const sorted = [...e.schools].sort((a, b) => {
+    const va = get(a);
+    const vb = get(b);
+    let cmp: number;
+    if (typeof va === "number" && typeof vb === "number") cmp = va - vb;
+    else cmp = String(va).localeCompare(String(vb));
+    if (cmp === 0) cmp = a.school_name.localeCompare(b.school_name); // stable tiebreak
+    return dir === "asc" ? cmp : -cmp;
+  });
+
   return (
     <div className="flex flex-col gap-6">
       {/* Alerts */}
@@ -116,21 +211,23 @@ function EstateBody({ e }: { e: EstateAnalyticsResponse }) {
           <EmptyState title="No schools yet" description="Onboard a school to see its adoption." />
         ) : (
           <Card className="overflow-x-auto">
-            <Table>
+            <Table className="min-w-[820px]">
               <TableHeader>
                 <TableRow>
-                  <TableHead>School</TableHead>
-                  <TableHead>Staff</TableHead>
-                  <TableHead>Students</TableHead>
-                  <TableHead>Enrolled</TableHead>
-                  <TableHead>Events</TableHead>
-                  <TableHead>Announced</TableHead>
-                  <TableHead>Signed in</TableHead>
+                  <SortHead label="School" k="school_name" sortKey={sortKey} dir={dir} onSort={onSort} />
+                  <SortHead label="Staff" k="teachers" sortKey={sortKey} dir={dir} onSort={onSort} numeric />
+                  <SortHead label="Students" k="students" sortKey={sortKey} dir={dir} onSort={onSort} numeric />
+                  <SortHead label="Enrolled" k="enrolled" sortKey={sortKey} dir={dir} onSort={onSort} numeric />
+                  <SortHead label="Events" k="events" sortKey={sortKey} dir={dir} onSort={onSort} numeric />
+                  <SortHead label="Announced" k="distributed" sortKey={sortKey} dir={dir} onSort={onSort} numeric />
+                  <SortHead label="Signed in" k="signed_in_students" sortKey={sortKey} dir={dir} onSort={onSort} numeric />
+                  <SortHead label="Days to deliver" k="days_to_first_delivery" sortKey={sortKey} dir={dir} onSort={onSort} numeric />
+                  <SortHead label="Last event" k="stalled_since" sortKey={sortKey} dir={dir} onSort={onSort} numeric />
                   <TableHead>Status</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {e.schools.map((f) => {
+                {sorted.map((f) => {
                   const status = statusOf(f);
                   return (
                     <TableRow key={f.school_id}>
@@ -142,17 +239,24 @@ function EstateBody({ e }: { e: EstateAnalyticsResponse }) {
                           {f.school_name}
                         </Link>
                       </TableCell>
-                      <TableCell className="tabular-nums text-ink-secondary">{f.teachers}</TableCell>
-                      <TableCell className="tabular-nums text-ink-secondary">
+                      <TableCell className="text-right tabular-nums text-ink-secondary">{f.teachers}</TableCell>
+                      <TableCell className="text-right tabular-nums text-ink-secondary">
                         {f.students.toLocaleString()}
                       </TableCell>
-                      <TableCell className="tabular-nums text-ink-secondary">
+                      <TableCell className="text-right tabular-nums text-ink-secondary">
                         {f.enrolled.toLocaleString()}
                       </TableCell>
-                      <TableCell className="tabular-nums text-ink-secondary">{f.events}</TableCell>
-                      <TableCell className="tabular-nums text-ink-secondary">{f.distributed}</TableCell>
-                      <TableCell className="tabular-nums text-ink-secondary">
+                      <TableCell className="text-right tabular-nums text-ink-secondary">{f.events}</TableCell>
+                      <TableCell className="text-right tabular-nums text-ink-secondary">{f.distributed}</TableCell>
+                      <TableCell className="text-right tabular-nums text-ink-secondary">
                         {f.signed_in_students.toLocaleString()}
+                      </TableCell>
+                      {/* BP23 age axis: days from signup to first announce; most-recent event. */}
+                      <TableCell className="text-right tabular-nums text-ink-secondary">
+                        {f.days_to_first_delivery ?? "—"}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums text-ink-secondary">
+                        {f.stalled_since ? formatDate(f.stalled_since) : "—"}
                       </TableCell>
                       <TableCell>
                         <StatusPill tone={status.tone} dot>

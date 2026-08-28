@@ -173,3 +173,31 @@ class PostgresMatchCorrectionRepository:
                 )
             )
             return int(result.scalar_one())
+
+    async def monthly_verdict_counts(
+        self, school_id: str
+    ) -> dict[str, dict[MatchVerdict, int]]:
+        """Corrections per calendar month × verdict for a school (BP23 "Quality" section),
+        keyed ``'YYYY-MM'`` → verdict → count.
+
+        Buckets on ``created_at`` (``date_trunc('month')``, UTC). The FE reads confirm-rate =
+        ``confirmed / (confirmed + rejected)`` + a separate rejected rate; ``added`` (report-a-
+        miss = a recall signal, not a verdict on an ML proposal) is surfaced on its own, NOT in
+        the precision denominator. Descriptive only — no model change. One grouped scan,
+        tenant-scoped."""
+        sid = opt_uuid(school_id)
+        if sid is None:
+            return {}
+        month = func.to_char(
+            func.date_trunc("month", CorrectionRow.created_at), "YYYY-MM"
+        )
+        out: dict[str, dict[MatchVerdict, int]] = {}
+        async with self._sessionmaker() as session:
+            result = await session.execute(
+                select(month, CorrectionRow.verdict, func.count())
+                .where(CorrectionRow.school_id == sid)
+                .group_by(month, CorrectionRow.verdict)
+            )
+            for m, verdict_value, n in result.all():
+                out.setdefault(str(m), {})[MatchVerdict(verdict_value)] = n
+        return out

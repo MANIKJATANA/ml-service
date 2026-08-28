@@ -320,6 +320,10 @@ function StudentsContent() {
       : "all";
   const classFilter = get("class", ""); // "" = all classes (BP11a)
   const focus = get("mine", "1") !== "0"; // BP11c: default a teacher to their classes
+  // BP23: a single "activity" select drives the two independent server filters (login/opened).
+  const loginNever = get("login") === "never";
+  const openedNever = get("opened") === "never";
+  const activity = loginNever ? "never_signed_in" : openedNever ? "never_opened" : "";
   const { sort, dir, onSort } = useUrlListSort("name", SORT_DEFAULT_DIR, { get, set });
   const [invite, setInvite] = useState<Invite | null>(null);
 
@@ -343,6 +347,8 @@ function StudentsContent() {
       status: filter,
       student_group_id: activeClassFilter || undefined,
       mine: focusOn,
+      login: loginNever ? "never" : undefined,
+      opened: openedNever ? "never" : undefined,
     });
 
   const { toast } = useToast();
@@ -399,7 +405,11 @@ function StudentsContent() {
 
   const isInitialLoading = isLoading && items.length === 0;
   const isFiltering =
-    filter !== "all" || query.length > 0 || activeClassFilter !== "" || focusOn;
+    filter !== "all" ||
+    query.length > 0 ||
+    activeClassFilter !== "" ||
+    focusOn ||
+    activity !== "";
 
   return (
     <div className="flex flex-col gap-6">
@@ -488,6 +498,23 @@ function StudentsContent() {
                   ))}
                 </select>
               ) : null}
+              {/* BP23: the "which students?" activity filter — one select drives login/opened. */}
+              <select
+                aria-label="Filter by activity"
+                value={activity}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  set({
+                    login: v === "never_signed_in" ? "never" : null,
+                    opened: v === "never_opened" ? "never" : null,
+                  });
+                }}
+                className="h-10 rounded-button border border-hairline bg-canvas px-3 text-body text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <option value="">All activity</option>
+                <option value="never_signed_in">Never signed in</option>
+                <option value="never_opened">Never opened photos</option>
+              </select>
             </div>
             <SearchInput value={rawQuery} onChange={setRawQuery} placeholder="Search name or email…" />
           </div>

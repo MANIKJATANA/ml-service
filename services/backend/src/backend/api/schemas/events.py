@@ -104,9 +104,14 @@ class EventResponse(BaseModel):
     # BP11c: the event's class (student_group_name denormalized for display; null = untagged).
     student_group_id: str | None = None
     student_group_name: str | None = None
+    # BP23: the creator's email, resolved in-Python on the single-event detail read (null on
+    # list rows + for a system/since-deleted creator). Additive; the detail "Created by" line.
+    created_by_email: str | None = None
 
     @classmethod
-    def from_event(cls, event: Event) -> EventResponse:
+    def from_event(
+        cls, event: Event, *, created_by_email: str | None = None
+    ) -> EventResponse:
         return cls(
             id=event.id,
             school_id=event.school_id,
@@ -126,6 +131,7 @@ class EventResponse(BaseModel):
             category_name=event.category_name,
             student_group_id=event.student_group_id,
             student_group_name=event.student_group_name,
+            created_by_email=created_by_email,
         )
 
 

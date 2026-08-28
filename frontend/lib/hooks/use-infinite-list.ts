@@ -17,6 +17,8 @@ export interface ListQuery {
   category_id?: string; // BP11b: the events list can filter to one category
   term?: string; // BP11b: the events list can filter to one term
   mine?: boolean; // BP11c: a teacher's "focus" — scope the list to their assigned classes
+  login?: string; // BP23: the students list "never signed in" activity filter (`never`)
+  opened?: string; // BP23: the students list "never opened photos" activity filter (`never`)
 }
 
 export const LIST_PAGE_SIZE = 50;

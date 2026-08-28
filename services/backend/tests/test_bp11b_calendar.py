@@ -59,7 +59,12 @@ def _event_svc(
 ) -> tuple[EventService, FakeEventRepo, FakeEventCategoryRepo]:
     crepo, erepo = _wire(categories, events)
     svc = EventService(
-        erepo, FakeMediaRepo(), FakeEventJobProducer(), crepo, FakeStudentGroupRepo()
+        erepo,
+        FakeMediaRepo(),
+        FakeEventJobProducer(),
+        crepo,
+        FakeStudentGroupRepo(),
+        FakeUserRepo(),
     )
     return svc, erepo, crepo
 

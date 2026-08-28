@@ -49,6 +49,7 @@ from backend.services.auth_service import AuthService
 from backend.services.class_service import ClassService
 from backend.services.dashboard_service import DashboardService
 from backend.services.delegation_service import DelegationService
+from backend.services.engagement_service import EngagementService
 from backend.services.event_category_service import EventCategoryService
 from backend.services.event_service import EventService
 from backend.services.gallery_service import GalleryService
@@ -104,6 +105,7 @@ class Container:
         self._audit_service: AuditService | None = None
         self._dashboard_service: DashboardService | None = None
         self._analytics_service: AnalyticsService | None = None
+        self._engagement_service: EngagementService | None = None
         self._listing_service: ListingService | None = None
         self._notification_service: NotificationService | None = None
         self._review_service: ReviewService | None = None
@@ -450,6 +452,7 @@ class Container:
                         self.event_job_producer(),
                         self.event_category_repo(),
                         self.student_group_repo(),
+                        self.user_repo(),
                         inflight_stale_s=self._s.event_inflight_stale_s,
                     )
         return self._event_service
@@ -544,8 +547,23 @@ class Container:
                         self.event_repo(),
                         self.media_repo(),
                         self.notification_reads_repo(),
+                        self.match_correction_repo(),
+                        self.download_audit_repo(),
                     )
         return self._analytics_service
+
+    def engagement_service(self) -> EngagementService:
+        if self._engagement_service is None:
+            with self._lock:
+                if self._engagement_service is None:
+                    self._engagement_service = EngagementService(
+                        self.student_repo(),
+                        self.ml_results_reader(),
+                        self.match_correction_repo(),
+                        self.notification_reads_repo(),
+                        self.download_audit_repo(),
+                    )
+        return self._engagement_service
 
     def listing_service(self) -> ListingService:
         if self._listing_service is None:
@@ -572,6 +590,7 @@ class Container:
                         self.notification_reads_repo(),
                         self.notifier(),
                         self.match_correction_repo(),
+                        self.download_audit_repo(),
                     )
         return self._notification_service
 

@@ -27,6 +27,7 @@ from backend.domain.ports import (
     EventRepository,
     MediaRepository,
     StudentGroupRepository,
+    UserRepository,
 )
 
 _MAX_NAME_LEN = 200
@@ -41,6 +42,15 @@ class EventStatusView:
     counts: dict[MediaProcessingStatus, int]
 
 
+@dataclass(frozen=True, slots=True)
+class EventDetail:
+    """An event + its creator's email (BP23), resolved in-Python for the event-detail read.
+    ``created_by_email`` is None for a system/legacy event or a since-deleted creator."""
+
+    event: Event
+    created_by_email: str | None
+
+
 class EventService:
     def __init__(
         self,
@@ -49,6 +59,7 @@ class EventService:
         producer: EventJobProducer,
         categories: EventCategoryRepository,
         groups: StudentGroupRepository,
+        users: UserRepository,
         inflight_stale_s: int = 1800,
     ) -> None:
         self._events = events
@@ -56,6 +67,7 @@ class EventService:
         self._producer = producer
         self._categories = categories
         self._groups = groups
+        self._users = users
         # BP19a: an event in-flight longer than this is treated as stuck (the "Process" guard
         # re-allows a retry — the fallback for a job that dead-lettered/was lost).
         self._inflight_stale_s = inflight_stale_s
@@ -92,6 +104,20 @@ class EventService:
         if event is None:
             raise NotFoundError(f"event not found: {event_id}")
         return event
+
+    async def get_event_detail(
+        self, *, school_id: str, event_id: str
+    ) -> EventDetail:
+        """The event + its creator's email (BP23) — the event-detail read. The creator is
+        resolved in-Python (a by-id ``users`` lookup), never a JOIN on the shared events
+        select (which feeds every list/get path). Always same-school (``created_by`` is
+        stamped from the acting user), so no cross-tenant leak; None if since-deleted."""
+        event = await self.get_event(school_id=school_id, event_id=event_id)
+        email: str | None = None
+        if event.created_by is not None:
+            creator = await self._users.get(event.created_by)
+            email = creator.email if creator is not None else None
+        return EventDetail(event=event, created_by_email=email)
 
     async def list_events(self, *, school_id: str) -> list[Event]:
         return await self._events.list_by_school(school_id)

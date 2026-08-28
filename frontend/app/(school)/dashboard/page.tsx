@@ -73,7 +73,7 @@ function buildAlerts(d: DashboardResponse): DashAlert[] {
       icon: <AlertTriangle className="size-4" aria-hidden="true" />,
       title: `${plural(enrollment_failures, "enrollment", "enrollments")} failed`,
       description: "These students won't appear in any photos until re-enrolled.",
-      href: "/students",
+      href: "/students?status=failed", // BP23: deep-link straight to the failed students
       cta: "Fix enrollments",
     });
   }

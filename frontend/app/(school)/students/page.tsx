@@ -1,9 +1,13 @@
 "use client";
 
-import { Ban, CircleCheck, GraduationCap, RotateCcw, Trash2, UserPlus } from "lucide-react";
+import { Ban, CircleCheck, GraduationCap, KeyRound, RotateCcw, Trash2, UserPlus } from "lucide-react";
 import Link from "next/link";
 import { type FormEvent, Suspense, useEffect, useState } from "react";
 
+import {
+  BulkCredentialsDialog,
+  type CredentialRow,
+} from "@/components/credentials/bulk-credentials-dialog";
 import { StudentAvatar } from "@/components/ui/avatar";
 import { Highlight } from "@/components/ui/highlight";
 import { Button } from "@/components/ui/button";
@@ -31,6 +35,7 @@ import { useToast } from "@/components/ui/toast";
 import {
   assignStudentsToClass,
   bulkDeleteStudents,
+  bulkResendStudentInvites,
   bulkSetStudentStatus,
   createStudent,
   enrollStudent,
@@ -382,11 +387,13 @@ function StudentsContent() {
   // Which bulk op is in flight (null = idle) — drives the disabled/double-submit guard AND a
   // spinner on the *clicked* button (not every button). `bulkBusy` is derived, one source of truth.
   const [bulkAction, setBulkAction] = useState<
-    "disable" | "enable" | "delete" | "assign" | null
+    "disable" | "enable" | "delete" | "assign" | "resend" | null
   >(null);
   const bulkBusy = bulkAction !== null;
   const [selectingAll, setSelectingAll] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
+  // BP27b: the shown-once temp passwords from a bulk resend (null = dialog closed → drops them).
+  const [bulkCreds, setBulkCreds] = useState<CredentialRow[] | null>(null);
   // The filter the list is currently showing — kept param-identical so getStudentIds' scan
   // matches exactly (BP27 select-all-matching).
   const currentFilters: StudentFilterParams = {
@@ -530,6 +537,37 @@ function StudentsContent() {
     } finally {
       setBulkAction(null);
       setDeleteConfirm(false);
+    }
+  }
+
+  async function resendCreds() {
+    if (selectedCount === 0) return;
+    setBulkAction("resend");
+    try {
+      const resp = await bulkResendStudentInvites(targetIds);
+      const sent = resp.results.filter((r) => r.status === "sent").length;
+      const failed = resp.results.length - sent;
+      // Show the ONE-TIME passwords (present only on `sent` rows) in the shared dialog.
+      setBulkCreds(
+        resp.results.map((r) => ({
+          label: r.email,
+          status: r.status,
+          tempPassword: r.temp_password,
+        })),
+      );
+      toast(
+        failed === 0
+          ? `Sent ${sent} new password${sent === 1 ? "" : "s"}.`
+          : `Sent ${sent} of ${resp.results.length} — ${failed} couldn't be sent.`,
+        failed === 0 ? "success" : sent > 0 ? "warning" : "error",
+      );
+      // A resend changes no list-visible field (photos/matches untouched), so just clear the
+      // selection — NOT afterBulkMutation (no list/dashboard refresh needed).
+      clearSelection();
+    } catch (err) {
+      toast(isApiError(err) ? err.message : "Something went wrong", "error");
+    } finally {
+      setBulkAction(null);
     }
   }
 
@@ -711,6 +749,18 @@ function StudentsContent() {
                   <CircleCheck className="size-4" aria-hidden="true" />
                   Enable
                 </Button>
+                {/* BP27b: re-issue a fresh one-time password to each selected student (recovery
+                    without the destructive delete). The shown-once passwords open in a dialog. */}
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={resendCreds}
+                  loading={bulkAction === "resend"}
+                  disabled={bulkBusy}
+                >
+                  <KeyRound className="size-4" aria-hidden="true" />
+                  Resend credentials
+                </Button>
                 {classes.length > 0 ? (
                   <div className="flex items-center gap-2">
                     <select
@@ -879,6 +929,14 @@ function StudentsContent() {
       />
 
       <InviteResultDialog invite={invite} onClose={() => setInvite(null)} />
+
+      {/* BP27b: the shown-once temp passwords from a bulk resend-invite. */}
+      <BulkCredentialsDialog
+        title="New temporary passwords"
+        description="Share each password securely — they won't be shown again. Students set their own on first sign-in."
+        results={bulkCreds}
+        onClose={() => setBulkCreds(null)}
+      />
     </div>
   );
 }

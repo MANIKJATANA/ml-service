@@ -25,6 +25,7 @@ from backend.services.listing_service import StudentIdScan, StudentListing
 from backend.services.pagination import Page
 from backend.services.student_service import (
     BulkActionResult,
+    BulkResendResult,
     BulkStudentResult,
     ProvisionedStudent,
     ResolvedPhotoTarget,
@@ -339,3 +340,37 @@ class BulkActionResponse(BaseModel):
     @classmethod
     def from_results(cls, results: list[BulkActionResult]) -> BulkActionResponse:
         return cls(results=[BulkActionResultResponse.from_result(r) for r in results])
+
+
+# ---- bulk resend-invite (BP27b) ----------------------------------------
+
+
+class BulkResendResultResponse(BaseModel):
+    """One student id's outcome from a bulk resend-invite (BP27b). ``temp_password`` is the
+    ONE-TIME plaintext — present ONLY on a ``sent`` row (null on ``error``)."""
+
+    student_id: str
+    email: str
+    status: Literal["sent", "error"]
+    temp_password: str | None = None
+
+    @classmethod
+    def from_result(cls, r: BulkResendResult) -> BulkResendResultResponse:
+        return cls(
+            student_id=r.student_id,
+            email=r.email,
+            status=r.status,
+            temp_password=r.temp_password,
+        )
+
+
+class BulkResendResponse(BaseModel):
+    """The per-id outcomes of a bulk resend-invite (BP27b). The response carries the students'
+    ONE-TIME temp passwords (each on its ``sent`` row) — shown once so staff can hand them out;
+    only their hashes are stored, and they are never returned again."""
+
+    results: list[BulkResendResultResponse]
+
+    @classmethod
+    def from_results(cls, results: list[BulkResendResult]) -> BulkResendResponse:
+        return cls(results=[BulkResendResultResponse.from_result(r) for r in results])

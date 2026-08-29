@@ -354,6 +354,30 @@ export interface BulkActionResponse {
   results: BulkActionResultResponse[];
 }
 
+/** One student's outcome from a bulk resend-invite (BP27b). `temp_password` is the ONE-TIME
+ *  plaintext, present ONLY on a `sent` row (null on `error`). */
+export interface BulkResendResult {
+  student_id: string;
+  email: string;
+  status: "sent" | "error";
+  temp_password: string | null;
+}
+export interface BulkResendResponse {
+  results: BulkResendResult[];
+}
+
+/** One email's outcome from a bulk teacher invite (BP27b). `temp_password` is the ONE-TIME
+ *  plaintext, present ONLY on a `created` row; `error` holds a short reason for `invalid`/`error`. */
+export interface BulkStaffResult {
+  email: string;
+  status: "created" | "duplicate" | "invalid" | "limit_reached" | "error";
+  temp_password: string | null;
+  error: string | null;
+}
+export interface BulkStaffResponse {
+  results: BulkStaffResult[];
+}
+
 export type StudentListPageResponse = ListPage<StudentListItem>;
 export type EventListPageResponse = ListPage<EventListItem>;
 export type UserListPageResponse = ListPage<UserResponse>;

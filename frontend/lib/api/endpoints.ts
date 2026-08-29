@@ -2,6 +2,8 @@ import { bffFetch } from "./client";
 import type {
   BulkActionResponse,
   BulkImportResponse,
+  BulkResendResponse,
+  BulkStaffResponse,
   ClassListResponse,
   ClassRefListResponse,
   ClassResponse,
@@ -224,6 +226,16 @@ export function createStaff(email: string): Promise<ProvisionedUserResponse> {
   });
 }
 
+/** Invite many teachers from a list of emails at once (BP27b) — best-effort per row (a malformed
+ *  email → `invalid`, a duplicate → `duplicate`, the cap → `limit_reached`; the batch never aborts).
+ *  The response carries each `created` row's ONE-TIME temp password (shown once, never again). */
+export function bulkCreateStaff(emails: string[]): Promise<BulkStaffResponse> {
+  return bffFetch<BulkStaffResponse>("/api/v1/staff/bulk", {
+    method: "POST",
+    body: JSON.stringify({ emails }),
+  });
+}
+
 /** Enable/disable a teacher (BP7c). */
 export function setStaffStatus(
   userId: string,
@@ -284,6 +296,18 @@ export function bulkSetStudentStatus(
  *  comes back `error`; the batch never aborts). Returns each id's outcome. */
 export function bulkDeleteStudents(studentIds: string[]): Promise<BulkActionResponse> {
   return bffFetch<BulkActionResponse>("/api/v1/students/bulk-delete", {
+    method: "POST",
+    body: JSON.stringify({ student_ids: studentIds }),
+  });
+}
+
+/** Re-issue a fresh one-time temp password for many students at once (BP27b) — recovery without
+ *  the destructive delete. The response carries each `sent` row's ONE-TIME temp password (shown
+ *  once, never returned again); a foreign/missing id comes back `error` and the batch never aborts. */
+export function bulkResendStudentInvites(
+  studentIds: string[],
+): Promise<BulkResendResponse> {
+  return bffFetch<BulkResendResponse>("/api/v1/students/bulk-resend-invite", {
     method: "POST",
     body: JSON.stringify({ student_ids: studentIds }),
   });

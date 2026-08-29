@@ -1,11 +1,16 @@
-/** CSV helpers for the bulk student import (BP7d). No dependency — a minimal RFC-4180-ish
- *  tokenizer that handles quoted fields, "" escapes, and CRLF/LF. */
+/** CSV helpers for the bulk student import (BP7d) + staff bulk invite (BP27b). No dependency — a
+ *  minimal RFC-4180-ish tokenizer that handles quoted fields, "" escapes, and CRLF/LF. */
 
 export interface CsvStudentRow {
   name: string;
   email: string;
   className?: string; // BP24: the optional "class" column (auto-create/assign on import)
 }
+
+/** A light client-side email shape check — the server always validates authoritatively; this
+ *  only pre-flags obvious typos in a preview before submit. Shared by the student + staff
+ *  bulk-import flaggers so they agree on what "invalid" means. */
+export const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 /**
  * Parse a students CSV into `{name, email, className?}` rows. Accepts an optional header row
@@ -46,6 +51,34 @@ export function parseStudentCsv(text: string): CsvStudentRow[] {
     rows.push(className ? { name, email, className } : { name, email });
   }
   return rows;
+}
+
+/**
+ * Parse a staff/teacher CSV into a list of emails (BP27b). Accepts an optional header row with an
+ * "email" cell (any case) — otherwise the FIRST column is the email. Strips a leading UTF-8 BOM,
+ * trims each cell, and skips blank cells. The server validates each email authoritatively (a
+ * malformed one is a per-row `invalid`, not a rejected batch), so this only extracts candidates.
+ */
+export function parseStaffCsv(text: string): string[] {
+  const clean = text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
+  const records = tokenize(clean);
+  if (records.length === 0) return [];
+
+  let emailIdx = 0;
+  let start = 0;
+  const header = records[0].map((c) => c.trim().toLowerCase());
+  const hEmail = header.indexOf("email");
+  if (hEmail !== -1) {
+    emailIdx = hEmail;
+    start = 1; // the first row is a header, not data
+  }
+
+  const emails: string[] = [];
+  for (let i = start; i < records.length; i++) {
+    const email = (records[i][emailIdx] ?? "").trim();
+    if (email !== "") emails.push(email);
+  }
+  return emails;
 }
 
 /** A minimal RFC-4180 tokenizer → array of records (each a list of cell strings). */
@@ -100,4 +133,15 @@ export function toCsv(headers: string[], rows: string[][]): string {
     /[",\r\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
   const lines = [headers, ...rows].map((cells) => cells.map(escape).join(","));
   return lines.join("\r\n");
+}
+
+/** Trigger a client-side CSV download (BP7d/BP27b — the credentials + skipped-rows exports).
+ *  Shared so every bulk flow saves the same way. */
+export function saveCsv(filename: string, csv: string): void {
+  const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
 }

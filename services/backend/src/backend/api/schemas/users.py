@@ -8,12 +8,17 @@ password hash can never leak.
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 
 from backend.domain.models import Role, User, UserStatus
-from backend.services.onboarding_service import ProvisionedUser
+from backend.services.onboarding_service import BulkStaffResult, ProvisionedUser
 from backend.services.pagination import Page
+
+# The most teacher emails one bulk invite can carry in a single request (BP27b). Comfortably
+# above a real school's teacher count; over it is a 422 (schema-enforced, abuse guard).
+_MAX_BULK_STAFF = 100
 
 
 class CreateUserRequest(BaseModel):
@@ -21,6 +26,15 @@ class CreateUserRequest(BaseModel):
     server-side and returned once — the caller supplies only the email."""
 
     email: EmailStr
+
+
+class BulkStaffRequest(BaseModel):
+    """Invite many teachers from a list of emails at once (BP27b). ``emails`` is a raw
+    ``list[str]`` (NOT ``EmailStr``) on purpose — a single malformed email must be a per-row
+    ``invalid`` in the service, not a 422 that rejects the whole batch. Only the count is capped
+    here (abuse guard → 422)."""
+
+    emails: list[str] = Field(min_length=1, max_length=_MAX_BULK_STAFF)
 
 
 class UpdateUserStatusRequest(BaseModel):
@@ -73,6 +87,38 @@ class ProvisionedUserResponse(BaseModel):
     @classmethod
     def from_provisioned(cls, p: ProvisionedUser) -> ProvisionedUserResponse:
         return cls(user=UserResponse.from_user(p.user), temp_password=p.temp_password)
+
+
+class BulkStaffResultResponse(BaseModel):
+    """One email's outcome from a bulk teacher invite (BP27b). ``temp_password`` is the ONE-TIME
+    plaintext — present ONLY on a ``created`` row (null otherwise). ``error`` holds a short message
+    for ``invalid``/``error`` (never for ``duplicate``/``limit_reached``)."""
+
+    email: str
+    status: Literal["created", "duplicate", "invalid", "limit_reached", "error"]
+    temp_password: str | None = None
+    error: str | None = None
+
+    @classmethod
+    def from_result(cls, r: BulkStaffResult) -> BulkStaffResultResponse:
+        return cls(
+            email=r.email,
+            status=r.status,
+            temp_password=r.temp_password,
+            error=r.error,
+        )
+
+
+class BulkStaffResponse(BaseModel):
+    """The per-email outcomes of a bulk teacher invite (BP27b). The response carries the created
+    teachers' ONE-TIME temp passwords (each on its ``created`` row) — shown once so the admin can
+    hand them out; only their hashes are stored, and they are never returned again."""
+
+    results: list[BulkStaffResultResponse]
+
+    @classmethod
+    def from_results(cls, results: list[BulkStaffResult]) -> BulkStaffResponse:
+        return cls(results=[BulkStaffResultResponse.from_result(r) for r in results])
 
 
 class UserListPageResponse(BaseModel):

@@ -5,6 +5,7 @@ import { type FormEvent, Suspense, useEffect, useState } from "react";
 import useSWR, { mutate as globalMutate } from "swr";
 
 import { RoleGate } from "@/components/role-gate";
+import { BulkInviteDialog } from "@/components/staff/bulk-invite-dialog";
 import { type Invite, InviteResultDialog } from "@/components/staff/invite-result-dialog";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -369,7 +370,13 @@ function StaffContent() {
             ? `${total} ${total === 1 ? "teacher" : "teachers"} managing students, events, and galleries.`
             : "Teachers who manage students, events, and galleries."
         }
-        actions={<CreateTeacherDialog onInvited={setInvite} onCreated={() => mutate()} />}
+        actions={
+          <div className="flex flex-wrap gap-2">
+            {/* BP27b: invite a batch of teachers from an email CSV (best-effort, shown-once passwords). */}
+            <BulkInviteDialog onInvited={() => mutate()} />
+            <CreateTeacherDialog onInvited={setInvite} onCreated={() => mutate()} />
+          </div>
+        }
       />
 
       {isInitialLoading ? (

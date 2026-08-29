@@ -32,6 +32,7 @@ from backend.api.schemas.students import (
     BulkIdsRequest,
     BulkImportRequest,
     BulkImportResponse,
+    BulkResendResponse,
     BulkStatusRequest,
     CreateStudentRequest,
     MatchPhotosRequest,
@@ -223,6 +224,22 @@ async def bulk_delete_students(
         school_id=tenant_of(actor), student_ids=body.student_ids
     )
     return BulkActionResponse.from_results(results)
+
+
+@router.post("/bulk-resend-invite", response_model=BulkResendResponse)
+async def bulk_resend_student_invites(
+    body: BulkIdsRequest, container: ContainerDep, actor: StudentManager
+) -> BulkResendResponse:
+    """Re-issue a fresh one-time temp password for many students at once (BP27b) — best-effort per
+    id (a foreign/missing id is recorded ``error`` and the batch continues). The response carries
+    each ``sent`` row's ONE-TIME temp password (shown once so staff can hand them out; never
+    returned again — only the hashes are stored). Recovery without the destructive delete: each
+    student's photos + matches are untouched. Tenant from the token; registered before
+    ``/{student_id}`` so the literal wins the route match."""
+    results = await container.student_service().bulk_resend_invite(
+        school_id=tenant_of(actor), student_ids=body.student_ids
+    )
+    return BulkResendResponse.from_results(results)
 
 
 @router.get("/{student_id}", response_model=StudentResponse)

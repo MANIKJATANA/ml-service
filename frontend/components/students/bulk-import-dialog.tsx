@@ -19,7 +19,7 @@ import { useToast } from "@/components/ui/toast";
 import { bulkImportStudents } from "@/lib/api/endpoints";
 import { isApiError } from "@/lib/api/errors";
 import type { BulkStudentResult } from "@/lib/api/types";
-import { type CsvStudentRow, parseStudentCsv, toCsv } from "@/lib/csv";
+import { type CsvStudentRow, EMAIL_RE, parseStudentCsv, saveCsv, toCsv } from "@/lib/csv";
 
 const MAX_ROWS = 500; // matches the backend's per-request cap
 
@@ -40,9 +40,6 @@ const RESULT_LABEL: Record<BulkStudentResult["status"], string> = {
   error: "Error",
 };
 
-// A light client-side email shape check (the server validates authoritatively — this only
-// pre-flags obvious typos before submit).
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 type RowFlag = "ok" | "duplicate" | "invalid";
 
 /** BP24: pre-flag the parsed rows before submit — an in-file duplicate email (case-insensitive)
@@ -71,16 +68,6 @@ const FLAG_LABEL: Record<RowFlag, string> = {
   duplicate: "Duplicate",
   invalid: "Invalid",
 };
-
-/** Trigger a client-side CSV download (shared by the credentials + skipped-rows exports). */
-function saveCsv(filename: string, csv: string): void {
-  const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = filename;
-  link.click();
-  URL.revokeObjectURL(url);
-}
 
 type Phase = "pick" | "preview" | "results";
 

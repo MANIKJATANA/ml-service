@@ -93,6 +93,20 @@ class BulkActionResult:
     status: Literal["ok", "error"]
 
 
+@dataclass(frozen=True, slots=True)
+class BulkResendResult:
+    """One student id's outcome from a bulk resend-invite (BP27b). ``sent`` carries the ONE-TIME
+    plaintext ``temp_password`` (shown once, never persisted plaintext, never logged); an ``error``
+    (a foreign/missing id, which ``resend_invite`` 404s before any write, or any other failure)
+    carries ``temp_password=None`` and — since a foreign id 404s before a student is resolved —
+    an empty ``email`` (there is nothing to echo). The batch never aborts."""
+
+    student_id: str
+    email: str
+    status: Literal["sent", "error"]
+    temp_password: str | None = None
+
+
 # The per-photo status the ML reports when it found no face (ml_service
 # PhotoStatus.NO_FACE.value). A cross-service string contract: the backend must not import
 # from ml_service (layering), so the literal is pinned here and its mapping is test-covered
@@ -415,6 +429,41 @@ class StudentService:
             must_change_password=True,
         )
         return ProvisionedStudent(student, temp_password)
+
+    async def bulk_resend_invite(
+        self, *, school_id: str, student_ids: list[str]
+    ) -> list[BulkResendResult]:
+        """Re-issue a fresh one-time temp password for many students at once (BP27b) — a pure
+        best-effort loop over the tested single-writer ``resend_invite``. Each ``sent`` row carries
+        the ONE-TIME plaintext (shown once; only its hash is persisted). ANY exception (incl. the
+        ``NotFoundError`` ``resend_invite`` raises for a foreign/missing id BEFORE any write) is an
+        ``error`` row and the batch continues. Tenant-safe by construction — ``resend_invite``
+        derives nothing from the caller and 404s a foreign id before touching a row. The batch size
+        is capped by the route schema.
+
+        PII-safe logging: the id ONLY, never the email/password. On the failure path the student's
+        email is deliberately NOT read — a foreign id 404s before any student is resolved, so there
+        is no email to echo (the row carries ``email=""``, ``temp_password=None``)."""
+        results: list[BulkResendResult] = []
+        for student_id in student_ids:
+            try:
+                prov = await self.resend_invite(
+                    school_id=school_id, student_id=student_id
+                )
+                results.append(
+                    BulkResendResult(
+                        student_id,
+                        prov.student.email,
+                        "sent",
+                        prov.temp_password,
+                    )
+                )
+            except Exception:  # noqa: BLE001 — isolate one id's failure from the batch
+                _log.warning(
+                    "bulk_resend_invite_failed", student_id=student_id, exc_info=True
+                )
+                results.append(BulkResendResult(student_id, "", "error"))
+        return results
 
     async def set_status(
         self, *, school_id: str, student_id: str, status: UserStatus

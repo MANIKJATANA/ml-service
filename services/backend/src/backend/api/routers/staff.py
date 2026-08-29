@@ -24,6 +24,8 @@ from backend.api.schemas.classes import (
     SetTeacherClassesRequest,
 )
 from backend.api.schemas.users import (
+    BulkStaffRequest,
+    BulkStaffResponse,
     CreateUserRequest,
     ProvisionedUserResponse,
     UpdateUserStatusRequest,
@@ -55,6 +57,24 @@ async def create_teacher(
         school_id=_tenant(actor), email=body.email
     )
     return ProvisionedUserResponse.from_provisioned(provisioned)
+
+
+@router.post(
+    "/bulk", status_code=status.HTTP_201_CREATED, response_model=BulkStaffResponse
+)
+async def bulk_create_staff(
+    body: BulkStaffRequest, container: ContainerDep, actor: StaffManager
+) -> BulkStaffResponse:
+    """Invite many teachers from a list of emails at once (BP27b) — best-effort per row (a
+    malformed email → ``invalid``, a duplicate → ``duplicate``, the cap → ``limit_reached``; the
+    batch never aborts). The response carries each ``created`` row's ONE-TIME temp password (shown
+    once so the admin can hand them out; never returned again — only the hashes are stored).
+    school_admin-only (``staff:manage``); the school is the token's, never the body. Registered
+    before ``/{user_id}`` so the literal wins the route match."""
+    results = await container.onboarding_service().bulk_create_staff(
+        school_id=_tenant(actor), emails=body.emails
+    )
+    return BulkStaffResponse.from_results(results)
 
 
 @router.get("", response_model=UserListPageResponse)

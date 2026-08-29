@@ -10,8 +10,13 @@ password returned exactly once (BP7c) — never stored plaintext, never returned
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Literal
 
+import structlog
+
+from backend.domain.emails import validate_email
 from backend.domain.errors import (
+    ConflictError,
     LimitExceededError,
     NotFoundError,
     ValidationError,
@@ -35,6 +40,7 @@ from backend.services.credentials import generate_temp_password
 from backend.services.pagination import Page
 
 _MAX_NAME_LEN = 200
+_log = structlog.get_logger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,6 +50,20 @@ class ProvisionedUser:
 
     user: User
     temp_password: str
+
+
+@dataclass(frozen=True, slots=True)
+class BulkStaffResult:
+    """One email's outcome from a bulk teacher invite (BP27b). ``status`` ∈ {created, duplicate,
+    invalid, limit_reached, error}; ``temp_password`` is the ONE-TIME plaintext, present ONLY on a
+    ``created`` row (shown once, never persisted plaintext, never logged). ``error`` holds a short
+    message for an ``invalid`` (malformed email) or ``error`` row — never for ``duplicate`` (a bare
+    verdict, so the conflict message never leaks) or ``limit_reached``."""
+
+    email: str
+    status: Literal["created", "duplicate", "invalid", "limit_reached", "error"]
+    temp_password: str | None = None
+    error: str | None = None
 
 
 class OnboardingService:
@@ -138,6 +158,66 @@ class OnboardingService:
         return await self._provision(
             school_id=school_id, email=email, role=Role.TEACHER
         )
+
+    async def bulk_create_staff(
+        self, *, school_id: str, emails: list[str]
+    ) -> list[BulkStaffResult]:
+        """Invite many teachers from a list of emails at once (BP27b) — best-effort per row over
+        the tested single-writer ``create_teacher`` (teacher-only; there is no admin bulk). Each
+        ``created`` row carries its ONE-TIME temp password (shown once; only the hash is stored).
+
+        Fail-fast on a suspended school: a suspended school can't gain teachers
+        (``create_teacher`` already rejects each), so the whole batch is refused once up front with
+        a ``ValidationError`` (400) rather than N ``error`` rows. Then, per email, TWO separate
+        try/excepts:
+          1. ``validate_email`` (its own try) — a malformed email is an ``invalid`` row (carrying
+             the message) and the loop continues, never a 422 that aborts the batch (the schema
+             takes a raw ``list[str]``, not ``EmailStr``, precisely so one bad email is per-row).
+          2. ``create_teacher`` — ``LimitExceededError`` → ``limit_reached`` (the cap is re-counted
+             per call, so once it's hit the rest of the batch reports ``limit_reached``);
+             ``ConflictError`` → a bare ``duplicate`` (the conflict message is discarded — no
+             ``error``/``temp_password``); ``ValidationError`` → ``error`` (a mid-batch suspension,
+             defensive — the pre-check already blocks it); any other exception → ``error``.
+
+        ``temp_password`` is set ONLY on ``created``. PII-safe logging on the unexpected-error path:
+        the email ONLY, never the password. The batch never aborts. Cap enforced by the route
+        schema."""
+        school = await self.get_school(school_id)
+        if school.status is not SchoolStatus.ACTIVE:
+            # A suspended school gains no teachers — refuse the whole batch up front (a 400),
+            # rather than returning every row as an error.
+            raise ValidationError("school is suspended")
+        results: list[BulkStaffResult] = []
+        for email in emails:
+            try:
+                clean_email = validate_email(email)  # per-row; never aborts the batch
+            except ValidationError as exc:
+                results.append(BulkStaffResult(email, "invalid", error=str(exc)))
+                continue
+            try:
+                prov = await self.create_teacher(
+                    school_id=school_id, email=clean_email
+                )
+                results.append(
+                    BulkStaffResult(
+                        email, "created", temp_password=prov.temp_password
+                    )
+                )
+            except LimitExceededError:
+                # The cap is re-counted per create, so once reached every remaining row here is
+                # `limit_reached` (a bare verdict — no message leaks).
+                results.append(BulkStaffResult(email, "limit_reached"))
+            except ConflictError:
+                # A duplicate email — a bare verdict, the conflict message deliberately discarded.
+                results.append(BulkStaffResult(email, "duplicate"))
+            except ValidationError:
+                # Defensive: a mid-batch suspension (the pre-check already blocks a suspended
+                # school). A bare `error` — no message (it's the generic "school is suspended").
+                results.append(BulkStaffResult(email, "error"))
+            except Exception:  # noqa: BLE001 — isolate one row's failure from the batch
+                _log.error("bulk_staff_create_failed", email=email, exc_info=True)
+                results.append(BulkStaffResult(email, "error"))
+        return results
 
     async def list_staff(self, *, school_id: str) -> list[User]:
         return await self._users.list_by_school_and_role(school_id, Role.TEACHER)

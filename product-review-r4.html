@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Product Review R4 — Staff & Admin (pre-release)</title>
+<style>
+  :root{
+    --ink:#0d1729; --ink-2:#5a6578; --ink-3:#7b8494;
+    --canvas:#f8f9fa; --surface:#fff; --hairline:#e3e8ef;
+    --accent:#4f46e5; --accent-soft:#eef2ff;
+    --crit:#dc2626; --crit-soft:#fef2f2;
+    --high:#b45309; --high-soft:#fffbeb;
+    --med:#0369a1; --med-soft:#f0f9ff;
+    --ok:#15803d; --ok-soft:#f0fdf4;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:ui-sans-serif,system-ui,"Segoe UI",Roboto,sans-serif;background:var(--canvas);color:var(--ink);line-height:1.55;padding:48px 20px}
+  .wrap{max-width:880px;margin:0 auto}
+  h1{font-size:30px;letter-spacing:-.02em;margin-bottom:6px}
+  h2{font-size:19px;letter-spacing:-.01em;margin:44px 0 14px}
+  .sub{color:var(--ink-2);font-size:14.5px;margin-bottom:8px}
+  .meta{font-size:12.5px;color:var(--ink-3);margin-bottom:36px}
+  .meta code{background:var(--surface);border:1px solid var(--hairline);border-radius:4px;padding:1px 5px;font-size:11.5px}
+  .card{background:var(--surface);border:1px solid var(--hairline);border-radius:12px;padding:20px 22px;margin-bottom:14px}
+  table{width:100%;border-collapse:collapse;font-size:13.5px}
+  th{text-align:left;font-size:11.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-2);padding:8px 10px;border-bottom:1px solid var(--hairline)}
+  td{padding:9px 10px;border-bottom:1px solid var(--hairline);vertical-align:top}
+  tr:last-child td{border-bottom:none}
+  .num{font-variant-numeric:tabular-nums}
+  .chip{display:inline-block;font-size:11px;font-weight:600;padding:2px 9px;border-radius:999px;white-space:nowrap}
+  .chip.crit{background:var(--crit-soft);color:var(--crit)}
+  .chip.high{background:var(--high-soft);color:var(--high)}
+  .chip.med{background:var(--med-soft);color:var(--med)}
+  .chip.ok{background:var(--ok-soft);color:var(--ok)}
+  .chip.acc{background:var(--accent-soft);color:var(--accent)}
+  .delta{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:6px}
+  .delta .box{flex:1 1 130px;background:var(--surface);border:1px solid var(--hairline);border-radius:10px;padding:14px 16px;text-align:center}
+  .delta .n{font-size:26px;font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+  .delta .l{font-size:11.5px;color:var(--ink-2);text-transform:uppercase;letter-spacing:.05em;margin-top:2px}
+  .find{border-left:3px solid var(--hairline);padding:10px 16px;margin:0 0 12px}
+  .find.crit{border-color:var(--crit)} .find.high{border-color:var(--high)} .find.med{border-color:var(--med)}
+  .find h3{font-size:14.5px;margin-bottom:3px}
+  .find p{font-size:13.5px;color:var(--ink-2)}
+  .find .id{font-size:11px;color:var(--ink-3);font-family:ui-monospace,Consolas,monospace;margin-left:6px;font-weight:400}
+  .ord{background:var(--accent-soft);border:1px solid #dfe3ff;border-radius:10px;padding:13px 16px;margin-bottom:14px;font-size:13px;color:var(--ink);line-height:1.5}
+  .ord b{color:var(--accent)}
+  .ord .seq{font-variant-numeric:tabular-nums;font-weight:600;color:var(--accent);letter-spacing:.01em}
+  .tier{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-3);margin:22px 0 8px}
+  .tier.t0{color:var(--crit)} .tier.t1{color:var(--high)} .tier.t2{color:var(--med)}
+  .phase{background:var(--surface);border:1px solid var(--hairline);border-radius:11px;padding:13px 17px;margin-bottom:10px}
+  .phase.blk{border-left:3px solid var(--crit)}
+  .phase .top{display:flex;align-items:baseline;gap:9px;flex-wrap:wrap;margin-bottom:5px}
+  .phase .bp{font-weight:700;font-size:14.5px;letter-spacing:-.01em}
+  .phase .nm{font-size:14px;color:var(--ink)}
+  .phase .meta{margin-left:auto;display:flex;gap:5px;align-items:center;flex-wrap:wrap}
+  .phase .tag{font-size:10.5px;color:var(--ink-2);background:var(--canvas);border:1px solid var(--hairline);border-radius:5px;padding:1px 7px;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .phase .tag.mig{color:var(--high);background:var(--high-soft);border-color:#f3e2c0}
+  .phase p{font-size:13px;color:var(--ink-2);margin:0}
+  .phase .exp{margin:7px 0 1px}
+  .phase .exp > div{font-size:13px;line-height:1.5;color:var(--ink);margin-bottom:3px}
+  .phase .exp .k{font-weight:700;font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;margin-right:7px}
+  .phase .exp .now .k{color:var(--crit)}
+  .phase .exp .aft .k{color:var(--ok)}
+  .phase .how{font-size:11.5px;color:var(--ink-3);margin-top:7px;line-height:1.5}
+  .phase .how b{color:var(--ink-2);font-weight:600}
+  .phase code,.ord code{font-family:ui-monospace,Consolas,monospace;font-size:11px;background:var(--canvas);border:1px solid var(--hairline);border-radius:4px;padding:0 4px}
+  .foot{margin-top:40px;padding-top:16px;border-top:1px solid var(--hairline);font-size:13px;color:var(--ink-2)}
+  .foot a{color:var(--accent)}
+  em{color:var(--ink-2)}
+  .good{font-size:13.5px;color:var(--ink-2)}
+  .good b{color:var(--ok)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>Product Review — Round 4</h1>
+  <p class="sub">Staff &amp; school-admin, walked as real users through the actual interface. The last review before the 1st release.</p>
+  <p class="meta">2026-08-29 · post-BP18–25, static code-grounded · full review: <code>product/08-product-review-round-4-staff-admin.md</code> · roadmap: <code>product/09-improvement-roadmap-round-4.md</code> · method: 4 exploration passes (admin surface · teacher surface · the 5 operational flows · prior-review context) reconciled against shipped state · scope: the <code>(school)</code> group only — student/platform/parent excluded (Rounds 1–3)</p>
+
+  <div class="card" style="border-left:3px solid var(--accent);background:var(--accent-soft)">
+    <p style="font-size:13.5px;color:var(--ink)"><b>⚠ v1 pivot (owner decision, 2026-08-29).</b> <b>No student login in v1</b> — students don't use the app. Distribution is <b>staff-mediated</b>: a teacher/admin <b>downloads a student's photos and shares them via WhatsApp</b>. So the "blocker" below is <b>no longer outbound email</b> (that original BP26 scope is parked to <b>BP12</b>, post-v1) — it's a <b>small, FE-only</b> feature: <b>staff per-student "Download all"</b> for both roles, the reframed <b>BP26</b>. The in-app announce/"opened" path + the whole student surface are <b>dormant in v1</b> (shipped, unused). Net: <b>the release blocker got cheap.</b></p>
+  </div>
+
+  <h2>The verdict in one line</h2>
+  <div class="card">
+    <p class="good">The staff/admin product is <b>mature and well-built</b> — the design bar is <b>met</b> (Linear chrome delivered, Stripe data density substantially closed), the hard problems are solved (BP18 recovery, BP19 pipeline, BP22 review, BP9/17 scale). <b>The pixels are there.</b> What stands between this and a confident release is <em>not design</em> — it's <b>one strategic blocker</b> and three clusters of <em>operability</em>: v1 distribution needs a staff per-student download; the bulk affordances stop one step short; the audit log answers half its question; and the teacher role reads as half-finished.</p>
+  </div>
+
+  <h2>Findings at a glance</h2>
+  <div class="delta">
+    <div class="box"><div class="n" style="color:var(--crit)">1</div><div class="l">Blocker</div></div>
+    <div class="box"><div class="n" style="color:var(--high)">6</div><div class="l">High</div></div>
+    <div class="box"><div class="n" style="color:var(--med)">15</div><div class="l">Medium</div></div>
+    <div class="box"><div class="n" style="color:var(--ink-3)">17</div><div class="l">Low / polish</div></div>
+    <div class="box"><div class="n" style="color:var(--ok)">MET</div><div class="l">Design bar</div></div>
+  </div>
+  <p class="good">The single Blocker is the <em>v1 distribution mechanism</em> — a small, FE-only staff per-student download (outbound email is parked). The six Highs are all <em>operability at 800-student scale</em> — bulk ops, audit completeness, teacher coherence — not defects. The long polish tail is genuinely optional for launch.</p>
+
+  <h2>Scorecard</h2>
+  <div class="card">
+  <table>
+    <tr><th>Persona</th><th>State post-BP18–25</th><th>Worst finding</th><th></th></tr>
+    <tr><td><b>School admin</b></td><td>A genuine command center — dashboard, analytics, resilient pipeline, armed review, honest copy</td><td>Has <b>no per-student "download all"</b> to hand a parent their child's photos (the v1 share model); then can't off-board, bulk-recover, or fully audit at scale</td><td><span class="chip crit">Blocker</span></td></tr>
+    <tr><td><b>Teacher</b></td><td>A capable daily-driver of the full enroll→match→review→announce loop</td><td>Un-delegated, they silently see the <b>whole school</b> with no explanation; the setup checklist hands them a step that <b>dead-ends</b>; they can't even see their own class roster</td><td><span class="chip high">High</span></td></tr>
+  </table>
+  </div>
+
+  <h2>The four that matter most</h2>
+
+  <div class="find crit">
+    <h3>1 · v1 distribution needs a staff per-student "download all" <span class="chip crit">Blocker</span><span class="id">R4-D00 · reframed for the v1 pivot</span></h3>
+    <p><b>No student login in v1</b> → delivery is <b>staff-mediated</b>: a teacher/admin downloads a student's photos and shares them (WhatsApp). The gap: staff can download a single photo or an event's whole gallery, but <b>not "every photo of student X across all their events"</b> in one zip — the exact thing a student could do for themselves. Closing it is <b>small + FE-only</b> (reuses <code>GET /students/{id}/media</code> + <code>useDownloadAll</code>, both roles already entitled). Outbound email is parked (BP12). <b>→ BP26 (v1)</b></p>
+  </div>
+
+  <div class="find high">
+    <h3>2 · The bulk affordances all stop one step short <span class="chip high">High</span><span class="id">R4-A04/05/06/07/13</span></h3>
+    <p>Bulk student <em>import</em> but no bulk <b>delete/disable</b>; single credential resend but <b>no cohort resend</b>; bulk photo <em>enroll</em> but <b>no retry-failed</b> in that dialog (the event uploader has one); bulk event archive but <b>no bulk staff invite</b>; "select all" acts on the <em>loaded page only</em>. At 800 students / 20 teachers, routine ops become click-marathons. <b>→ BP27</b></p>
+  </div>
+
+  <div class="find high">
+    <h3>3 · The audit log answers half its question; governance actions aren't recorded at all <span class="chip high">High</span><span class="id">R4-A24/25/26</span></h3>
+    <p>The access log is chronological-only with <b>no filter UI</b> (though the backend event/student filters are already wired — BP8b/BP23) and <b>no CSV export</b>; and there is <b>no admin-action audit</b> anywhere — who disabled, deleted, re-enrolled, or re-invited a student is unrecorded. For a product handling minors' photos, an actor trail is procurement table-stakes. <b>→ BP28</b></p>
+  </div>
+
+  <div class="find high">
+    <h3>4 · The teacher role is under-finished <span class="chip high">High</span><span class="id">R4-T01/02/03/04</span></h3>
+    <p>An un-delegated teacher gets the full 800-row school with <b>no explanation</b> that delegation exists; the onboarding checklist offers them an "Add a teacher" step that <b>RoleGate-redirects them home</b>; a delegated teacher can <em>filter by</em> their class but can't <b>see its roster</b>; and there's no "what's mine to do" lens. The role works, but reads as half-built. <b>→ BP29</b></p>
+  </div>
+
+  <h2>Verified, not vibes</h2>
+  <p class="good">Every finding was read from source and reconciled against shipped state. Two exploration claims were <b>corrected</b> during synthesis: the event staleness threshold is <b>30 minutes</b> (not 60 seconds — no "false escalation" bug), and BP18–BP24 are <b>shipped</b> (a context pass mislabeled them "approved, not built"). Findings already closed by BP18–25 (URL state, category-color collision, stranded-event visibility, reference face in review, honest copy) are <b>not re-filed</b>; the ~11 Round-3 refuted leads stay refuted. The gaps here are real and net-new.</p>
+
+  <h2>Roadmap — tiered by release-criticality (owner picks)</h2>
+
+  <div class="ord">
+    <b>Minimum viable release</b> &nbsp;<span class="seq">BP26 + BP27 + BP28</span> &nbsp;— BP26 (a small FE-only staff per-student download) makes v1 distribution work; bulk parity + governance make a school able to <em>run</em> and be <em>accountable</em>. <b>BP29</b> is close behind (teachers are half the staff base). <b>BP30/BP31</b> are safe fast-follows. <b>Build BP26 first</b> — it's now cheap (reuses <code>useDownloadAll</code>); outbound email is parked to BP12.
+  </div>
+
+  <div class="tier t0">Tier 0 — v1 distribution (the release mechanism)</div>
+  <div class="phase blk">
+    <div class="top"><span class="bp">BP26</span><span class="nm">Staff download &amp; share</span>
+      <span class="meta"><span class="chip crit">v1 blocker</span><span class="tag">Effort L · FE-only</span><span class="tag">no BE · no mig</span></span></div>
+    <div class="exp">
+      <div class="now"><span class="k">Now</span>Staff can grab a single photo or an event's whole gallery — but not every photo of one student across all events, so they can't hand a parent that child's set.</div>
+      <div class="aft"><span class="k">After</span>A "Download all N photos" on the student detail (teacher + admin) → one foldered zip to share via WhatsApp — the staff-side of the student's own download.</div>
+    </div>
+    <div class="how"><b>How:</b> feed <code>GET /students/{id}/media</code> (staff-entitled, BP5 effective overlay) into the existing <code>useDownloadAll</code> streaming zip, foldered by event/date · reuses the download entitlement (both roles hold <code>gallery:view_all</code>) — never widened. <b>No backend / ML / migration / dep / permission change.</b> &nbsp;closes R4-D00 · outbound email deferred → <b>parked BP12</b></div>
+  </div>
+
+  <div class="tier t1">Tier 1 — school-ready (strongly recommended)</div>
+  <div class="phase">
+    <div class="top"><span class="bp">BP27</span><span class="nm">Bulk operations parity</span>
+      <span class="meta"><span class="chip high">High</span><span class="tag">Effort M</span><span class="tag">no ML · no mig</span></span></div>
+    <div class="exp">
+      <div class="now"><span class="k">Now</span>Off-boarding a cohort, recovering a class's lost logins, or inviting 20 teachers is one-at-a-time — dozens of detail-page round-trips.</div>
+      <div class="aft"><span class="k">After</span>Multi-select → bulk disable/delete/resend across pages; a staff CSV importer; retry-failed + overwrite-confirm in the bulk-photo dialog.</div>
+    </div>
+    <div class="how"><b>How:</b> batch endpoints looping the <em>already-tested</em> single-writes (BP18a resend, BP8e erase, BP7d importer) + a "select all N matching" id-scan (BP9 pattern). &nbsp;Closes R4-A04/05/06/07/10/13</div>
+  </div>
+  <div class="phase">
+    <div class="top"><span class="bp">BP28</span><span class="nm">Governance &amp; audit completeness</span>
+      <span class="meta"><span class="chip high">High</span><span class="tag">Effort M</span><span class="tag mig">1 table (28b)</span></span></div>
+    <div class="exp">
+      <div class="now"><span class="k">Now</span>The access log can't be filtered or exported, and no record exists of who disabled/deleted/re-enrolled anyone.</div>
+      <div class="aft"><span class="k">After</span>Filter the log by actor/student/event/date + export CSV; a second tab records every governance action with its actor.</div>
+    </div>
+    <div class="how"><b>How:</b> 28a — surface the <em>already-wired</em> event/student filters + add date-range + export (no migration) · 28b — an admin-action audit table mirroring BP8b's <code>download_audit</code>. &nbsp;Closes R4-A24/25/26 (+A15)</div>
+  </div>
+  <div class="phase">
+    <div class="top"><span class="bp">BP29</span><span class="nm">Teacher-role coherence</span>
+      <span class="meta"><span class="chip high">High</span><span class="tag">Effort M · FE-weighted</span><span class="tag">no ML · no mig</span></span></div>
+    <div class="exp">
+      <div class="now"><span class="k">Now</span>An un-delegated teacher sees everything unexplained; the checklist dead-ends them; they can't see their own class roster.</div>
+      <div class="aft"><span class="k">After</span>Role-aware onboarding, a "you're seeing all classes — ask to be assigned" banner, "my" classes marked, a read-only class roster, and a "my work" lens.</div>
+    </div>
+    <div class="how"><b>How:</b> FE gating + banners + a read-only roster + a dashboard lens; delegation stays convenience-scope (BP11c), just made legible. &nbsp;Closes R4-T01–T08</div>
+  </div>
+
+  <div class="tier t2">Tier 2 — raises the bar (recommended; can trail release)</div>
+  <div class="phase">
+    <div class="top"><span class="bp">BP30</span><span class="nm">Review-loop power tools at scale</span>
+      <span class="meta"><span class="chip med">Medium</span><span class="tag">Effort M · FE-only</span></span></div>
+    <div class="exp">
+      <div class="now"><span class="k">Now</span>At 200 ambiguous matches, review is hand-select-every-tile; batch-undo is undiscoverable; there's no table view.</div>
+      <div class="aft"><span class="k">After</span>"Select all below N%" staging, a discoverable Undo + "show hidden matches", an optional table view, better search feedback.</div>
+    </div>
+    <div class="how"><b>How:</b> composes shipped BP13/BP22 primitives; still <b>no auto-confirm</b> (deliberate). &nbsp;Closes R4-A20/21/22/23, R4-F04</div>
+  </div>
+  <div class="phase">
+    <div class="top"><span class="bp">BP31</span><span class="nm">Onboarding feedback loop &amp; copy polish</span>
+      <span class="meta"><span class="chip med">Medium</span><span class="tag">Effort L–M · FE-only</span></span></div>
+    <div class="exp">
+      <div class="now"><span class="k">Now</span>Completing a checklist step breaks the momentum; alerts don't deep-link to the action; a dozen small copy truths are missing.</div>
+      <div class="aft"><span class="k">After</span>Return-to-checklist momentum, alerts that deep-link to Process/Fix, inline "Fix now", and the small-truth copy fixes.</div>
+    </div>
+    <div class="how"><b>How:</b> a "floor-sweep 2" batch of small independent FE fixes + surfacing an already-returned reject <code>reason</code>. &nbsp;Closes R4-A01/02/08/09/11/14/18/19, R4-F01/F02/F05</div>
+  </div>
+
+  <div class="tier">Still parked — called out, not scheduled</div>
+  <div class="phase">
+    <div class="top"><span class="bp">BP12</span><span class="nm">Outbound email/SMS to students</span><span class="meta"><span class="tag">parked · post-v1</span></span></div>
+    <p>The <em>original</em> BP26 scope — deliver photos to a student's inbox + a tokenized share link on the <code>CompositeNotifier</code> seam. Deferred post-v1: with no student login and staff sharing via WhatsApp, there's no inbox to reach. Revisit if a later release re-introduces student accounts.</p>
+  </div>
+  <div class="phase">
+    <div class="top"><span class="bp">BP16</span><span class="nm">Lifecycle &amp; retention</span><span class="meta"><span class="tag">parked</span></span></div>
+    <p>Event hard-delete (reusing BP8e), an erasure undo/grace window, data-export-before-delete (R4-F03). Lowest urgency — archive covers today.</p>
+  </div>
+  <div class="phase">
+    <div class="top"><span class="bp">BP15</span><span class="nm">Accuracy at scale</span><span class="meta"><span class="tag">parked</span></span></div>
+    <p>Enrollment staleness + per-event "18 of 22 enrolled found — who's missing?" reconciliation (also feeds R4-A03). No ML change. A candidate just after the release tier if pilot accuracy questions surface.</p>
+  </div>
+
+  <div class="foot">
+    Full review: <a href="product/08-product-review-round-4-staff-admin.md">product/08</a> · roadmap: <a href="product/09-improvement-roadmap-round-4.md">product/09</a> · parked backlog: <a href="product/05-parked-backlog.md">product/05</a>.
+    Nothing is scheduled — a phase starts only on owner pick + scope re-confirm, then plan → HTML explainer → build → 2× review → docs → stop.
+  </div>
+
+</div>
+</body>
+</html>

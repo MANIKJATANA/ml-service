@@ -14,6 +14,7 @@ import asyncio
 import uuid
 from dataclasses import dataclass, replace
 from pathlib import PurePosixPath
+from typing import Literal
 
 import structlog
 
@@ -80,6 +81,16 @@ class ResolvedPhotoTarget:
 
     filename: str
     student: Student | None
+
+
+@dataclass(frozen=True, slots=True)
+class BulkActionResult:
+    """One student id's outcome from a bulk enable/disable/delete (BP27). ``ok`` = the single-
+    student action succeeded; ``error`` = it raised (a foreign/missing id, or an ML/store blip)
+    and was isolated — the batch never aborts."""
+
+    student_id: str
+    status: Literal["ok", "error"]
 
 
 # The per-photo status the ML reports when it found no face (ml_service
@@ -421,6 +432,53 @@ class StudentService:
         if student.status is not status:
             await self._users.set_status(student.user_id, status=status)
         return await self.get_student(school_id=school_id, student_id=student_id)
+
+    async def bulk_set_status(
+        self, *, school_id: str, student_ids: list[str], status: UserStatus
+    ) -> list[BulkActionResult]:
+        """Enable/disable many students' logins at once (BP27) — a pure loop over the tested
+        single-writer ``set_status``. Best-effort per id: a success is ``ok``; ANY exception
+        (incl. ``NotFoundError`` for a foreign/missing id, which ``set_status`` raises before any
+        write) is ``error`` and the batch continues. Tenant-safe by construction — ``set_status``
+        derives nothing from the caller and 404s a foreign id before touching a row. The batch
+        size is capped by the route schema. PII-safe logging (id only)."""
+        results: list[BulkActionResult] = []
+        for student_id in student_ids:
+            try:
+                await self.set_status(
+                    school_id=school_id, student_id=student_id, status=status
+                )
+                results.append(BulkActionResult(student_id, "ok"))
+            except Exception:  # noqa: BLE001 — isolate one id's failure from the batch
+                _log.warning(
+                    "bulk_set_status_failed", student_id=student_id, exc_info=True
+                )
+                results.append(BulkActionResult(student_id, "error"))
+        return results
+
+    async def bulk_delete_students(
+        self, *, school_id: str, student_ids: list[str]
+    ) -> list[BulkActionResult]:
+        """Erase many students at once (BP27) — a pure loop over the tested single-writer
+        ``delete_student``. Best-effort per id: a success is ``ok``; ANY exception (incl. the
+        ML-down ``UpstreamError`` that surfaces as a 502, or a foreign/missing id's
+        ``NotFoundError``) is ``error`` and the batch continues. The ML DELETE is idempotent
+        (deleting an already-absent student returns 204), so retrying an ``error`` row that had
+        already removed its ML footprint self-heals — it re-runs ml.delete then completes the
+        login delete. The batch size is capped by the route schema. PII-safe logging (id only)."""
+        results: list[BulkActionResult] = []
+        for student_id in student_ids:
+            try:
+                await self.delete_student(
+                    school_id=school_id, student_id=student_id
+                )
+                results.append(BulkActionResult(student_id, "ok"))
+            except Exception:  # noqa: BLE001 — isolate one id's failure from the batch
+                _log.warning(
+                    "bulk_delete_student_failed", student_id=student_id, exc_info=True
+                )
+                results.append(BulkActionResult(student_id, "error"))
+        return results
 
     async def _require_active_school(self, school_id: str) -> School:
         school = await self._schools.get(school_id)

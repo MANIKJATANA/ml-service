@@ -9,7 +9,7 @@ profile, never the linked login's password hash.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, EmailStr, Field, StringConstraints
 
@@ -21,9 +21,10 @@ from backend.domain.models import (
     UserStatus,
 )
 from backend.services.engagement_service import StudentEngagement
-from backend.services.listing_service import StudentListing
+from backend.services.listing_service import StudentIdScan, StudentListing
 from backend.services.pagination import Page
 from backend.services.student_service import (
+    BulkActionResult,
     BulkStudentResult,
     ProvisionedStudent,
     ResolvedPhotoTarget,
@@ -32,6 +33,10 @@ from backend.settings import settings
 
 # The largest batch one CSV import can create in a single request (BP7d).
 _MAX_BULK_ROWS = 500
+
+# The most student ids one bulk enable/disable/delete can carry (BP27) — comfortably above a
+# real school's student count (so "select all matching" fits in one request); over it is a 422.
+_MAX_BULK_IDS = 1000
 
 
 class CreateStudentRequest(BaseModel):
@@ -283,3 +288,54 @@ class StudentListPageResponse(BaseModel):
             limit=page.limit,
             offset=page.offset,
         )
+
+
+# ---- bulk actions + select-all-matching (BP27) --------------------------
+
+
+class StudentIdsResponse(BaseModel):
+    """Every student id matching a filter (BP27 select-all-matching) — the FE flips to acting on
+    the whole matching set, not just the loaded page."""
+
+    ids: list[str]
+    total: int
+
+    @classmethod
+    def from_scan(cls, scan: StudentIdScan) -> StudentIdsResponse:
+        return cls(ids=scan.ids, total=scan.total)
+
+
+class BulkIdsRequest(BaseModel):
+    """A set of student ids for a bulk action (BP27). Capped (abuse guard → 422); a foreign id is
+    a per-row skip in the service (each single action 404s a foreign/missing id, recorded as
+    ``error``)."""
+
+    student_ids: list[str] = Field(min_length=1, max_length=_MAX_BULK_IDS)
+
+
+class BulkStatusRequest(BulkIdsRequest):
+    """Enable/disable many students' logins at once (BP27)."""
+
+    status: UserStatus
+
+
+class BulkActionResultResponse(BaseModel):
+    """One student id's outcome from a bulk action (BP27)."""
+
+    student_id: str
+    status: Literal["ok", "error"]
+
+    @classmethod
+    def from_result(cls, r: BulkActionResult) -> BulkActionResultResponse:
+        return cls(student_id=r.student_id, status=r.status)
+
+
+class BulkActionResponse(BaseModel):
+    """The per-id outcomes of a bulk enable/disable/delete (BP27). The FE counts ``ok`` vs
+    ``error`` for an honest toast ("Disabled X of N — Y couldn't be updated")."""
+
+    results: list[BulkActionResultResponse]
+
+    @classmethod
+    def from_results(cls, results: list[BulkActionResult]) -> BulkActionResponse:
+        return cls(results=[BulkActionResultResponse.from_result(r) for r in results])

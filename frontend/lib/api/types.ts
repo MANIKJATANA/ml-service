@@ -334,6 +334,26 @@ export type SortDir = "asc" | "desc";
 /** Which rendition of an image to request (BP17): a small thumbnail for tiles/avatars, or
  *  the full-res original for the lightbox/download. */
 export type PhotoSize = "thumb" | "full";
+
+/** Every student id matching a filter (BP27 select-all-matching) — the FE flips to acting on
+ *  the whole matching set, not just the loaded page. */
+export interface StudentIdsResponse {
+  ids: string[];
+  total: number;
+}
+
+/** One student id's outcome from a bulk enable/disable/delete (BP27). */
+export interface BulkActionResultResponse {
+  student_id: string;
+  status: "ok" | "error";
+}
+
+/** The per-id outcomes of a bulk action (BP27) — the FE counts `ok` vs `error` for an honest
+ *  toast ("Disabled X of N — Y couldn't be updated"). */
+export interface BulkActionResponse {
+  results: BulkActionResultResponse[];
+}
+
 export type StudentListPageResponse = ListPage<StudentListItem>;
 export type EventListPageResponse = ListPage<EventListItem>;
 export type UserListPageResponse = ListPage<UserResponse>;

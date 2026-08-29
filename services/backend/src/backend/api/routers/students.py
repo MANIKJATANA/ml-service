@@ -28,14 +28,18 @@ from backend.api.pagination import (
 )
 from backend.api.schemas.gallery import DownloadResponse
 from backend.api.schemas.students import (
+    BulkActionResponse,
+    BulkIdsRequest,
     BulkImportRequest,
     BulkImportResponse,
+    BulkStatusRequest,
     CreateStudentRequest,
     MatchPhotosRequest,
     MatchPhotosResponse,
     ProvisionedStudentResponse,
     SetReferencePhotoRequest,
     StudentEngagementResponse,
+    StudentIdsResponse,
     StudentListPageResponse,
     StudentResponse,
     UpdateStudentRequest,
@@ -163,6 +167,62 @@ async def list_students(
         never_opened=opened is ActivityFilter.NEVER,
     )
     return StudentListPageResponse.from_page(page)
+
+
+@router.get("/ids", response_model=StudentIdsResponse)
+async def list_student_ids(
+    container: ContainerDep,
+    actor: StudentManager,
+    q: SearchQuery = None,
+    status: Annotated[EnrollmentStatus | None, Query()] = None,
+    student_group_id: Annotated[str | None, Query(max_length=64)] = None,
+    mine: Annotated[bool, Query()] = False,
+    login: Annotated[ActivityFilter | None, Query()] = None,
+    opened: Annotated[ActivityFilter | None, Query()] = None,
+) -> StudentIdsResponse:
+    """Every student id matching the given filter (BP27 select-all-matching) — so a bulk
+    enable/disable/delete can span every page, not just the loaded one. Takes the SAME filter
+    params as ``GET /v1/students`` (minus sort/pagination), so the id set is identical to what
+    the list shows. Tenant from the token; a teacher's ``mine=true`` focus is honored. Registered
+    before ``/{student_id}`` so the literal wins the route match."""
+    scope = await resolve_focus_group_ids(container, actor, mine)
+    scan = await container.listing_service().list_student_ids(
+        school_id=tenant_of(actor),
+        q=q,
+        status=status,
+        student_group_id=student_group_id,
+        scope_group_ids=scope,
+        never_signed_in=login is ActivityFilter.NEVER,
+        never_opened=opened is ActivityFilter.NEVER,
+    )
+    return StudentIdsResponse.from_scan(scan)
+
+
+@router.post("/bulk-status", response_model=BulkActionResponse)
+async def bulk_set_student_status(
+    body: BulkStatusRequest, container: ContainerDep, actor: StudentManager
+) -> BulkActionResponse:
+    """Enable/disable many students' logins at once (BP27) — best-effort per id (a foreign/
+    missing id is recorded ``error`` and the batch continues). Tenant from the token; registered
+    before ``/{student_id}`` so the literal wins the route match."""
+    results = await container.student_service().bulk_set_status(
+        school_id=tenant_of(actor), student_ids=body.student_ids, status=body.status
+    )
+    return BulkActionResponse.from_results(results)
+
+
+@router.post("/bulk-delete", response_model=BulkActionResponse)
+async def bulk_delete_students(
+    body: BulkIdsRequest, container: ContainerDep, actor: StudentManager
+) -> BulkActionResponse:
+    """Erase many students at once (BP27) — best-effort per id (an ML-down 502 or a foreign/
+    missing id is recorded ``error`` and the batch continues; the ML DELETE is idempotent, so a
+    retried ``error`` row self-heals). Tenant from the token; registered before ``/{student_id}``
+    so the literal wins the route match."""
+    results = await container.student_service().bulk_delete_students(
+        school_id=tenant_of(actor), student_ids=body.student_ids
+    )
+    return BulkActionResponse.from_results(results)
 
 
 @router.get("/{student_id}", response_model=StudentResponse)

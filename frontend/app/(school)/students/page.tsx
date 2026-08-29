@@ -1,6 +1,6 @@
 "use client";
 
-import { GraduationCap, RotateCcw, UserPlus } from "lucide-react";
+import { Ban, CircleCheck, GraduationCap, RotateCcw, Trash2, UserPlus } from "lucide-react";
 import Link from "next/link";
 import { type FormEvent, Suspense, useEffect, useState } from "react";
 
@@ -28,10 +28,24 @@ import { SortableHead } from "@/components/ui/sortable-head";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/components/ui/toast";
-import { assignStudentsToClass, createStudent, enrollStudent, getStudents } from "@/lib/api/endpoints";
+import {
+  assignStudentsToClass,
+  bulkDeleteStudents,
+  bulkSetStudentStatus,
+  createStudent,
+  enrollStudent,
+  getStudentIds,
+  getStudents,
+  type StudentFilterParams,
+} from "@/lib/api/endpoints";
 import { isApiError } from "@/lib/api/errors";
 import { uploadReferencePhoto } from "@/lib/api/upload";
-import type { EnrollmentStatus, SortDir, StudentListItem } from "@/lib/api/types";
+import type {
+  BulkActionResponse,
+  EnrollmentStatus,
+  SortDir,
+  StudentListItem,
+} from "@/lib/api/types";
 import { useClasses } from "@/lib/hooks/use-classes";
 import { useDashboard } from "@/lib/hooks/use-dashboard";
 import { useDebouncedValue } from "@/lib/hooks/use-debounced-value";
@@ -52,6 +66,12 @@ const SORT_DEFAULT_DIR: Record<string, SortDir> = {
   name: "asc",
   appearance_count: "desc",
 };
+
+/** BP27 multi-select: either an explicit hand-picked set ("ids") or the whole matching set
+ *  fetched from the server ("all", so a bulk action spans pages). */
+type Selection =
+  | { mode: "ids"; ids: Set<string> }
+  | { mode: "all"; ids: string[]; total: number };
 
 function CreateStudentDialog({
   onCreated,
@@ -352,46 +372,164 @@ function StudentsContent() {
     });
 
   const { toast } = useToast();
-  // BP25 (L14): bulk-select students → assign to a class (reuses the BP11a bulk endpoint).
-  // Selection is derived stale-safe (BP13): only ids still on the loaded page are acted on.
-  const [selected, setSelected] = useState<Set<string>>(new Set());
+  // BP27: bulk enable/disable/delete + assign-to-class over a multi-select. The selection is a
+  // discriminated model — "ids" (an explicit set, stale-safe: only ids still on the loaded page
+  // are acted on) or "all" (a snapshot of EVERY matching id from the server, so an action can
+  // span pages). Reset to empty whenever the filter/search/sort changes (the same queryKey the
+  // list resets on) so an "all" snapshot never carries across filters.
+  const [selection, setSelection] = useState<Selection>({ mode: "ids", ids: new Set() });
   const [bulkClassId, setBulkClassId] = useState("");
-  const [bulkBusy, setBulkBusy] = useState(false);
+  // Which bulk op is in flight (null = idle) — drives the disabled/double-submit guard AND a
+  // spinner on the *clicked* button (not every button). `bulkBusy` is derived, one source of truth.
+  const [bulkAction, setBulkAction] = useState<
+    "disable" | "enable" | "delete" | "assign" | null
+  >(null);
+  const bulkBusy = bulkAction !== null;
+  const [selectingAll, setSelectingAll] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState(false);
+  // The filter the list is currently showing — kept param-identical so getStudentIds' scan
+  // matches exactly (BP27 select-all-matching).
+  const currentFilters: StudentFilterParams = {
+    q: query || undefined,
+    status: filter,
+    student_group_id: activeClassFilter || undefined,
+    mine: focusOn,
+    login: loginNever ? "never" : undefined,
+    opened: openedNever ? "never" : undefined,
+  };
+  const filterKey = JSON.stringify([
+    query,
+    filter,
+    activeClassFilter,
+    focusOn,
+    loginNever,
+    openedNever,
+  ]);
+  // Reset the selection whenever the filter/search changes (NOT sort/dir — re-sorting only reorders
+  // the same matching set, so a hand-picked selection should survive it) — adjust-state-during-render (the
+  // codebase's stale-safe pattern, mirroring `rawQuery`'s reset above), not an effect, so an
+  // "all" snapshot never carries across filters and it happens in the same render as the change.
+  const [prevFilterKey, setPrevFilterKey] = useState(filterKey);
+  if (filterKey !== prevFilterKey) {
+    setPrevFilterKey(filterKey);
+    setSelection({ mode: "ids", ids: new Set() });
+  }
+
   const loadedIds = new Set(items.map((s) => s.id));
-  const selectedOnPage = [...selected].filter((id) => loadedIds.has(id));
-  const allOnPageSelected = items.length > 0 && items.every((s) => selected.has(s.id));
+  // The ids a bulk action will actually target: for "ids", only those still loaded (stale-safe);
+  // for "all", the whole server snapshot.
+  const targetIds =
+    selection.mode === "all"
+      ? selection.ids
+      : [...selection.ids].filter((id) => loadedIds.has(id));
+  const selectedCount = targetIds.length;
+  const allOnPageSelected =
+    items.length > 0 &&
+    (selection.mode === "all" || items.every((s) => selection.ids.has(s.id)));
+  const isSelected = (id: string) =>
+    selection.mode === "all" ? selection.ids.includes(id) : selection.ids.has(id);
+  function clearSelection() {
+    setSelection({ mode: "ids", ids: new Set() });
+    setBulkClassId("");
+  }
   function toggleStudent(id: string) {
-    setSelected((cur) => {
-      const next = new Set(cur);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
+    // Toggling a row leaves "all" mode — the user is now hand-picking again (starting from the
+    // current selection, whether that was an "all" snapshot or an explicit set).
+    setSelection((cur) => {
+      const base = new Set(cur.ids); // Set(string[]) and Set(Set) both work
+      if (base.has(id)) base.delete(id);
+      else base.add(id);
+      return { mode: "ids", ids: base };
     });
   }
   function toggleAllOnPage() {
-    setSelected((cur) => {
-      const next = new Set(cur);
-      if (allOnPageSelected) items.forEach((s) => next.delete(s.id));
-      else items.forEach((s) => next.add(s.id));
-      return next;
+    setSelection((cur) => {
+      if (cur.mode === "ids" && !allOnPageSelected) {
+        const next = new Set(cur.ids);
+        items.forEach((s) => next.add(s.id));
+        return { mode: "ids", ids: next };
+      }
+      // Everything on the page (or "all") is selected → clear.
+      return { mode: "ids", ids: new Set() };
     });
   }
-  async function assignBulk() {
-    if (!bulkClassId || selectedOnPage.length === 0) return;
-    setBulkBusy(true);
+  async function selectAllMatching() {
+    setSelectingAll(true);
     try {
-      const { assigned } = await assignStudentsToClass(bulkClassId, selectedOnPage);
+      const { ids, total: matched } = await getStudentIds(currentFilters);
+      setSelection({ mode: "all", ids, total: matched });
+    } catch (err) {
+      toast(isApiError(err) ? err.message : "Something went wrong", "error");
+    } finally {
+      setSelectingAll(false);
+    }
+  }
+
+  /** Count `ok`/`error` from a bulk response and toast honestly. Returns nothing — the caller
+   *  refreshes the list + dashboard and clears the selection. */
+  function reportBulk(resp: BulkActionResponse, verb: string, failVerb = "updated"): void {
+    const total = resp.results.length;
+    const ok = resp.results.filter((r) => r.status === "ok").length;
+    const failed = total - ok;
+    if (failed === 0) {
+      toast(`${verb} ${ok} ${ok === 1 ? "student" : "students"}.`, "success");
+    } else {
+      toast(
+        `${verb} ${ok} of ${total} — ${failed} couldn't be ${failVerb}.`,
+        ok > 0 ? "warning" : "error",
+      );
+    }
+  }
+
+  async function afterBulkMutation() {
+    clearSelection();
+    await mutate();
+    void mutateDashboard();
+  }
+
+  async function assignBulk() {
+    if (!bulkClassId || selectedCount === 0) return;
+    setBulkAction("assign");
+    try {
+      const { assigned } = await assignStudentsToClass(bulkClassId, targetIds);
       toast(
         `Assigned ${assigned} ${assigned === 1 ? "student" : "students"} to the class.`,
         "success",
       );
-      setSelected(new Set());
-      setBulkClassId("");
-      mutate();
+      await afterBulkMutation();
     } catch (err) {
       toast(isApiError(err) ? err.message : "Something went wrong", "error");
     } finally {
-      setBulkBusy(false);
+      setBulkAction(null);
+    }
+  }
+
+  async function setStatusBulk(status: "active" | "disabled") {
+    if (selectedCount === 0) return;
+    setBulkAction(status === "disabled" ? "disable" : "enable");
+    try {
+      const resp = await bulkSetStudentStatus(targetIds, status);
+      reportBulk(resp, status === "disabled" ? "Disabled" : "Enabled");
+      await afterBulkMutation();
+    } catch (err) {
+      toast(isApiError(err) ? err.message : "Something went wrong", "error");
+    } finally {
+      setBulkAction(null);
+    }
+  }
+
+  async function deleteBulk() {
+    if (selectedCount === 0) return;
+    setBulkAction("delete");
+    try {
+      const resp = await bulkDeleteStudents(targetIds);
+      reportBulk(resp, "Deleted", "deleted");
+      await afterBulkMutation();
+    } catch (err) {
+      toast(isApiError(err) ? err.message : "Something went wrong", "error");
+    } finally {
+      setBulkAction(null);
+      setDeleteConfirm(false);
     }
   }
 
@@ -518,36 +656,96 @@ function StudentsContent() {
             </div>
             <SearchInput value={rawQuery} onChange={setRawQuery} placeholder="Search name or email…" />
           </div>
-          {/* BP25 (L14): bulk-select → assign to a class (parity with the events bulk bar). */}
-          {selectedOnPage.length > 0 && classes.length > 0 ? (
-            <div className="flex flex-wrap items-center gap-3 rounded-card border border-hairline bg-surface px-4 py-3">
-              <span role="status" className="text-body-sm font-medium text-ink">
-                {selectedOnPage.length} selected
-              </span>
-              <select
-                aria-label="Class to assign to"
-                value={bulkClassId}
-                onChange={(e) => setBulkClassId(e.target.value)}
-                className="h-9 rounded-button border border-hairline bg-canvas px-3 text-body-sm text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                <option value="">Assign to class…</option>
-                {classes.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
-              <Button size="sm" onClick={assignBulk} loading={bulkBusy} disabled={!bulkClassId || bulkBusy}>
-                Assign
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => setSelected(new Set())}
-                disabled={bulkBusy}
-              >
-                Clear
-              </Button>
+          {/* BP27: the multi-select action bar — enable/disable/delete (+ assign-to-class when the
+              school has classes). "Select all N matching" flips to acting on every matching
+              student (spans pages), not just the loaded page. */}
+          {selectedCount > 0 ? (
+            <div className="flex flex-col gap-3 rounded-card border border-hairline bg-surface px-4 py-3">
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                <span role="status" className="text-body-sm font-medium text-ink">
+                  {selection.mode === "all"
+                    ? `All ${selection.total} selected`
+                    : `${selectedCount} selected`}
+                  {bulkBusy ? " · working…" : ""}
+                </span>
+                {/* Offer "select all matching" once the whole loaded page is picked but more rows
+                    match than are loaded; once in "all" mode, offer Clear. */}
+                {selection.mode === "all" ? (
+                  <Button size="sm" variant="ghost" onClick={clearSelection} disabled={bulkBusy}>
+                    Clear
+                  </Button>
+                ) : allOnPageSelected && total > items.length ? (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={selectAllMatching}
+                    loading={selectingAll}
+                    disabled={selectingAll || bulkBusy}
+                  >
+                    Select all {total} matching
+                  </Button>
+                ) : (
+                  <Button size="sm" variant="ghost" onClick={clearSelection} disabled={bulkBusy}>
+                    Clear
+                  </Button>
+                )}
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => setStatusBulk("disabled")}
+                  loading={bulkAction === "disable"}
+                  disabled={bulkBusy}
+                >
+                  <Ban className="size-4" aria-hidden="true" />
+                  Disable
+                </Button>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => setStatusBulk("active")}
+                  loading={bulkAction === "enable"}
+                  disabled={bulkBusy}
+                >
+                  <CircleCheck className="size-4" aria-hidden="true" />
+                  Enable
+                </Button>
+                {classes.length > 0 ? (
+                  <div className="flex items-center gap-2">
+                    <select
+                      aria-label="Class to assign to"
+                      value={bulkClassId}
+                      onChange={(e) => setBulkClassId(e.target.value)}
+                      className="h-9 rounded-button border border-hairline bg-canvas px-3 text-body-sm text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      <option value="">Assign to class…</option>
+                      {classes.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name}
+                        </option>
+                      ))}
+                    </select>
+                    <Button
+                      size="sm"
+                      onClick={assignBulk}
+                      loading={bulkAction === "assign"}
+                      disabled={!bulkClassId || bulkBusy}
+                    >
+                      Assign
+                    </Button>
+                  </div>
+                ) : null}
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  onClick={() => setDeleteConfirm(true)}
+                  disabled={bulkBusy}
+                >
+                  <Trash2 className="size-4" aria-hidden="true" />
+                  Delete
+                </Button>
+              </div>
             </div>
           ) : null}
           {total === 0 ? (
@@ -558,21 +756,19 @@ function StudentsContent() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      {/* BP25: the checkbox column only exists when there's a bulk action (classes
-                          to assign to) — else it's dead UI. */}
-                      {classes.length > 0 ? (
-                        <TableHead className="w-10">
-                          <label className="flex w-fit cursor-pointer items-center p-1">
-                            <input
-                              type="checkbox"
-                              checked={allOnPageSelected}
-                              onChange={toggleAllOnPage}
-                              aria-label="Select all students on this page"
-                              className="size-4 rounded border-hairline text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                            />
-                          </label>
-                        </TableHead>
-                      ) : null}
+                      {/* BP27: the multi-select column — always present once there are rows, since
+                          every row now has a bulk action (enable/disable/delete). */}
+                      <TableHead className="w-10">
+                        <label className="flex w-fit cursor-pointer items-center p-1">
+                          <input
+                            type="checkbox"
+                            checked={allOnPageSelected}
+                            onChange={toggleAllOnPage}
+                            aria-label="Select all students on this page"
+                            className="size-4 rounded border-hairline text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          />
+                        </label>
+                      </TableHead>
                       <SortableHead
                         label="Student"
                         sortKey="name"
@@ -594,19 +790,17 @@ function StudentsContent() {
                   <TableBody>
                     {items.map((student) => (
                       <TableRow key={student.id} className="transition-colors hover:bg-surface">
-                        {classes.length > 0 ? (
-                          <TableCell>
-                            <label className="flex w-fit cursor-pointer items-center p-1">
-                              <input
-                                type="checkbox"
-                                checked={selected.has(student.id)}
-                                onChange={() => toggleStudent(student.id)}
-                                aria-label={`Select ${student.name}`}
-                                className="size-4 rounded border-hairline text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                              />
-                            </label>
-                          </TableCell>
-                        ) : null}
+                        <TableCell>
+                          <label className="flex w-fit cursor-pointer items-center p-1">
+                            <input
+                              type="checkbox"
+                              checked={isSelected(student.id)}
+                              onChange={() => toggleStudent(student.id)}
+                              aria-label={`Select ${student.name}`}
+                              className="size-4 rounded border-hairline text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            />
+                          </label>
+                        </TableCell>
                         <TableCell>
                           <Link
                             href={`/students/${student.id}`}
@@ -672,6 +866,17 @@ function StudentsContent() {
           )}
         </div>
       )}
+
+      <ConfirmDialog
+        open={deleteConfirm}
+        onOpenChange={setDeleteConfirm}
+        title={`Delete ${selectedCount} ${selectedCount === 1 ? "student" : "students"}?`}
+        description="Permanently deletes each student's login, profile, face enrollment, and their matched-photo history — this can't be undone. The event photos themselves stay in every gallery, and past download records are kept but anonymized."
+        confirmLabel={`Delete ${selectedCount} ${selectedCount === 1 ? "student" : "students"}`}
+        destructive
+        loading={bulkAction === "delete"}
+        onConfirm={deleteBulk}
+      />
 
       <InviteResultDialog invite={invite} onClose={() => setInvite(null)} />
     </div>

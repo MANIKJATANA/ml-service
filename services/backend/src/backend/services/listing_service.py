@@ -78,6 +78,15 @@ class StudentListing:
 
 
 @dataclass(frozen=True, slots=True)
+class StudentIdScan:
+    """The full set of student ids matching a filter (BP27 select-all-matching) — an id-only
+    scan so a bulk action can span pages. ``total == len(ids)``."""
+
+    ids: list[str]
+    total: int
+
+
+@dataclass(frozen=True, slots=True)
 class SchoolListing:
     """A school + its rollup (admins, teachers, students, events)."""
 
@@ -335,6 +344,35 @@ class ListingService:
             )
         items = [_student_listing(s, counts) for s in students]
         return Page(items=items, total=total, limit=limit, offset=offset)
+
+    async def list_student_ids(
+        self,
+        *,
+        school_id: str,
+        q: str | None = None,
+        status: EnrollmentStatus | None = None,
+        student_group_id: str | None = None,
+        scope_group_ids: Sequence[str] | None = None,
+        never_signed_in: bool = False,
+        never_opened: bool = False,
+    ) -> StudentIdScan:
+        """Every student id matching the given filter (BP27 select-all-matching) — so a bulk
+        enable/disable/delete can span every page, not just the loaded one. One tenant-scoped
+        id-only scan via the existing ``StudentRepository.list_ids`` (the same args the page path
+        uses, so the id set is identical to what the list shows). No cap on the read (the natural
+        bound is a school's student count, realistically ~800); the *action* request is capped by
+        its route schema (``_MAX_BULK_IDS``). A school exceeding that cap has its follow-up bulk
+        POST rejected 422 (narrow the filter) — not reachable at v1 scale."""
+        ids = await self._students.list_ids(
+            school_id,
+            q=q,
+            status=status,
+            student_group_id=student_group_id,
+            scope_group_ids=scope_group_ids,
+            never_signed_in=never_signed_in,
+            never_opened=never_opened,
+        )
+        return StudentIdScan(ids=ids, total=len(ids))
 
     # ---- platform (cross-tenant) ---------------------------------------
 

@@ -1,5 +1,6 @@
 import { bffFetch } from "./client";
 import type {
+  BulkActionResponse,
   BulkImportResponse,
   ClassListResponse,
   ClassRefListResponse,
@@ -36,6 +37,7 @@ import type {
   SchoolWithRollup,
   SortDir,
   StudentEngagementResponse,
+  StudentIdsResponse,
   StudentInEventResponse,
   StudentListPageResponse,
   StudentResponse,
@@ -247,6 +249,44 @@ export function resendStaffInvite(userId: string): Promise<ProvisionedUserRespon
  *  whole-list appearance/event count columns), and enrollment-status filter. */
 export function getStudents(params: ListParams): Promise<StudentListPageResponse> {
   return bffFetch<StudentListPageResponse>(`/api/v1/students?${listQuery(params)}`);
+}
+
+/** The FILTER params a students list is showing (BP27 select-all-matching) — the same shape
+ *  as {@link getStudents} minus pagination, so the id scan matches the page exactly. */
+export type StudentFilterParams = Omit<ListParams, "limit" | "offset" | "sort" | "dir">;
+
+/** Every student id matching the current filter (BP27 select-all-matching) — so a bulk
+ *  enable/disable/delete can act on the whole matching set, not just the loaded page. Reuses
+ *  `listQuery` (with a throwaway limit/offset it never sends) so the filter is param-identical
+ *  to `getStudents`. */
+export function getStudentIds(params: StudentFilterParams): Promise<StudentIdsResponse> {
+  // Build the querystring via listQuery so a future student filter can't silently diverge from
+  // getStudents (the load-bearing "identical id set" invariant), then drop the pagination/sort
+  // keys the /ids scan ignores (it returns EVERY matching id, not a page).
+  const q = new URLSearchParams(listQuery({ ...params, limit: 0, offset: 0 }));
+  for (const key of ["limit", "offset", "sort", "dir"]) q.delete(key);
+  return bffFetch<StudentIdsResponse>(`/api/v1/students/ids?${q.toString()}`);
+}
+
+/** Enable/disable many students' logins at once (BP27) — best-effort per id; a foreign/missing
+ *  id comes back `error` and the batch never aborts. Returns each id's outcome. */
+export function bulkSetStudentStatus(
+  studentIds: string[],
+  status: UserStatus,
+): Promise<BulkActionResponse> {
+  return bffFetch<BulkActionResponse>("/api/v1/students/bulk-status", {
+    method: "POST",
+    body: JSON.stringify({ student_ids: studentIds, status }),
+  });
+}
+
+/** Delete many students at once (BP27) — best-effort per id (an ML-down 502 or a foreign id
+ *  comes back `error`; the batch never aborts). Returns each id's outcome. */
+export function bulkDeleteStudents(studentIds: string[]): Promise<BulkActionResponse> {
+  return bffFetch<BulkActionResponse>("/api/v1/students/bulk-delete", {
+    method: "POST",
+    body: JSON.stringify({ student_ids: studentIds }),
+  });
 }
 
 export function getStudent(studentId: string): Promise<StudentResponse> {

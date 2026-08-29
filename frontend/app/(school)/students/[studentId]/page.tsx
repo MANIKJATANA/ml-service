@@ -1,8 +1,17 @@
 "use client";
 
-import { AlertTriangle, Ban, CircleCheck, ImagePlus, KeyRound, RefreshCw, Trash2 } from "lucide-react";
+import {
+  AlertTriangle,
+  Ban,
+  CircleCheck,
+  Download,
+  ImagePlus,
+  KeyRound,
+  RefreshCw,
+  Trash2,
+} from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useCallback, useMemo, useState } from "react";
 import useSWR, { mutate as globalMutate } from "swr";
 
 import { FilterChips } from "@/components/gallery/filter-chips";
@@ -32,14 +41,21 @@ import {
   setStudentStatus,
 } from "@/lib/api/endpoints";
 import { isApiError } from "@/lib/api/errors";
-import type { EnrollmentFailureReason, StudentResponse, UserStatus } from "@/lib/api/types";
+import type {
+  EnrollmentFailureReason,
+  EventForStudentResponse,
+  StudentResponse,
+  UserStatus,
+} from "@/lib/api/types";
 import { uploadReferencePhoto } from "@/lib/api/upload";
+import { toISODate } from "@/lib/events/calendar";
 import { useClasses } from "@/lib/hooks/use-classes";
-import { useStudentEvents, useStudentMedia } from "@/lib/hooks/use-galleries";
+import { useDownloadAll } from "@/lib/hooks/use-download-all";
+import { useAllStudentMedia, useStudentEvents, useStudentMedia } from "@/lib/hooks/use-galleries";
 import { useStudentReferencePhoto } from "@/lib/hooks/use-student-reference-photo";
 import { useStudent } from "@/lib/hooks/use-students";
 import { ENROLL_FAILURE_HELP, enrollDisplay } from "@/lib/students/enrollment";
-import { formatDate } from "@/lib/utils";
+import { formatDate, sanitizeFilename } from "@/lib/utils";
 
 /** Why an enrollment failed + how to fix it (BP7b). Shown under the profile when the
  *  status is `failed`; the specific copy comes from the reason the backend recorded. */
@@ -269,9 +285,111 @@ function EngagementCard({ studentId }: { studentId: string }) {
   );
 }
 
-/** Events the student appears in → their photos in the selected one. Hidden until the
- *  student has been matched into at least one photo (decisions/0035). */
-function AppearsInSection({ studentId }: { studentId: string }) {
+/** Staff "Download all": every photo this student appears in, across all their events, as ONE
+ *  zip — foldered/named by event/date. The staff-side of the student's own "Download all" (BP26 v1,
+ *  decisions/0081 — the v1 distribution model: staff download → share via WhatsApp). Reuses the
+ *  download entitlement (both staff roles hold `gallery:view_all`) + the streaming `useDownloadAll`
+ *  — no backend change. `events` is the already-fetched list (for zip foldering); the full media list
+ *  is its own read, and its count is the EFFECTIVE set (BP5 corrections applied) — so it can differ
+ *  from the EngagementCard's raw `photos_appearing`. */
+function StudentDownloadAll({
+  studentId,
+  studentName,
+  events,
+}: {
+  studentId: string;
+  studentName: string;
+  events: EventForStudentResponse[];
+}) {
+  const { toast } = useToast();
+  const { media, error } = useAllStudentMedia(studentId);
+
+  // event_id → {name, date} for zip foldering (mirrors the student self-view, BP20).
+  const eventMeta = useMemo(() => {
+    const m = new Map<string, { name: string; date: string | null }>();
+    for (const e of events) m.set(e.event_id, { name: e.name, date: e.event_date });
+    return m;
+  }, [events]);
+
+  const mediaIds = useMemo(() => (media ? media.map((x) => x.media_id) : []), [media]);
+  // `new Date()` in a lazy initializer runs once at mount, not on every render.
+  const [zipStamp] = useState(() => toISODate(new Date()));
+  const entryBase = useCallback(
+    (i: number) => {
+      const m = media?.[i];
+      const meta = m ? eventMeta.get(m.event_id) : undefined;
+      const folder = (meta && sanitizeFilename(meta.name)) || "Photos";
+      const datePart = meta?.date ?? "photo";
+      return `${folder}/${datePart}-${String(i + 1).padStart(3, "0")}`;
+    },
+    [media, eventMeta],
+  );
+  const zipName = `${sanitizeFilename(studentName) || "student"}-photos-${zipStamp}.zip`;
+  const { busy, done, total, cap, onDownloadAll } = useDownloadAll(mediaIds, {
+    entryBase,
+    zipName,
+  });
+
+  async function handleDownloadAll() {
+    try {
+      const { saved, capped, cancelled } = await onDownloadAll();
+      if (cancelled) return; // dismissed the save dialog — silent, not an error
+      // Copy mirrors the sibling staff surface (the event-gallery download) for consistency.
+      if (saved === 0) {
+        toast("Couldn't download the photos. Please try again.", "error");
+      } else if (capped) {
+        toast(
+          `Saved the first ${cap} of ${total} photos. To get the rest, open this page in desktop Chrome or Edge.`,
+          "info",
+          { sticky: true },
+        );
+      } else if (saved < total) {
+        toast(
+          `Saved ${saved} of ${total} photos — ${total - saved} couldn't be saved right now. Try again.`,
+          "info",
+          { sticky: true },
+        );
+      } else {
+        toast(`Downloaded ${total} ${total === 1 ? "photo" : "photos"}.`, "success");
+      }
+    } catch {
+      toast("Couldn't prepare the download. Please try again.", "error");
+    }
+  }
+
+  // The list read failed, or the student has no photos → no button (the per-event view still
+  // works). While the list loads, the button shows disabled with no count.
+  if (error) return null;
+  if (media && media.length === 0) return null;
+  return (
+    <div className="flex items-center gap-3">
+      <Button
+        variant="secondary"
+        onClick={handleDownloadAll}
+        loading={busy}
+        disabled={busy || !media}
+      >
+        <Download className="size-4" aria-hidden="true" />
+        {busy
+          ? `Preparing ${done}/${total}…`
+          : media
+            ? `Download all ${total} ${total === 1 ? "photo" : "photos"}`
+            : "Download all photos"}
+      </Button>
+      {/* SR-only progress (mirrors the student self-view): a *visible* per-tick live region would
+          announce on every photo; the button-label flip covers sighted users. */}
+      {busy ? (
+        <span className="sr-only" aria-live="polite">
+          Preparing {done} of {total} photos
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+/** Events the student appears in → their photos in the selected one, plus a staff "Download all"
+ *  (BP26 v1). Hidden until the student has been matched into at least one photo (decisions/0035). */
+function AppearsInSection({ studentId, studentName }: { studentId: string; studentName: string }) {
   const { events, isLoading, error } = useStudentEvents(studentId);
   const [picked, setPicked] = useState<string | null>(null);
 
@@ -288,7 +406,10 @@ function AppearsInSection({ studentId }: { studentId: string }) {
   const activeId = picked ?? events[0].event_id;
   return (
     <Card className="flex flex-col gap-4 p-6">
-      <h2 className="text-headline text-ink">Appears in</h2>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 className="text-headline text-ink">Appears in</h2>
+        <StudentDownloadAll studentId={studentId} studentName={studentName} events={events} />
+      </div>
       <FilterChips
         ariaLabel="Events"
         items={events.map((e) => ({ id: e.event_id, label: e.name, count: e.media_count }))}
@@ -548,7 +669,7 @@ export default function StudentDetailPage() {
             <EnrollmentFailureNote reason={student.enrollment_failure_reason} />
           ) : null}
           <EngagementCard studentId={studentId} />
-          <AppearsInSection studentId={studentId} />
+          <AppearsInSection studentId={studentId} studentName={student.name} />
         </>
       )}
 

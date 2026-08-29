@@ -67,6 +67,18 @@ export function useStudentMedia(studentId: string, eventId: string | null) {
   return { media: data, error, isLoading };
 }
 
+/** ALL of a student's photos across every event — the staff "Download all" list (BP26 v1).
+ *  One call with no `event_id` returns the student's full EFFECTIVE set (rejected matches
+ *  excluded, staff-added included, per BP5); a distinct SWR key from the per-event
+ *  `useStudentMedia` so the two caches never collide. */
+export function useAllStudentMedia(studentId: string) {
+  const { data, error, isLoading } = useSWR<GalleryMediaResponse[]>(
+    studentId ? `students/${studentId}/media` : null,
+    () => studentMedia(studentId),
+  );
+  return { media: data, error, isLoading };
+}
+
 /** One media's own row (used for the photo page's event context). */
 export function useMedia(mediaId: string) {
   const { data, error, isLoading } = useSWR<MediaResponse>(

@@ -1,5 +1,6 @@
 import { bffFetch } from "./client";
 import type {
+  AdminActionLogPageResponse,
   BulkActionResponse,
   BulkImportResponse,
   BulkResendResponse,
@@ -896,6 +897,32 @@ export function getDownloadLog(params: {
   if (params.createdFrom) q.set("created_from", params.createdFrom);
   if (params.createdTo) q.set("created_to", params.createdTo);
   return bffFetch<DownloadLogPageResponse>(`/api/v1/audit/downloads?${q.toString()}`);
+}
+
+/** One page of the school-wide admin-action log, newest first (school-admin only). BP28b: the
+ *  governance actor trail — who created/disabled/deleted a student, invited/lifecycle'd a staff
+ *  account, or edited a school. Filters: action / target_type / target / actor / date-range. */
+export function getAdminActionLog(params: {
+  limit: number;
+  offset: number;
+  action?: string;
+  targetType?: string;
+  targetId?: string;
+  actorUserId?: string;
+  createdFrom?: string;
+  createdTo?: string;
+}): Promise<AdminActionLogPageResponse> {
+  const q = new URLSearchParams({
+    limit: String(params.limit),
+    offset: String(params.offset),
+  });
+  if (params.action) q.set("action", params.action);
+  if (params.targetType) q.set("target_type", params.targetType);
+  if (params.targetId) q.set("target_id", params.targetId);
+  if (params.actorUserId) q.set("actor_user_id", params.actorUserId);
+  if (params.createdFrom) q.set("created_from", params.createdFrom);
+  if (params.createdTo) q.set("created_to", params.createdTo);
+  return bffFetch<AdminActionLogPageResponse>(`/api/v1/audit/actions?${q.toString()}`);
 }
 
 // --- Student self-view (F6, gallery:view_own — the caller's own student_id from the token) ---

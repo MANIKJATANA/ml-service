@@ -33,7 +33,7 @@ from backend.api.schemas.users import (
     UserListPageResponse,
     UserResponse,
 )
-from backend.domain.models import Role, SchoolSort, SortDir, UserSort
+from backend.domain.models import Role, SchoolSort, SortDir, User, UserSort
 from backend.domain.permissions import Permission
 
 router = APIRouter(
@@ -41,6 +41,12 @@ router = APIRouter(
     tags=["schools"],
     dependencies=[Depends(require_permissions(Permission.SCHOOL_MANAGE))],
 )
+
+# The router already gates SCHOOL_MANAGE, so these handlers didn't resolve the caller. BP28b
+# needs the actor for the governance audit — this alias re-declares the (already-enforced) gate
+# purely to inject the platform admin. NB: for these routes the audit row's ``school_id`` is the
+# URL ``school_id`` (the target school), so that school's admin reads it via ``audit:view``.
+PlatformAdmin = Annotated[User, Depends(require_permissions(Permission.SCHOOL_MANAGE))]
 
 
 @router.post("", status_code=status.HTTP_201_CREATED, response_model=SchoolResponse)
@@ -80,7 +86,10 @@ async def get_school(
 
 @router.patch("/{school_id}", response_model=SchoolResponse)
 async def update_school(
-    school_id: str, body: UpdateSchoolRequest, container: ContainerDep
+    school_id: str,
+    body: UpdateSchoolRequest,
+    container: ContainerDep,
+    actor: PlatformAdmin,
 ) -> SchoolResponse:
     """Rename a school, change its teacher cap, or suspend/reactivate it (BP18c). Only the
     provided fields change; an unknown school -> 404. Platform-only (the router gate)."""
@@ -89,6 +98,8 @@ async def update_school(
         name=body.name,
         max_teachers=body.max_teachers,
         status=body.status,
+        actor_user_id=actor.id,
+        actor_role=actor.role.value,
     )
     return SchoolResponse.from_school(school)
 
@@ -121,10 +132,16 @@ async def list_school_admins(
     response_model=ProvisionedUserResponse,
 )
 async def create_school_admin(
-    school_id: str, body: CreateUserRequest, container: ContainerDep
+    school_id: str,
+    body: CreateUserRequest,
+    container: ContainerDep,
+    actor: PlatformAdmin,
 ) -> ProvisionedUserResponse:
     provisioned = await container.onboarding_service().create_school_admin(
-        school_id=school_id, email=body.email
+        school_id=school_id,
+        email=body.email,
+        actor_user_id=actor.id,
+        actor_role=actor.role.value,
     )
     return ProvisionedUserResponse.from_provisioned(provisioned)
 
@@ -135,10 +152,16 @@ async def set_admin_status(
     user_id: str,
     body: UpdateUserStatusRequest,
     container: ContainerDep,
+    actor: PlatformAdmin,
 ) -> UserResponse:
     """Enable/disable a school admin (platform). A non-admin/other-school id -> 404."""
     user = await container.onboarding_service().set_staff_status(
-        school_id=school_id, user_id=user_id, role=Role.SCHOOL_ADMIN, status=body.status
+        school_id=school_id,
+        user_id=user_id,
+        role=Role.SCHOOL_ADMIN,
+        status=body.status,
+        actor_user_id=actor.id,
+        actor_role=actor.role.value,
     )
     return UserResponse.from_user(user)
 
@@ -148,10 +171,14 @@ async def set_admin_status(
     response_model=ProvisionedUserResponse,
 )
 async def resend_admin_invite(
-    school_id: str, user_id: str, container: ContainerDep
+    school_id: str, user_id: str, container: ContainerDep, actor: PlatformAdmin
 ) -> ProvisionedUserResponse:
     """Re-issue a one-time temp password for a school admin (BP7c)."""
     provisioned = await container.onboarding_service().resend_invite(
-        school_id=school_id, user_id=user_id, role=Role.SCHOOL_ADMIN
+        school_id=school_id,
+        user_id=user_id,
+        role=Role.SCHOOL_ADMIN,
+        actor_user_id=actor.id,
+        actor_role=actor.role.value,
     )
     return ProvisionedUserResponse.from_provisioned(provisioned)

@@ -38,6 +38,12 @@ async def test_container_builds_and_memoizes_student_stack() -> None:
     assert container.object_store() is container.object_store()
     assert container.ml_enrollment_client() is container.ml_enrollment_client()
     assert container.student_service() is container.student_service()
+    # BP28b: the admin-action audit repo + read service memoize too (lazy; no connect).
+    assert container.admin_action_audit_repo() is container.admin_action_audit_repo()
+    assert (
+        container.admin_action_audit_service()
+        is container.admin_action_audit_service()
+    )
     await container.aclose()
 
 

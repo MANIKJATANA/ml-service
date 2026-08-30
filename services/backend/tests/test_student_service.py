@@ -22,6 +22,7 @@ from backend.domain.models import (
 from backend.services.student_service import StudentService
 from backend.services.thumbnails import thumb_key
 from backend_fakes import (
+    FakeAdminActionAuditRepo,
     FakeHasher,
     FakeMlClient,
     FakeObjectStore,
@@ -64,6 +65,7 @@ def _svc(
         ml,
         thumbnailer or FakeThumbnailer(),
         grepo,
+        FakeAdminActionAuditRepo(),
         reference_photo_prefix="reference-photos",
     )
     return svc, strepo, urepo, ml

@@ -28,6 +28,7 @@ from backend.services.class_service import ClassService
 from backend.services.listing_service import ListingService
 from backend.services.student_service import StudentService
 from backend_fakes import (
+    FakeAdminActionAuditRepo,
     FakeEventRepo,
     FakeHasher,
     FakeMediaRepo,
@@ -98,6 +99,7 @@ def _student_svc(
         ml,
         FakeThumbnailer(),
         grepo,
+        FakeAdminActionAuditRepo(),
         reference_photo_prefix="reference-photos",
     )
     return svc, strepo, urepo, ml

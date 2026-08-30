@@ -2,8 +2,13 @@
 
 import useSWR from "swr";
 
-import { getDownloadLog, getMediaDownloadLog } from "@/lib/api/endpoints";
+import {
+  getAdminActionLog,
+  getDownloadLog,
+  getMediaDownloadLog,
+} from "@/lib/api/endpoints";
 import type {
+  AdminActionLogPageResponse,
   DownloadLogPageResponse,
   MediaDownloadLogResponse,
 } from "@/lib/api/types";
@@ -36,6 +41,28 @@ export function useDownloadLog(params: {
       `&student=${studentId ?? ""}&role=${actorRole ?? ""}` +
       `&from=${createdFrom ?? ""}&to=${createdTo ?? ""}`,
     () => getDownloadLog(params),
+    { keepPreviousData: true },
+  );
+  return { page: data, error, isLoading, mutate };
+}
+
+/** One page of the school-wide admin-action log (BP28b — the governance actor trail). Keyed on
+ *  the page params so paging / filtering refetches; `keepPreviousData` avoids a page flash. */
+export function useAdminActionLog(params: {
+  limit: number;
+  offset: number;
+  action?: string;
+  targetType?: string;
+  actorUserId?: string;
+  createdFrom?: string;
+  createdTo?: string;
+}) {
+  const { limit, offset, action, targetType, actorUserId, createdFrom, createdTo } = params;
+  const { data, error, isLoading, mutate } = useSWR<AdminActionLogPageResponse>(
+    `audit/actions?limit=${limit}&offset=${offset}&action=${action ?? ""}` +
+      `&target=${targetType ?? ""}&actor=${actorUserId ?? ""}` +
+      `&from=${createdFrom ?? ""}&to=${createdTo ?? ""}`,
+    () => getAdminActionLog(params),
     { keepPreviousData: true },
   );
   return { page: data, error, isLoading, mutate };

@@ -21,6 +21,7 @@ from backend.services.event_category_service import EventCategoryService
 from backend.services.event_service import EventService
 from backend.services.onboarding_service import OnboardingService
 from backend_fakes import (
+    FakeAdminActionAuditRepo,
     FakeEventCategoryRepo,
     FakeEventJobProducer,
     FakeEventRepo,
@@ -194,7 +195,7 @@ async def test_delete_foreign_category_is_404() -> None:
 async def test_create_school_seeds_the_default_categories() -> None:
     crepo = FakeEventCategoryRepo()
     onboarding = OnboardingService(
-        FakeSchoolRepo(), FakeUserRepo(), FakeHasher(), crepo
+        FakeSchoolRepo(), FakeUserRepo(), FakeHasher(), crepo, FakeAdminActionAuditRepo()
     )
     school = await onboarding.create_school(name="New School", max_teachers=5)
     names = sorted(c.name for c in await crepo.list_by_school(school.id))

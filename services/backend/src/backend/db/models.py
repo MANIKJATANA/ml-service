@@ -639,3 +639,77 @@ class DownloadAudit(Base):
             name="ck_download_audit_actor_role",
         ),
     )
+
+
+class AdminActionAudit(Base):
+    """An append-only record of one governance-lifecycle action (migration 0020, BP28b).
+
+    Backend-owned actor trail (R4-A25): the single-writer services write a row after each
+    governance mutation succeeds. Mirrors ``download_audit``: ``actor_role`` is denormalized so
+    the trail survives the account (``actor_user_id`` → SET NULL on delete); ``target_id`` is a
+    heterogeneous student/staff/school id (hence NO FK, like ``match_corrections``); an optional
+    ``target_label`` (name/email) is captured at write time. Rows are immutable — no
+    ``updated_at``, no update/delete path. The composite indexes serve the school-wide log
+    (newest-first) + its target/actor/action drill-downs; ``created_at`` trails each so a
+    backward scan orders newest-first."""
+
+    __tablename__ = "admin_action_audit"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    school_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("schools.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    # SET NULL so the audit row outlives the account that performed the action.
+    actor_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    actor_role: Mapped[str] = mapped_column(String, nullable=False)
+    action: Mapped[str] = mapped_column(String, nullable=False)
+    target_type: Mapped[str] = mapped_column(String, nullable=False)
+    # Heterogeneous target (student/staff/school id): NO FK — like match_corrections' no-FK
+    # to the ML-owned matches — so a deleted target never breaks or removes the audit row.
+    target_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    # A human label (name/email) captured at write time; null for student_deleted (BP8e).
+    target_label: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        Index("ix_admin_action_audit_school", "school_id", "created_at"),
+        Index(
+            "ix_admin_action_audit_target",
+            "school_id",
+            "target_type",
+            "target_id",
+            "created_at",
+        ),
+        Index(
+            "ix_admin_action_audit_actor", "school_id", "actor_user_id", "created_at"
+        ),
+        Index("ix_admin_action_audit_action", "school_id", "action", "created_at"),
+        # Lockstep with the Role domain enum.
+        CheckConstraint(
+            "actor_role IN ('platform_admin', 'school_admin', 'teacher', 'student')",
+            name="ck_admin_action_audit_actor_role",
+        ),
+        # Lockstep with the AdminAction domain enum (widen enum + CHECK together).
+        CheckConstraint(
+            "action IN ('student_created', 'student_disabled', 'student_enabled', "
+            "'student_deleted', 'student_reenrolled', 'student_invite_resent', "
+            "'staff_created', 'staff_disabled', 'staff_enabled', 'staff_invite_resent', "
+            "'school_updated')",
+            name="ck_admin_action_audit_action",
+        ),
+        # Lockstep with the AdminActionTargetType domain enum.
+        CheckConstraint(
+            "target_type IN ('student', 'staff', 'school')",
+            name="ck_admin_action_audit_target_type",
+        ),
+    )

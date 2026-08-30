@@ -12,6 +12,7 @@ from backend.domain.errors import (
 from backend.domain.models import Role, School, SchoolStatus, User, UserStatus
 from backend.services.onboarding_service import OnboardingService
 from backend_fakes import (
+    FakeAdminActionAuditRepo,
     FakeEventCategoryRepo,
     FakeHasher,
     FakeSchoolRepo,
@@ -27,7 +28,9 @@ def _svc(
     srepo = FakeSchoolRepo(schools or [])
     urepo = FakeUserRepo(users or [])
     return (
-        OnboardingService(srepo, urepo, FakeHasher(), FakeEventCategoryRepo()),
+        OnboardingService(
+            srepo, urepo, FakeHasher(), FakeEventCategoryRepo(), FakeAdminActionAuditRepo()
+        ),
         srepo,
         urepo,
     )

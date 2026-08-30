@@ -15,6 +15,7 @@ from typing import Protocol
 
 from backend.domain.models import (
     UNSET,
+    AdminActionAuditEntry,
     Appearance,
     DownloadAuditEntry,
     EnrollmentFailureReason,
@@ -756,6 +757,58 @@ class DownloadAuditRepository(Protocol):
         """Per-student self-download count for one event (BP23 roster "Downloaded"). One
         grouped scan, tenant-scoped; only students with >=1 self-download appear."""
         ...
+
+
+class AdminActionAuditRepository(Protocol):
+    """Append-only audit of governance-lifecycle actions (BP28b, R4-A25).
+
+    ``record`` is called best-effort by the single-writer services after a governance mutation
+    succeeds (a failed audit must never block/roll back the mutation). ``list_recent`` /
+    ``count_recent`` back the school-admin "Admin actions" tab — newest-first, tenant-scoped by
+    ``school_id``, filterable by action / target / actor / date-range. The ``action`` and
+    ``target_type`` filters compare the DENORMALIZED columns (no join), so a deleted actor's
+    rows still match. Rows are immutable (no update/delete)."""
+
+    async def record(
+        self,
+        *,
+        school_id: str,
+        actor_user_id: str | None,
+        actor_role: str,
+        action: str,
+        target_type: str,
+        target_id: str | None,
+        target_label: str | None,
+    ) -> None: ...
+    async def list_recent(
+        self,
+        school_id: str,
+        *,
+        limit: int,
+        offset: int,
+        action: str | None = None,
+        target_type: str | None = None,
+        target_id: str | None = None,
+        actor_user_id: str | None = None,
+        created_from: datetime | None = None,
+        created_to: datetime | None = None,
+    ) -> list[AdminActionAuditEntry]:
+        """One page of the admin-action log, newest-first (``created_at DESC, id DESC``).
+        Optional filters — ``action``/``target_type`` (denormalized column compares),
+        ``target_id``/``actor_user_id`` (id equality, malformed → empty), and an inclusive
+        ``created_from``/``created_to`` window."""
+        ...
+    async def count_recent(
+        self,
+        school_id: str,
+        *,
+        action: str | None = None,
+        target_type: str | None = None,
+        target_id: str | None = None,
+        actor_user_id: str | None = None,
+        created_from: datetime | None = None,
+        created_to: datetime | None = None,
+    ) -> int: ...
 
 
 class NotificationReadRepository(Protocol):

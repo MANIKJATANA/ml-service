@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from backend.adapters.notification.composite import CompositeNotifier
 from backend.db.session import make_engine, make_sessionmaker
 from backend.domain.ports import (
+    AdminActionAuditRepository,
     DownloadAuditRepository,
     EventCategoryRepository,
     EventJobProducer,
@@ -43,6 +44,7 @@ from backend.domain.ports import (
     TokenService,
     UserRepository,
 )
+from backend.services.admin_action_audit_service import AdminActionAuditService
 from backend.services.analytics_service import AnalyticsService
 from backend.services.audit_service import AuditService
 from backend.services.auth_service import AuthService
@@ -84,6 +86,7 @@ class Container:
         self._ml_results_reader: MlResultsReader | None = None
         self._match_correction_repo: MatchCorrectionRepository | None = None
         self._download_audit_repo: DownloadAuditRepository | None = None
+        self._admin_action_audit_repo: AdminActionAuditRepository | None = None
         self._notification_reads_repo: NotificationReadRepository | None = None
         self._notifier: NotificationChannel | None = None
         self._event_job_producer: EventJobProducer | None = None
@@ -103,6 +106,7 @@ class Container:
         self._media_service: MediaService | None = None
         self._gallery_service: GalleryService | None = None
         self._audit_service: AuditService | None = None
+        self._admin_action_audit_service: AdminActionAuditService | None = None
         self._dashboard_service: DashboardService | None = None
         self._analytics_service: AnalyticsService | None = None
         self._engagement_service: EngagementService | None = None
@@ -242,6 +246,17 @@ class Container:
                     )
                     self._download_audit_repo = cls(self.sessionmaker())
         return self._download_audit_repo
+
+    def admin_action_audit_repo(self) -> AdminActionAuditRepository:
+        if self._admin_action_audit_repo is None:
+            with self._lock:
+                if self._admin_action_audit_repo is None:
+                    cls = registry.resolve(
+                        registry.ADMIN_ACTION_AUDIT_REPO_REGISTRY,
+                        self._s.repository_impl,
+                    )
+                    self._admin_action_audit_repo = cls(self.sessionmaker())
+        return self._admin_action_audit_repo
 
     def notification_reads_repo(self) -> NotificationReadRepository:
         if self._notification_reads_repo is None:
@@ -401,6 +416,7 @@ class Container:
                         self.user_repo(),
                         self.password_hasher(),
                         self.event_category_repo(),
+                        self.admin_action_audit_repo(),
                     )
         return self._onboarding_service
 
@@ -417,6 +433,7 @@ class Container:
                         self.ml_enrollment_client(),
                         self.thumbnailer(),
                         self.student_group_repo(),
+                        self.admin_action_audit_repo(),
                         reference_photo_prefix=self._s.reference_photo_prefix,
                         download_url_ttl_s=self._s.download_url_ttl_s,
                     )
@@ -508,6 +525,16 @@ class Container:
                         self.user_repo(),
                     )
         return self._audit_service
+
+    def admin_action_audit_service(self) -> AdminActionAuditService:
+        if self._admin_action_audit_service is None:
+            with self._lock:
+                if self._admin_action_audit_service is None:
+                    self._admin_action_audit_service = AdminActionAuditService(
+                        self.admin_action_audit_repo(),
+                        self.user_repo(),
+                    )
+        return self._admin_action_audit_service
 
     def review_service(self) -> ReviewService:
         if self._review_service is None:

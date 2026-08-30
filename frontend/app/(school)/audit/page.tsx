@@ -19,12 +19,24 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/components/ui/toast";
 import { ROLE_LABELS } from "@/lib/auth/routes";
-import { getDownloadLog, getEvents, getStudents } from "@/lib/api/endpoints";
+import {
+  ACTION_OPTIONS,
+  TARGET_TYPE_OPTIONS,
+  actionLabel,
+  targetTypeLabel,
+} from "@/lib/audit/actions";
+import {
+  getAdminActionLog,
+  getDownloadLog,
+  getEvents,
+  getStudents,
+} from "@/lib/api/endpoints";
 import { isApiError } from "@/lib/api/errors";
 import { saveCsv, toCsv } from "@/lib/csv";
-import { useDownloadLog } from "@/lib/hooks/use-audit";
+import { useAdminActionLog, useDownloadLog } from "@/lib/hooks/use-audit";
 import { useUrlParams } from "@/lib/hooks/use-url-state";
 import { formatDateTime } from "@/lib/utils";
 
@@ -40,6 +52,10 @@ const SELECT_CLASS =
   "h-10 rounded-button border border-hairline bg-canvas px-3 text-body text-ink " +
   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
+/** The two tabs, URL-addressable via `?tab=` (matching the BP22 gallery tab house style). */
+const TABS = ["downloads", "actions"] as const;
+type AuditTab = (typeof TABS)[number];
+
 /** The four actor-role filter options (backend accepts any Role; these are the meaningful ones
  *  for a school download log — a platform admin never downloads a school's photos). */
 const ROLE_OPTIONS: { value: string; label: string }[] = [
@@ -51,14 +67,54 @@ const ROLE_OPTIONS: { value: string; label: string }[] = [
 
 export default function AuditLogPage() {
   // school_admin only (a teacher in the (school) group is redirected home — the backend
-  // also 403s `audit:view`); the fetch below never fires for a disallowed role.
+  // also 403s `audit:view`); the fetches below never fire for a disallowed role.
   return (
     <RoleGate allow={["school_admin"]}>
-      {/* URL-backed filters (BP28a) need a Suspense boundary (useSearchParams, static route). */}
+      {/* URL-backed tab + filters (BP28b) need a Suspense boundary (useSearchParams). */}
       <Suspense fallback={<Skeleton className="h-24 w-full" />}>
         <AuditContent />
       </Suspense>
     </RoleGate>
+  );
+}
+
+function AuditContent() {
+  const { get, set } = useUrlParams();
+  const tabParam = get("tab");
+  const tab: AuditTab = TABS.includes(tabParam as AuditTab)
+    ? (tabParam as AuditTab)
+    : "downloads";
+
+  return (
+    <div className="flex flex-col gap-6">
+      <PageHeader
+        title="Activity log"
+        description="A record of what happened in your school — photo downloads and account changes."
+      />
+
+      {/* Radix Tabs (roving tabindex + arrow-key nav + tabpanel wiring), URL-addressable +
+          Back-safe. Switching a tab resets the offset AND the other tab's filters so the two
+          logs never bleed into each other. */}
+      <Tabs
+        value={tab}
+        onValueChange={(v) =>
+          v === "actions"
+            ? set({ tab: "actions", offset: null, event: null, student: null, role: null })
+            : set({ tab: null, offset: null, action: null, target: null, actor: null })
+        }
+      >
+        <TabsList aria-label="Activity log sections">
+          <TabsTrigger value="downloads">Downloads</TabsTrigger>
+          <TabsTrigger value="actions">Admin actions</TabsTrigger>
+        </TabsList>
+        <TabsContent value="downloads">
+          <DownloadLogTab />
+        </TabsContent>
+        <TabsContent value="actions">
+          <AdminActionsTab />
+        </TabsContent>
+      </Tabs>
+    </div>
   );
 }
 
@@ -70,11 +126,14 @@ function dayBoundaryIso(date: string, end: boolean): string | undefined {
   return `${date}T${end ? "23:59:59.999" : "00:00:00.000"}Z`;
 }
 
-function AuditContent() {
+// ======================================================================
+// Downloads tab (BP8b — unchanged behaviour, now one tab of the log)
+// ======================================================================
+
+function DownloadLogTab() {
   const { get, set } = useUrlParams();
   const { toast } = useToast();
 
-  // Filters + offset live in the URL (shareable + Back-safe), mirroring the students page.
   const eventId = get("event"); // "" = all events
   const studentId = get("student"); // "" = all students
   const role = get("role"); // "" = all roles
@@ -174,21 +233,21 @@ function AuditContent() {
 
   return (
     <div className="flex flex-col gap-6">
-      <PageHeader
-        title="Access log"
-        description="Records photo saves made in the app — who, what, and when (newest first). It records in-app downloads only, not views or a right-click save on an open image."
-        actions={
-          <Button
-            variant="secondary"
-            onClick={exportCsv}
-            loading={exporting}
-            disabled={exporting || total === 0}
-          >
-            <Download className="size-4" aria-hidden="true" />
-            Export CSV
-          </Button>
-        }
-      />
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <p className="text-body-sm text-ink-secondary">
+          Records photo saves made in the app — who, what, and when (newest first). It records
+          in-app downloads only, not views or a right-click save on an open image.
+        </p>
+        <Button
+          variant="secondary"
+          onClick={exportCsv}
+          loading={exporting}
+          disabled={exporting || total === 0}
+        >
+          <Download className="size-4" aria-hidden="true" />
+          Export CSV
+        </Button>
+      </div>
 
       {/* Filters: event / student / actor role / date range. Any change resets offset to 0 in
           the SAME set() call (the page's URL is the single source of truth). */}
@@ -367,36 +426,335 @@ function AuditContent() {
               </Table>
             </Card>
 
-            <div className="flex items-center justify-between gap-4">
-              <p className="text-body-sm text-ink-secondary" aria-live="polite">
-                Showing {start}–{end} of {total}
-              </p>
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="secondary"
-                  onClick={() => {
-                    const prev = Math.max(0, offset - PAGE_SIZE);
-                    // offset 0 = page 1 → drop the param for a clean URL (null clears it).
-                    set({ offset: prev > 0 ? String(prev) : null });
-                  }}
-                  disabled={!canPrev}
-                >
-                  <ChevronLeft className="size-4" aria-hidden="true" />
-                  Previous
-                </Button>
-                <Button
-                  variant="secondary"
-                  onClick={() => set({ offset: String(offset + PAGE_SIZE) })}
-                  disabled={!canNext}
-                >
-                  Next
-                  <ChevronRight className="size-4" aria-hidden="true" />
-                </Button>
-              </div>
-            </div>
+            <Pager
+              start={start}
+              end={end}
+              total={total}
+              canPrev={canPrev}
+              canNext={canNext}
+              onPrev={() => {
+                const prev = Math.max(0, offset - PAGE_SIZE);
+                set({ offset: prev > 0 ? String(prev) : null });
+              }}
+              onNext={() => set({ offset: String(offset + PAGE_SIZE) })}
+            />
           </div>
         )
       ) : null}
+    </div>
+  );
+}
+
+// ======================================================================
+// Admin actions tab (BP28b — the governance actor trail)
+// ======================================================================
+
+function AdminActionsTab() {
+  const { get, set } = useUrlParams();
+  const { toast } = useToast();
+
+  const action = get("action"); // "" = all actions
+  const targetType = get("target"); // "" = all target types
+  const fromDate = get("from"); // YYYY-MM-DD
+  const toDate = get("to");
+  const offset = Number(get("offset", "0")) || 0;
+
+  const createdFrom = dayBoundaryIso(fromDate, false);
+  const createdTo = dayBoundaryIso(toDate, true);
+
+  const filterParams = {
+    action: action || undefined,
+    targetType: targetType || undefined,
+    createdFrom,
+    createdTo,
+  } as const;
+
+  const { page, error, isLoading, mutate } = useAdminActionLog({
+    limit: PAGE_SIZE,
+    offset,
+    ...filterParams,
+  });
+
+  const [exporting, setExporting] = useState(false);
+
+  const items = page?.items ?? [];
+  const total = page?.total ?? 0;
+  const start = total === 0 ? 0 : offset + 1;
+  const end = offset + items.length;
+  const canPrev = offset > 0;
+  const canNext = end < total;
+  const isFiltering =
+    action !== "" || targetType !== "" || fromDate !== "" || toDate !== "";
+
+  async function exportCsv() {
+    setExporting(true);
+    try {
+      const rows: string[][] = [];
+      let off = 0;
+      let capped = false;
+      for (;;) {
+        const p = await getAdminActionLog({ limit: EXPORT_PAGE, offset: off, ...filterParams });
+        for (const r of p.items) {
+          rows.push([
+            r.created_at, // raw ISO — a spreadsheet parses/sorts it cleanly
+            r.actor_email ?? "Removed account",
+            ROLE_LABELS[r.actor_role],
+            actionLabel(r.action),
+            targetTypeLabel(r.target_type),
+            r.target_label ?? (r.action === "student_deleted" ? "Deleted student" : ""),
+          ]);
+        }
+        off += EXPORT_PAGE;
+        if (rows.length >= EXPORT_CAP) {
+          capped = off < p.total;
+          break;
+        }
+        if (p.items.length < EXPORT_PAGE || off >= p.total) break;
+      }
+      if (rows.length === 0) {
+        toast("Nothing to export for this filter.", "info");
+        return;
+      }
+      const csv = toCsv(
+        ["When", "Actor email", "Actor role", "Action", "Target type", "Target"],
+        rows,
+      );
+      const date = new Date().toISOString().slice(0, 10);
+      saveCsv(`admin-actions-${date}.csv`, csv);
+      if (capped) {
+        toast(
+          `Exported the first ${rows.length.toLocaleString()} actions — narrow the date range to get the rest.`,
+          "info",
+          { sticky: true },
+        );
+      } else {
+        toast(`Exported ${rows.length} action${rows.length === 1 ? "" : "s"}.`, "success");
+      }
+    } catch (err) {
+      toast(isApiError(err) ? err.message : "Couldn't export the admin-action log.", "error");
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-6">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <p className="text-body-sm text-ink-secondary">
+          Records account changes — who created, disabled, deleted, or re-invited students and
+          staff, and who edited the school (newest first).
+        </p>
+        <Button
+          variant="secondary"
+          onClick={exportCsv}
+          loading={exporting}
+          disabled={exporting || total === 0}
+        >
+          <Download className="size-4" aria-hidden="true" />
+          Export CSV
+        </Button>
+      </div>
+
+      {/* Filters: action / target type / date range. */}
+      <div className="flex flex-wrap items-end gap-3">
+        <label className="flex flex-col gap-1 text-body-sm text-ink-secondary">
+          Action
+          <select
+            aria-label="Filter by action"
+            value={action}
+            onChange={(e) => set({ action: e.target.value || null, offset: null })}
+            className={SELECT_CLASS}
+          >
+            {ACTION_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="flex flex-col gap-1 text-body-sm text-ink-secondary">
+          Target
+          <select
+            aria-label="Filter by target type"
+            value={targetType}
+            onChange={(e) => set({ target: e.target.value || null, offset: null })}
+            className={SELECT_CLASS}
+          >
+            {TARGET_TYPE_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="flex flex-col gap-1 text-body-sm text-ink-secondary">
+          From
+          <input
+            type="date"
+            aria-label="From date"
+            value={fromDate}
+            max={toDate || undefined}
+            onChange={(e) => set({ from: e.target.value || null, offset: null })}
+            className={SELECT_CLASS}
+          />
+        </label>
+        <label className="flex flex-col gap-1 text-body-sm text-ink-secondary">
+          To
+          <input
+            type="date"
+            aria-label="To date"
+            value={toDate}
+            min={fromDate || undefined}
+            onChange={(e) => set({ to: e.target.value || null, offset: null })}
+            className={SELECT_CLASS}
+          />
+        </label>
+        {isFiltering ? (
+          <Button
+            variant="ghost"
+            onClick={() => set({ action: null, target: null, from: null, to: null, offset: null })}
+          >
+            Clear filters
+          </Button>
+        ) : null}
+      </div>
+
+      {fromDate || toDate ? (
+        <p className="-mt-3 text-body-sm text-ink-secondary">Date filters use UTC.</p>
+      ) : null}
+
+      {isLoading && !page ? (
+        <Card className="flex flex-col gap-2 p-4">
+          {[0, 1, 2, 3].map((i) => (
+            <Skeleton key={i} className="h-12 w-full" />
+          ))}
+        </Card>
+      ) : null}
+
+      {error ? (
+        <EmptyState
+          role="alert"
+          title="Couldn't load the admin-action log"
+          description="Something went wrong reaching the server."
+          action={
+            <Button variant="secondary" onClick={() => mutate()}>
+              Retry
+            </Button>
+          }
+        />
+      ) : null}
+
+      {page && !error ? (
+        total === 0 ? (
+          <EmptyState
+            icon={<ScrollText className="size-6" aria-hidden="true" />}
+            title={isFiltering ? "No actions match" : "No admin actions yet"}
+            description={
+              isFiltering
+                ? "Try a wider date range or a different filter."
+                : "Account changes will appear here as staff manage students and accounts."
+            }
+          />
+        ) : (
+          <div className="flex flex-col gap-4">
+            <Card className="overflow-hidden">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>When</TableHead>
+                    <TableHead>Who</TableHead>
+                    <TableHead>Action</TableHead>
+                    <TableHead>Target</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {items.map((row) => (
+                    <TableRow key={row.id} className="hover:bg-surface">
+                      <TableCell className="whitespace-nowrap text-ink-secondary">
+                        <time dateTime={row.created_at}>
+                          {formatDateTime(row.created_at)}
+                        </time>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex flex-col">
+                          <span className="text-ink">
+                            {row.actor_email ?? "Removed account"}
+                          </span>
+                          <span className="text-body-sm text-ink-secondary">
+                            {ROLE_LABELS[row.actor_role]}
+                          </span>
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-ink">{actionLabel(row.action)}</TableCell>
+                      <TableCell>
+                        <div className="flex flex-col">
+                          <span className={row.target_label ? "text-ink" : "text-ink-secondary"}>
+                            {row.target_label ??
+                              (row.action === "student_deleted" ? "Deleted student" : "—")}
+                          </span>
+                          <span className="text-body-sm text-ink-secondary">
+                            {targetTypeLabel(row.target_type)}
+                          </span>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </Card>
+
+            <Pager
+              start={start}
+              end={end}
+              total={total}
+              canPrev={canPrev}
+              canNext={canNext}
+              onPrev={() => {
+                const prev = Math.max(0, offset - PAGE_SIZE);
+                set({ offset: prev > 0 ? String(prev) : null });
+              }}
+              onNext={() => set({ offset: String(offset + PAGE_SIZE) })}
+            />
+          </div>
+        )
+      ) : null}
+    </div>
+  );
+}
+
+/** Shared prev/next pager (identical between the two tabs). */
+function Pager({
+  start,
+  end,
+  total,
+  canPrev,
+  canNext,
+  onPrev,
+  onNext,
+}: {
+  start: number;
+  end: number;
+  total: number;
+  canPrev: boolean;
+  canNext: boolean;
+  onPrev: () => void;
+  onNext: () => void;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-4">
+      <p className="text-body-sm text-ink-secondary" aria-live="polite">
+        Showing {start}–{end} of {total}
+      </p>
+      <div className="flex items-center gap-2">
+        <Button variant="secondary" onClick={onPrev} disabled={!canPrev}>
+          <ChevronLeft className="size-4" aria-hidden="true" />
+          Previous
+        </Button>
+        <Button variant="secondary" onClick={onNext} disabled={!canNext}>
+          Next
+          <ChevronRight className="size-4" aria-hidden="true" />
+        </Button>
+      </div>
     </div>
   );
 }

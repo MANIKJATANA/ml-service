@@ -23,6 +23,8 @@ from backend.domain.errors import (
 )
 from backend.domain.models import (
     DEFAULT_EVENT_CATEGORIES,
+    AdminAction,
+    AdminActionTargetType,
     Role,
     School,
     SchoolStatus,
@@ -31,6 +33,7 @@ from backend.domain.models import (
     UserStatus,
 )
 from backend.domain.ports import (
+    AdminActionAuditRepository,
     EventCategoryRepository,
     PasswordHasher,
     SchoolRepository,
@@ -73,11 +76,51 @@ class OnboardingService:
         users: UserRepository,
         hasher: PasswordHasher,
         categories: EventCategoryRepository,
+        admin_audit: AdminActionAuditRepository,
     ) -> None:
         self._schools = schools
         self._users = users
         self._hasher = hasher
         self._categories = categories
+        self._admin_audit = admin_audit  # BP28b: governance actor trail
+
+    async def _record_action(
+        self,
+        *,
+        school_id: str,
+        actor_user_id: str | None,
+        actor_role: str | None,
+        action: AdminAction,
+        target_type: AdminActionTargetType,
+        target_id: str | None,
+        target_label: str | None,
+    ) -> None:
+        """Record one governance action best-effort (BP28b) — a failed audit must NEVER block
+        or roll back the mutation it trails (the repo owns its own transaction). ``actor_role``
+        may be None only if the caller was never threaded through; skip the write in that case.
+        NB for ``update_school``: the actor is a platform admin (``school_id=None``), so the
+        row's ``school_id`` MUST be the TARGET school (passed by the caller) — that's the school
+        whose admin reads it via ``audit:view``."""
+        if actor_role is None:
+            return
+        try:
+            await self._admin_audit.record(
+                school_id=school_id,
+                actor_user_id=actor_user_id,
+                actor_role=actor_role,
+                action=action.value,
+                target_type=target_type.value,
+                target_id=target_id,
+                target_label=target_label,
+            )
+        except Exception:  # noqa: BLE001 — best-effort audit; never fail the mutation
+            _log.warning(
+                "admin_action_audit_record_failed",
+                school_id=school_id,
+                action=action.value,
+                target_id=target_id,
+                exc_info=True,
+            )
 
     # ---- schools (platform) --------------------------------------------
 
@@ -101,6 +144,8 @@ class OnboardingService:
         name: str | None = None,
         max_teachers: int | None = None,
         status: SchoolStatus | None = None,
+        actor_user_id: str | None = None,
+        actor_role: str | None = None,
     ) -> School:
         """Rename a school, change its teacher cap, or suspend/reactivate it (BP18c) — the
         platform operator's lifecycle for the write-once record. Only the provided fields
@@ -121,6 +166,18 @@ class OnboardingService:
         )
         if updated is None:
             raise NotFoundError(f"school not found: {school_id}")
+        # BP28b: audit the school edit. The actor is a platform admin (school_id=None), so the
+        # row's school_id is the TARGET school (this method's arg) — so that school's admin reads
+        # it via audit:view. target_type=school, target_id=the school, label=its (new) name.
+        await self._record_action(
+            school_id=school_id,
+            actor_user_id=actor_user_id,
+            actor_role=actor_role,
+            action=AdminAction.SCHOOL_UPDATED,
+            target_type=AdminActionTargetType.SCHOOL,
+            target_id=school_id,
+            target_label=updated.name,
+        )
         return updated
 
     async def list_schools(self) -> list[School]:
@@ -135,15 +192,37 @@ class OnboardingService:
     # ---- staff provisioning --------------------------------------------
 
     async def create_school_admin(
-        self, *, school_id: str, email: str
+        self,
+        *,
+        school_id: str,
+        email: str,
+        actor_user_id: str | None = None,
+        actor_role: str | None = None,
     ) -> ProvisionedUser:
         await self.get_school(school_id)  # 404 if the school does not exist
-        return await self._provision(
+        prov = await self._provision(
             school_id=school_id, email=email, role=Role.SCHOOL_ADMIN
         )
+        # BP28b: audit the admin invite. The actor is a platform admin (school_id=None); the
+        # row's school_id is the TARGET school so that school's admin reads it. label=the email.
+        await self._record_action(
+            school_id=school_id,
+            actor_user_id=actor_user_id,
+            actor_role=actor_role,
+            action=AdminAction.STAFF_CREATED,
+            target_type=AdminActionTargetType.STAFF,
+            target_id=prov.user.id,
+            target_label=prov.user.email,
+        )
+        return prov
 
     async def create_teacher(
-        self, *, school_id: str, email: str
+        self,
+        *,
+        school_id: str,
+        email: str,
+        actor_user_id: str | None = None,
+        actor_role: str | None = None,
     ) -> ProvisionedUser:
         school = await self.get_school(school_id)
         if school.status is not SchoolStatus.ACTIVE:
@@ -155,12 +234,28 @@ class OnboardingService:
             raise LimitExceededError(
                 f"teacher limit reached ({school.max_teachers}) for this school"
             )
-        return await self._provision(
+        prov = await self._provision(
             school_id=school_id, email=email, role=Role.TEACHER
         )
+        # BP28b: audit the teacher invite (best-effort). label=the email.
+        await self._record_action(
+            school_id=school_id,
+            actor_user_id=actor_user_id,
+            actor_role=actor_role,
+            action=AdminAction.STAFF_CREATED,
+            target_type=AdminActionTargetType.STAFF,
+            target_id=prov.user.id,
+            target_label=prov.user.email,
+        )
+        return prov
 
     async def bulk_create_staff(
-        self, *, school_id: str, emails: list[str]
+        self,
+        *,
+        school_id: str,
+        emails: list[str],
+        actor_user_id: str | None = None,
+        actor_role: str | None = None,
     ) -> list[BulkStaffResult]:
         """Invite many teachers from a list of emails at once (BP27b) — best-effort per row over
         the tested single-writer ``create_teacher`` (teacher-only; there is no admin bulk). Each
@@ -196,7 +291,10 @@ class OnboardingService:
                 continue
             try:
                 prov = await self.create_teacher(
-                    school_id=school_id, email=clean_email
+                    school_id=school_id,
+                    email=clean_email,
+                    actor_user_id=actor_user_id,
+                    actor_role=actor_role,
                 )
                 results.append(
                     BulkStaffResult(
@@ -249,7 +347,14 @@ class OnboardingService:
     # ---- staff lifecycle (BP7c) ----------------------------------------
 
     async def set_staff_status(
-        self, *, school_id: str, user_id: str, role: Role, status: UserStatus
+        self,
+        *,
+        school_id: str,
+        user_id: str,
+        role: Role,
+        status: UserStatus,
+        actor_user_id: str | None = None,
+        actor_role: str | None = None,
     ) -> User:
         """Enable/disable a teacher or admin. Tenant + role scoped (BP7c)."""
         user = await self._require_managed_user(
@@ -271,12 +376,33 @@ class OnboardingService:
         ):
             raise ValidationError("can't disable the school's only active administrator")
         await self._users.set_status(user_id, status=status)
+        # BP28b: audit the state change — AFTER the no-op early-return AND the last-admin guard,
+        # so a blocked disable records nothing. label=the user's email. Best-effort.
+        await self._record_action(
+            school_id=school_id,
+            actor_user_id=actor_user_id,
+            actor_role=actor_role,
+            action=(
+                AdminAction.STAFF_DISABLED
+                if status is UserStatus.DISABLED
+                else AdminAction.STAFF_ENABLED
+            ),
+            target_type=AdminActionTargetType.STAFF,
+            target_id=user.id,
+            target_label=user.email,
+        )
         refreshed = await self._users.get(user_id)
         # The row was just updated; a read-miss is anomalous — reflect the new status.
         return refreshed if refreshed is not None else user
 
     async def resend_invite(
-        self, *, school_id: str, user_id: str, role: Role
+        self,
+        *,
+        school_id: str,
+        user_id: str,
+        role: Role,
+        actor_user_id: str | None = None,
+        actor_role: str | None = None,
     ) -> ProvisionedUser:
         """Re-issue a temp password for a teacher/admin who hasn't signed in yet — or
         lost it (BP7c). Regenerates the password, forces a change on next login, and
@@ -289,6 +415,16 @@ class OnboardingService:
             user_id,
             password_hash=self._hasher.hash(temp_password),
             must_change_password=True,
+        )
+        # BP28b: audit the credential resend (best-effort). label=the user's email.
+        await self._record_action(
+            school_id=school_id,
+            actor_user_id=actor_user_id,
+            actor_role=actor_role,
+            action=AdminAction.STAFF_INVITE_RESENT,
+            target_type=AdminActionTargetType.STAFF,
+            target_id=user.id,
+            target_label=user.email,
         )
         refreshed = await self._users.get(user_id)
         return ProvisionedUser(refreshed if refreshed is not None else user, temp_password)

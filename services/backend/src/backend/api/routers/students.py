@@ -86,6 +86,8 @@ async def create_student(
         name=body.name,
         email=body.email,
         reference_photo_path=body.reference_photo_path,
+        actor_user_id=actor.id,
+        actor_role=actor.role.value,
     )
     return ProvisionedStudentResponse.from_provisioned(prov)
 
@@ -101,6 +103,8 @@ async def bulk_import_students(
     results = await container.student_service().bulk_create_students(
         school_id=tenant_of(actor),
         rows=[(r.name, r.email, r.class_name) for r in body.students],
+        actor_user_id=actor.id,
+        actor_role=actor.role.value,
     )
     return BulkImportResponse.from_results(results)
 
@@ -207,7 +211,11 @@ async def bulk_set_student_status(
     missing id is recorded ``error`` and the batch continues). Tenant from the token; registered
     before ``/{student_id}`` so the literal wins the route match."""
     results = await container.student_service().bulk_set_status(
-        school_id=tenant_of(actor), student_ids=body.student_ids, status=body.status
+        school_id=tenant_of(actor),
+        student_ids=body.student_ids,
+        status=body.status,
+        actor_user_id=actor.id,
+        actor_role=actor.role.value,
     )
     return BulkActionResponse.from_results(results)
 
@@ -221,7 +229,10 @@ async def bulk_delete_students(
     retried ``error`` row self-heals). Tenant from the token; registered before ``/{student_id}``
     so the literal wins the route match."""
     results = await container.student_service().bulk_delete_students(
-        school_id=tenant_of(actor), student_ids=body.student_ids
+        school_id=tenant_of(actor),
+        student_ids=body.student_ids,
+        actor_user_id=actor.id,
+        actor_role=actor.role.value,
     )
     return BulkActionResponse.from_results(results)
 
@@ -237,7 +248,10 @@ async def bulk_resend_student_invites(
     student's photos + matches are untouched. Tenant from the token; registered before
     ``/{student_id}`` so the literal wins the route match."""
     results = await container.student_service().bulk_resend_invite(
-        school_id=tenant_of(actor), student_ids=body.student_ids
+        school_id=tenant_of(actor),
+        student_ids=body.student_ids,
+        actor_user_id=actor.id,
+        actor_role=actor.role.value,
     )
     return BulkResendResponse.from_results(results)
 
@@ -319,7 +333,10 @@ async def enroll_student(
     student_id: str, container: ContainerDep, actor: StudentManager
 ) -> StudentResponse:
     student = await container.student_service().enroll_student(
-        school_id=tenant_of(actor), student_id=student_id
+        school_id=tenant_of(actor),
+        student_id=student_id,
+        actor_user_id=actor.id,
+        actor_role=actor.role.value,
     )
     return StudentResponse.from_student(student)
 
@@ -332,7 +349,10 @@ async def resend_student_invite(
     the token (a foreign student → 404); regenerates + forces a change on next login and
     returns it once. Does NOT delete/re-create — the student's photos + matches are kept."""
     prov = await container.student_service().resend_invite(
-        school_id=tenant_of(actor), student_id=student_id
+        school_id=tenant_of(actor),
+        student_id=student_id,
+        actor_user_id=actor.id,
+        actor_role=actor.role.value,
     )
     return ProvisionedStudentResponse.from_provisioned(prov)
 
@@ -348,7 +368,11 @@ async def set_student_status(
     the token (a foreign student → 404); a disabled student can't sign in but keeps every
     photo + match row (unlike delete). Idempotent."""
     student = await container.student_service().set_status(
-        school_id=tenant_of(actor), student_id=student_id, status=body.status
+        school_id=tenant_of(actor),
+        student_id=student_id,
+        status=body.status,
+        actor_user_id=actor.id,
+        actor_role=actor.role.value,
     )
     return StudentResponse.from_student(student)
 
@@ -366,6 +390,8 @@ async def set_reference_photo(
         school_id=tenant_of(actor),
         student_id=student_id,
         reference_photo_path=body.reference_photo_path,
+        actor_user_id=actor.id,
+        actor_role=actor.role.value,
     )
     return StudentResponse.from_student(student)
 
@@ -375,5 +401,8 @@ async def delete_student(
     student_id: str, container: ContainerDep, actor: StudentManager
 ) -> None:
     await container.student_service().delete_student(
-        school_id=tenant_of(actor), student_id=student_id
+        school_id=tenant_of(actor),
+        student_id=student_id,
+        actor_user_id=actor.id,
+        actor_role=actor.role.value,
     )

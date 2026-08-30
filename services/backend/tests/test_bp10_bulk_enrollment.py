@@ -20,6 +20,7 @@ from backend.main import create_app
 from backend.services.student_service import StudentService
 from backend.settings import settings
 from backend_fakes import (
+    FakeAdminActionAuditRepo,
     FakeHasher,
     FakeMlClient,
     FakeObjectStore,
@@ -53,6 +54,7 @@ def _svc(
         FakeMlClient(),
         FakeThumbnailer(),
         FakeStudentGroupRepo(),
+        FakeAdminActionAuditRepo(),
         reference_photo_prefix="reference-photos",
     )
 

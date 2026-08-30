@@ -17,6 +17,9 @@ from collections.abc import AsyncIterator
 from datetime import UTC, date, datetime, timedelta
 
 import pytest
+from backend.adapters.repositories.postgres_admin_action_audit import (
+    PostgresAdminActionAuditRepository,
+)
 from backend.adapters.repositories.postgres_download_audit import (
     PostgresDownloadAuditRepository,
 )
@@ -939,6 +942,96 @@ async def test_download_audit_record_list_and_scope(
     assert await audit.list_for_media("not-a-uuid", m.id, limit=10) == []
     assert await audit.list_recent(_MISSING_UUID, limit=10, offset=0) == []
     assert await audit.count_for_media(_MISSING_UUID, m.id) == 0
+
+
+async def test_admin_action_audit_record_list_scope_and_set_null(
+    sm: async_sessionmaker[AsyncSession],
+) -> None:
+    # BP28b: record governance actions, read them newest-first with each filter + pagination,
+    # tenant-scope, and prove the actor FK SET NULL keeps the row after the actor is deleted.
+    schools = PostgresSchoolRepository(sm)
+    users = PostgresUserRepository(sm)
+    audit = PostgresAdminActionAuditRepository(sm)
+    a = await schools.create(name="A", max_teachers=5)
+    b = await schools.create(name="B", max_teachers=5)
+    admin = await users.create(
+        school_id=a.id, email="sa@x.io", password_hash="h", role=Role.SCHOOL_ADMIN
+    )
+    # A real student id target (an existing users row so a later delete exercises SET NULL only
+    # on actor, never target — target has no FK).
+    target_login = await users.create(
+        school_id=a.id, email="stu@x.io", password_hash="h", role=Role.STUDENT
+    )
+
+    assert await audit.count_recent(a.id) == 0
+    before = datetime.now(UTC) - timedelta(seconds=1)
+    await audit.record(
+        school_id=a.id, actor_user_id=admin.id, actor_role="school_admin",
+        action="student_created", target_type="student", target_id=target_login.id,
+        target_label="Bart",
+    )
+    await audit.record(
+        school_id=a.id, actor_user_id=admin.id, actor_role="school_admin",
+        action="student_disabled", target_type="student", target_id=target_login.id,
+        target_label="Bart",
+    )
+    await audit.record(
+        school_id=a.id, actor_user_id=admin.id, actor_role="school_admin",
+        action="staff_created", target_type="staff", target_id=admin.id,
+        target_label="tt@x.io",
+    )
+    # A row in the OTHER school (must never leak into A's log).
+    await audit.record(
+        school_id=b.id, actor_user_id=None, actor_role="platform_admin",
+        action="school_updated", target_type="school", target_id=b.id,
+        target_label="B",
+    )
+    after = datetime.now(UTC) + timedelta(seconds=1)
+
+    # Total + tenant scope.
+    assert await audit.count_recent(a.id) == 3
+    assert await audit.count_recent(b.id) == 1
+
+    # Newest-first (staff_created recorded last, leads). Verifies the real ORDER BY.
+    rows = await audit.list_recent(a.id, limit=10, offset=0)
+    assert [r.action for r in rows] == [
+        "staff_created", "student_disabled", "student_created",
+    ]
+    assert rows[0].created_at >= rows[1].created_at >= rows[2].created_at
+
+    # Filters: action / target_type / target_id / actor.
+    assert await audit.count_recent(a.id, action="student_created") == 1
+    assert await audit.count_recent(a.id, target_type="student") == 2
+    assert await audit.count_recent(a.id, target_id=target_login.id) == 2
+    assert await audit.count_recent(a.id, actor_user_id=admin.id) == 3
+    # A malformed id filter → empty (never an error).
+    assert await audit.list_recent(a.id, limit=10, offset=0, target_id="not-a-uuid") == []
+    assert await audit.count_recent(a.id, actor_user_id="not-a-uuid") == 0
+
+    # Date-range window on the REAL SQL (>= / <=).
+    assert await audit.count_recent(a.id, created_from=before, created_to=after) == 3
+    assert await audit.count_recent(a.id, created_to=before) == 0
+
+    # Pagination newest-first across pages.
+    p1 = await audit.list_recent(a.id, limit=1, offset=0)
+    p2 = await audit.list_recent(a.id, limit=1, offset=1)
+    assert len(p1) == 1 and len(p2) == 1 and p1[0].id != p2[0].id
+    assert p1[0].created_at >= p2[0].created_at
+
+    # actor FK SET NULL: delete the admin → the rows survive with actor_user_id NULL, the role
+    # + label preserved (the audit outlives the account, like download_audit).
+    await users.delete(admin.id)
+    survived = await audit.list_recent(a.id, limit=10, offset=0)
+    assert len(survived) == 3  # rows survive the actor delete
+    assert all(r.actor_user_id is None for r in survived)
+    assert all(r.actor_role == "school_admin" for r in survived)
+    assert {r.target_label for r in survived} == {"Bart", "tt@x.io"}
+    # And the denormalized-role filter still matches the now-orphaned rows.
+    assert await audit.count_recent(a.id, action="student_created") == 1
+
+    # Tenant-safe: a malformed/foreign school never leaks rows.
+    assert await audit.list_recent("not-a-uuid", limit=10, offset=0) == []
+    assert await audit.count_recent(_MISSING_UUID) == 0
 
 
 async def test_student_get_by_user_id_is_tenant_scoped(

@@ -54,7 +54,10 @@ async def create_teacher(
     body: CreateUserRequest, container: ContainerDep, actor: StaffManager
 ) -> ProvisionedUserResponse:
     provisioned = await container.onboarding_service().create_teacher(
-        school_id=_tenant(actor), email=body.email
+        school_id=_tenant(actor),
+        email=body.email,
+        actor_user_id=actor.id,
+        actor_role=actor.role.value,
     )
     return ProvisionedUserResponse.from_provisioned(provisioned)
 
@@ -72,7 +75,10 @@ async def bulk_create_staff(
     school_admin-only (``staff:manage``); the school is the token's, never the body. Registered
     before ``/{user_id}`` so the literal wins the route match."""
     results = await container.onboarding_service().bulk_create_staff(
-        school_id=_tenant(actor), emails=body.emails
+        school_id=_tenant(actor),
+        emails=body.emails,
+        actor_user_id=actor.id,
+        actor_role=actor.role.value,
     )
     return BulkStaffResponse.from_results(results)
 
@@ -108,7 +114,12 @@ async def set_teacher_status(
 ) -> UserResponse:
     """Enable/disable a teacher. Tenant from the token; a foreign/non-teacher id -> 404."""
     user = await container.onboarding_service().set_staff_status(
-        school_id=_tenant(actor), user_id=user_id, role=Role.TEACHER, status=body.status
+        school_id=_tenant(actor),
+        user_id=user_id,
+        role=Role.TEACHER,
+        status=body.status,
+        actor_user_id=actor.id,
+        actor_role=actor.role.value,
     )
     return UserResponse.from_user(user)
 
@@ -119,7 +130,11 @@ async def resend_teacher_invite(
 ) -> ProvisionedUserResponse:
     """Re-issue a one-time temp password for a teacher (BP7c)."""
     provisioned = await container.onboarding_service().resend_invite(
-        school_id=_tenant(actor), user_id=user_id, role=Role.TEACHER
+        school_id=_tenant(actor),
+        user_id=user_id,
+        role=Role.TEACHER,
+        actor_user_id=actor.id,
+        actor_role=actor.role.value,
     )
     return ProvisionedUserResponse.from_provisioned(provisioned)
 

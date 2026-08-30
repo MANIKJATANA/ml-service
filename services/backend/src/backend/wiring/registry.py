@@ -80,6 +80,13 @@ DOWNLOAD_AUDIT_REPO_REGISTRY: dict[str, str] = {
     ),
 }
 
+ADMIN_ACTION_AUDIT_REPO_REGISTRY: dict[str, str] = {
+    "postgres": (
+        "backend.adapters.repositories.postgres_admin_action_audit"
+        ":PostgresAdminActionAuditRepository"
+    ),
+}
+
 EVENT_JOB_PRODUCER_REGISTRY: dict[str, str] = {
     "redis": "backend.adapters.queue.redis_producer:RedisEventJobProducer",
     "inproc": "backend.adapters.queue.inproc_producer:InProcEventJobProducer",

@@ -321,6 +321,30 @@ export interface DownloadLogPageResponse {
   offset: number;
 }
 
+/** One recorded governance-lifecycle action — the admin-action audit (BP28b, R4-A25).
+ *  `actor_email` is null once the account is deleted; `actor_role` (denormalized) survives.
+ *  `target_label` is the human label captured at write time (a name/email) — null for a
+ *  deleted student (BP8e keeps no identity). `target_type` ∈ 'student'|'staff'|'school'. */
+export interface AdminActionAuditEntry {
+  id: string;
+  actor_user_id: string | null;
+  actor_email: string | null;
+  actor_role: Role;
+  action: string;
+  target_type: string;
+  target_id: string | null;
+  target_label: string | null;
+  created_at: string;
+}
+
+/** One page of the school-wide admin-action log + the unpaginated total (newest first). */
+export interface AdminActionLogPageResponse {
+  items: AdminActionAuditEntry[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
 /** One page of any server-paginated list (BP9, decisions/0055): the page's rows + the
  *  unpaginated `total` for the current filter, plus the echoed `limit`/`offset`. */
 export interface ListPage<T> {

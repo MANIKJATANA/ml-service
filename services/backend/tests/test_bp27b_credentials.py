@@ -27,6 +27,7 @@ from backend.main import create_app
 from backend.services.onboarding_service import OnboardingService
 from backend.services.student_service import StudentService
 from backend_fakes import (
+    FakeAdminActionAuditRepo,
     FakeEventCategoryRepo,
     FakeHasher,
     FakeMlClient,
@@ -70,6 +71,7 @@ def _student_svc(
         FakeMlClient(),
         FakeThumbnailer(),
         grepo,
+        FakeAdminActionAuditRepo(),
         reference_photo_prefix="reference-photos",
     )
     return svc, strepo, urepo
@@ -81,7 +83,9 @@ def _onboarding_svc(
     srepo = FakeSchoolRepo(schools or [])
     urepo = FakeUserRepo(users or [])
     return (
-        OnboardingService(srepo, urepo, FakeHasher(), FakeEventCategoryRepo()),
+        OnboardingService(
+            srepo, urepo, FakeHasher(), FakeEventCategoryRepo(), FakeAdminActionAuditRepo()
+        ),
         srepo,
         urepo,
     )

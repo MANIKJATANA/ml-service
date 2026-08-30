@@ -498,6 +498,38 @@ class MatchVerdict(StrEnum):
     ADDED = "added"  # report-a-miss: staff added a student the ML missed
 
 
+class AdminAction(StrEnum):
+    """A governance-lifecycle action recorded in the admin-action audit (BP28b, R4-A25).
+
+    A bounded, closed vocabulary — only who-did-what for the account-lifecycle actions a
+    school admin needs an actor trail for. Deliberately EXCLUDES high-volume/low-risk
+    events (class assignment, teacher↔class delegation, event edits): those are frequent
+    and not governance-sensitive, so recording them would bury the signal. Lockstep with
+    the DB CHECK (widen enum + CHECK together)."""
+
+    STUDENT_CREATED = "student_created"
+    STUDENT_DISABLED = "student_disabled"
+    STUDENT_ENABLED = "student_enabled"
+    STUDENT_DELETED = "student_deleted"
+    STUDENT_REENROLLED = "student_reenrolled"
+    STUDENT_INVITE_RESENT = "student_invite_resent"
+    STAFF_CREATED = "staff_created"
+    STAFF_DISABLED = "staff_disabled"
+    STAFF_ENABLED = "staff_enabled"
+    STAFF_INVITE_RESENT = "staff_invite_resent"
+    SCHOOL_UPDATED = "school_updated"
+
+
+class AdminActionTargetType(StrEnum):
+    """What kind of record an :class:`AdminAction` acted on (BP28b). Lockstep with the DB
+    CHECK. ``student`` for the ``student_*`` actions, ``staff`` for the ``staff_*`` actions,
+    ``school`` for ``school_updated`` (a platform admin editing a school)."""
+
+    STUDENT = "student"
+    STAFF = "staff"
+    SCHOOL = "school"
+
+
 @dataclass(frozen=True, slots=True)
 class MatchCorrection:
     """One correction row over a ``(media, student)`` pair (BP5, decisions/0042).
@@ -541,4 +573,29 @@ class DownloadAuditEntry:
     actor_user_id: str | None
     actor_role: str
     subject_student_id: str | None
+    created_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class AdminActionAuditEntry:
+    """One recorded governance-lifecycle action — the admin-action audit (BP28b, R4-A25).
+
+    Append-only, backend-owned: the single-writer services record a row after each governance
+    mutation (create/disable/enable/delete a student, invite/lifecycle a staff account, edit a
+    school). ``actor_role`` is denormalized at write time so the trail still shows *who + in
+    what capacity* after the account is deleted (``actor_user_id`` → NULL via FK SET NULL).
+    ``target_id`` is a heterogeneous key (a student/staff/school id — hence NO FK, like
+    ``match_corrections``' no-FK-to-``matches``); ``target_label`` is a human label (name/email)
+    captured at write time (deliberately null for a deleted student, to preserve BP8e erasure).
+    The actor's CURRENT email is joined from the backend's OWN ``users`` rows by
+    ``AdminActionAuditService`` — never stored here."""
+
+    id: str
+    school_id: str
+    actor_user_id: str | None
+    actor_role: str
+    action: str
+    target_type: str
+    target_id: str | None
+    target_label: str | None
     created_at: datetime

@@ -15,6 +15,7 @@ from backend.domain.emails import normalize_email
 from backend.domain.errors import ConflictError, NotFoundError, UpstreamError
 from backend.domain.models import (
     UNSET,
+    AdminActionAuditEntry,
     Appearance,
     DownloadAuditEntry,
     EnrollmentFailureReason,
@@ -50,6 +51,7 @@ from backend.domain.models import (
     UserStatus,
 )
 from backend.domain.ports import (
+    AdminActionAuditRepository,
     DownloadAuditRepository,
     EventCategoryRepository,
     EventJobProducer,
@@ -366,6 +368,31 @@ def make_download_audit_entry(
         actor_user_id=actor_user_id,
         actor_role=actor_role,
         subject_student_id=subject_student_id,
+        created_at=created_at,
+    )
+
+
+def make_admin_action_audit_entry(
+    *,
+    id: str = "aa-1",
+    school_id: str = "school-1",
+    actor_user_id: str | None = "user-1",
+    actor_role: str = "school_admin",
+    action: str = "student_created",
+    target_type: str = "student",
+    target_id: str | None = "student-1",
+    target_label: str | None = "Bart Simpson",
+    created_at: datetime = _NOW,
+) -> AdminActionAuditEntry:
+    return AdminActionAuditEntry(
+        id=id,
+        school_id=school_id,
+        actor_user_id=actor_user_id,
+        actor_role=actor_role,
+        action=action,
+        target_type=target_type,
+        target_id=target_id,
+        target_label=target_label,
         created_at=created_at,
     )
 
@@ -2171,6 +2198,120 @@ class FakeDownloadAuditRepo:
         return list(self._rows)
 
 
+class FakeAdminActionAuditRepo:
+    """AdminActionAuditRepository double: an in-memory append-only list (BP28b).
+
+    Filters by ``school_id`` like the real adapter; ``created_at`` increments per record so the
+    newest-first ordering is deterministic. ``raise_on_record`` exercises the best-effort swallow
+    in the single-writer services (a failed audit must never fail the mutation)."""
+
+    def __init__(
+        self,
+        entries: list[AdminActionAuditEntry] | None = None,
+        *,
+        raise_on_record: Exception | None = None,
+    ) -> None:
+        self._rows: list[AdminActionAuditEntry] = list(entries or [])
+        self._seq = len(self._rows)
+        self._raise = raise_on_record
+
+    async def record(
+        self,
+        *,
+        school_id: str,
+        actor_user_id: str | None,
+        actor_role: str,
+        action: str,
+        target_type: str,
+        target_id: str | None,
+        target_label: str | None,
+    ) -> None:
+        if self._raise is not None:
+            raise self._raise
+        self._seq += 1
+        self._rows.append(
+            AdminActionAuditEntry(
+                id=f"aa-{self._seq}",
+                school_id=school_id,
+                actor_user_id=actor_user_id,
+                actor_role=actor_role,
+                action=action,
+                target_type=target_type,
+                target_id=target_id,
+                target_label=target_label,
+                created_at=_NOW + timedelta(seconds=self._seq),
+            )
+        )
+
+    def _filtered(
+        self,
+        school_id: str,
+        action: str | None,
+        target_type: str | None,
+        target_id: str | None,
+        actor_user_id: str | None,
+        created_from: datetime | None,
+        created_to: datetime | None,
+    ) -> list[AdminActionAuditEntry]:
+        rows = [r for r in self._rows if r.school_id == school_id]
+        rows.sort(key=lambda r: r.created_at, reverse=True)  # newest-first
+        if action is not None:
+            rows = [r for r in rows if r.action == action]
+        if target_type is not None:
+            rows = [r for r in rows if r.target_type == target_type]
+        if target_id is not None:
+            rows = [r for r in rows if r.target_id == target_id]
+        if actor_user_id is not None:
+            rows = [r for r in rows if r.actor_user_id == actor_user_id]
+        if created_from is not None:
+            rows = [r for r in rows if r.created_at >= created_from]
+        if created_to is not None:
+            rows = [r for r in rows if r.created_at <= created_to]
+        return rows
+
+    async def list_recent(
+        self,
+        school_id: str,
+        *,
+        limit: int,
+        offset: int,
+        action: str | None = None,
+        target_type: str | None = None,
+        target_id: str | None = None,
+        actor_user_id: str | None = None,
+        created_from: datetime | None = None,
+        created_to: datetime | None = None,
+    ) -> list[AdminActionAuditEntry]:
+        rows = self._filtered(
+            school_id, action, target_type, target_id, actor_user_id,
+            created_from, created_to,
+        )
+        return rows[offset : offset + limit]
+
+    async def count_recent(
+        self,
+        school_id: str,
+        *,
+        action: str | None = None,
+        target_type: str | None = None,
+        target_id: str | None = None,
+        actor_user_id: str | None = None,
+        created_from: datetime | None = None,
+        created_to: datetime | None = None,
+    ) -> int:
+        return len(
+            self._filtered(
+                school_id, action, target_type, target_id, actor_user_id,
+                created_from, created_to,
+            )
+        )
+
+    @property
+    def rows(self) -> list[AdminActionAuditEntry]:
+        """Test accessor: every recorded row, in insertion order."""
+        return list(self._rows)
+
+
 class FakeNotificationReadRepo:
     """NotificationReadRepository double: (student_id, event_id) -> seen_at.
 
@@ -2282,6 +2423,7 @@ class SeededContainer(Container):
         ml_results_reader: MlResultsReader | None = None,
         match_corrections: MatchCorrectionRepository | None = None,
         download_audit: DownloadAuditRepository | None = None,
+        admin_action_audit: AdminActionAuditRepository | None = None,
         notification_reads: NotificationReadRepository | None = None,
         notifier: NotificationChannel | None = None,
         jwt_secret: str = _TEST_JWT_SECRET,
@@ -2315,6 +2457,9 @@ class SeededContainer(Container):
         )
         self._seed_download_audit: DownloadAuditRepository = (
             download_audit or FakeDownloadAuditRepo()
+        )
+        self._seed_admin_action_audit: AdminActionAuditRepository = (
+            admin_action_audit or FakeAdminActionAuditRepo()
         )
         self._seed_notification_reads: NotificationReadRepository = (
             notification_reads or FakeNotificationReadRepo()
@@ -2415,6 +2560,9 @@ class SeededContainer(Container):
 
     def download_audit_repo(self) -> DownloadAuditRepository:
         return self._seed_download_audit
+
+    def admin_action_audit_repo(self) -> AdminActionAuditRepository:
+        return self._seed_admin_action_audit
 
     def notification_reads_repo(self) -> NotificationReadRepository:
         return self._seed_notification_reads

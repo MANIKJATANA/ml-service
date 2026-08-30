@@ -25,6 +25,7 @@ from backend.services.class_service import ClassService
 from backend.services.event_service import EventService
 from backend.services.student_service import StudentService
 from backend_fakes import (
+    FakeAdminActionAuditRepo,
     FakeEventCategoryRepo,
     FakeEventJobProducer,
     FakeEventRepo,
@@ -152,7 +153,8 @@ def _student_svc(*, groups: FakeStudentGroupRepo) -> tuple[StudentService, FakeS
     strepo.link_groups(groups.name_of)
     svc = StudentService(
         strepo, urepo, srepo, FakeHasher(), FakeObjectStore(), FakeMlClient(),
-        FakeThumbnailer(), groups, reference_photo_prefix="reference-photos",
+        FakeThumbnailer(), groups, FakeAdminActionAuditRepo(),
+        reference_photo_prefix="reference-photos",
     )
     return svc, strepo
 

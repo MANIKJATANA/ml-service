@@ -12,6 +12,10 @@ from datetime import datetime
 
 from pydantic import BaseModel
 
+from backend.services.admin_action_audit_service import (
+    AdminActionLogPage,
+    AdminActionView,
+)
 from backend.services.audit_service import (
     DownloadAuditView,
     DownloadLogPage,
@@ -19,6 +23,8 @@ from backend.services.audit_service import (
 )
 
 __all__ = [
+    "AdminActionEntryResponse",
+    "AdminActionLogPageResponse",
     "DownloadAuditEntryResponse",
     "DownloadLogPageResponse",
     "MediaDownloadLogResponse",
@@ -83,6 +89,54 @@ class DownloadLogPageResponse(BaseModel):
     def from_page(cls, page: DownloadLogPage) -> DownloadLogPageResponse:
         return cls(
             items=[DownloadAuditEntryResponse.from_view(i) for i in page.items],
+            total=page.total,
+            limit=page.limit,
+            offset=page.offset,
+        )
+
+
+class AdminActionEntryResponse(BaseModel):
+    """One recorded governance action, display-composed (BP28b). ``actor_email`` is the
+    actor's CURRENT email (None if the account was deleted); ``actor_role`` +
+    ``target_label`` survive the deletion (denormalized at write time)."""
+
+    id: str
+    actor_user_id: str | None
+    actor_email: str | None
+    actor_role: str
+    action: str
+    target_type: str
+    target_id: str | None
+    target_label: str | None
+    created_at: datetime
+
+    @classmethod
+    def from_view(cls, view: AdminActionView) -> AdminActionEntryResponse:
+        return cls(
+            id=view.id,
+            actor_user_id=view.actor_user_id,
+            actor_email=view.actor_email,
+            actor_role=view.actor_role,
+            action=view.action,
+            target_type=view.target_type,
+            target_id=view.target_id,
+            target_label=view.target_label,
+            created_at=view.created_at,
+        )
+
+
+class AdminActionLogPageResponse(BaseModel):
+    """One page of the school-wide admin-action log + the unpaginated total."""
+
+    items: list[AdminActionEntryResponse]
+    total: int
+    limit: int
+    offset: int
+
+    @classmethod
+    def from_page(cls, page: AdminActionLogPage) -> AdminActionLogPageResponse:
+        return cls(
+            items=[AdminActionEntryResponse.from_view(i) for i in page.items],
             total=page.total,
             limit=page.limit,
             offset=page.offset,

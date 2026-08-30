@@ -86,7 +86,7 @@ const NAV_BY_ROLE: Record<Role, NavItem[]> = {
     { href: "/students", label: "Students", icon: GraduationCap },
     { href: "/classes", label: "Classes", icon: BookOpen },
     { href: "/events", label: "Events", icon: CalendarDays },
-    { href: "/audit", label: "Access log", icon: ScrollText },
+    { href: "/audit", label: "Activity log", icon: ScrollText },
   ],
   teacher: [
     { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },

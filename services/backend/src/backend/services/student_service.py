@@ -21,6 +21,8 @@ import structlog
 from backend.domain.emails import validate_email
 from backend.domain.errors import ConflictError, NotFoundError, ValidationError
 from backend.domain.models import (
+    AdminAction,
+    AdminActionTargetType,
     EnrollmentFailureReason,
     EnrollmentOutcome,
     EnrollmentStatus,
@@ -33,6 +35,7 @@ from backend.domain.models import (
     UserStatus,
 )
 from backend.domain.ports import (
+    AdminActionAuditRepository,
     MlEnrollmentClient,
     ObjectStore,
     PasswordHasher,
@@ -125,6 +128,7 @@ class StudentService:
         ml_client: MlEnrollmentClient,
         thumbnailer: Thumbnailer,
         groups: StudentGroupRepository,
+        admin_audit: AdminActionAuditRepository,
         *,
         reference_photo_prefix: str,
         download_url_ttl_s: int = 3600,
@@ -137,8 +141,44 @@ class StudentService:
         self._ml = ml_client
         self._thumbnailer = thumbnailer
         self._groups = groups  # BP24: bulk CSV import can auto-create/assign a class
+        self._admin_audit = admin_audit  # BP28b: governance actor trail
         self._prefix = reference_photo_prefix.strip("/")
         self._download_ttl = download_url_ttl_s
+
+    async def _record_action(
+        self,
+        *,
+        school_id: str,
+        actor_user_id: str | None,
+        actor_role: str | None,
+        action: AdminAction,
+        target_id: str | None,
+        target_label: str | None,
+    ) -> None:
+        """Record one governance action best-effort (BP28b) — a failed audit must NEVER block
+        or roll back the mutation it trails. The repo owns its own transaction, so swallowing
+        here is safe (the mutation already committed). ``actor_role`` may be None only if the
+        caller was never threaded through; skip the write in that case rather than guess."""
+        if actor_role is None:
+            return
+        try:
+            await self._admin_audit.record(
+                school_id=school_id,
+                actor_user_id=actor_user_id,
+                actor_role=actor_role,
+                action=action.value,
+                target_type=AdminActionTargetType.STUDENT.value,
+                target_id=target_id,
+                target_label=target_label,
+            )
+        except Exception:  # noqa: BLE001 — best-effort audit; never fail the mutation
+            _log.warning(
+                "admin_action_audit_record_failed",
+                school_id=school_id,
+                action=action.value,
+                target_id=target_id,
+                exc_info=True,
+            )
 
     # ---- reference-photo upload URL ------------------------------------
 
@@ -223,6 +263,8 @@ class StudentService:
         name: str,
         email: str,
         reference_photo_path: str | None = None,
+        actor_user_id: str | None = None,
+        actor_role: str | None = None,
     ) -> ProvisionedStudent:
         """Create a student (+ login with a server-generated temp password, BP7d) and, if
         a reference photo was given, enroll it. With no photo the student is created
@@ -244,6 +286,16 @@ class StudentService:
             reference_photo_path=reference_photo_path,
             reference_photo_thumbnail_path=thumbnail_path,
         )
+        # BP28b: audit the create (governance action). The student's name is a safe label here
+        # (only student_deleted redacts, per BP8e). Best-effort — never fails the create.
+        await self._record_action(
+            school_id=school_id,
+            actor_user_id=actor_user_id,
+            actor_role=actor_role,
+            action=AdminAction.STUDENT_CREATED,
+            target_id=prov.student.id,
+            target_label=prov.student.name,
+        )
         if reference_photo_path is None:  # photoless -> stays pending, no ML call
             return prov
 
@@ -258,7 +310,12 @@ class StudentService:
         return ProvisionedStudent(student, prov.temp_password)
 
     async def bulk_create_students(
-        self, *, school_id: str, rows: list[tuple[str, str, str | None]]
+        self,
+        *,
+        school_id: str,
+        rows: list[tuple[str, str, str | None]],
+        actor_user_id: str | None = None,
+        actor_role: str | None = None,
     ) -> list[BulkStudentResult]:
         """Create many students from ``(name, email, class_name?)`` rows (BP7d CSV import,
         BP24 optional class). Best-effort per row — a bad/duplicate row is recorded and the
@@ -266,7 +323,10 @@ class StudentService:
         added later. BP24: a non-blank ``class_name`` auto-creates the class by name (once per
         distinct name, case-insensitive, memoized within the batch) and assigns the student —
         a class blip is logged, never discards the created student. The active-school check is
-        a snapshot taken once up front. Each created row carries its one-time temp password."""
+        a snapshot taken once up front. Each created row carries its one-time temp password.
+
+        BP28b: the ``actor`` is threaded down so each created student records one
+        ``student_created`` audit row (one row per created target, for free)."""
         await self._require_active_school(school_id)
         # Seed the name→id cache from the school's existing classes so the import reuses them
         # (and creates each new name at most once across the whole batch).
@@ -284,6 +344,15 @@ class StudentService:
                     name=clean_name,
                     email=clean_email,
                     reference_photo_path=None,
+                )
+                # BP28b: one student_created audit row per created target (best-effort).
+                await self._record_action(
+                    school_id=school_id,
+                    actor_user_id=actor_user_id,
+                    actor_role=actor_role,
+                    action=AdminAction.STUDENT_CREATED,
+                    target_id=prov.student.id,
+                    target_label=prov.student.name,
                 )
                 # Assign the class best-effort — the student is already created, so a class
                 # failure must not lose it (it's recorded "created" regardless).
@@ -339,7 +408,13 @@ class StudentService:
         return gid
 
     async def set_reference_photo(
-        self, *, school_id: str, student_id: str, reference_photo_path: str
+        self,
+        *,
+        school_id: str,
+        student_id: str,
+        reference_photo_path: str,
+        actor_user_id: str | None = None,
+        actor_role: str | None = None,
     ) -> Student:
         """Set or replace a student's reference photo, then (re-)enroll (BP7d-2).
 
@@ -380,11 +455,28 @@ class StudentService:
             reference_photo_path=reference_photo_path,
             reference_photo_thumbnail_path=thumbnail_path,
         )
-        return await self._reload(
+        reloaded = await self._reload(
             school_id, student_id, fallback=fallback, status=status, reason=reason
         )
+        # BP28b: setting/replacing the photo (re-)enrolls the student — audit it (best-effort).
+        await self._record_action(
+            school_id=school_id,
+            actor_user_id=actor_user_id,
+            actor_role=actor_role,
+            action=AdminAction.STUDENT_REENROLLED,
+            target_id=student_id,
+            target_label=reloaded.name,
+        )
+        return reloaded
 
-    async def enroll_student(self, *, school_id: str, student_id: str) -> Student:
+    async def enroll_student(
+        self,
+        *,
+        school_id: str,
+        student_id: str,
+        actor_user_id: str | None = None,
+        actor_role: str | None = None,
+    ) -> Student:
         """Re-enroll / retry using the student's stored reference photo (0026)."""
         student = await self.get_student(school_id=school_id, student_id=student_id)
         if student.reference_photo_path is None:
@@ -395,14 +487,29 @@ class StudentService:
             student_id=student.id,
             reference_photo_path=student.reference_photo_path,
         )
-        return await self._reload(
+        reloaded = await self._reload(
             school_id, student.id, fallback=student, status=status, reason=reason
         )
+        # BP28b: audit the re-enroll (best-effort).
+        await self._record_action(
+            school_id=school_id,
+            actor_user_id=actor_user_id,
+            actor_role=actor_role,
+            action=AdminAction.STUDENT_REENROLLED,
+            target_id=student.id,
+            target_label=reloaded.name,
+        )
+        return reloaded
 
     # ---- credential recovery (BP18a) ------------------------------------
 
     async def resend_invite(
-        self, *, school_id: str, student_id: str
+        self,
+        *,
+        school_id: str,
+        student_id: str,
+        actor_user_id: str | None = None,
+        actor_role: str | None = None,
     ) -> ProvisionedStudent:
         """Re-issue a one-time temp password for a student who lost theirs (BP18a).
 
@@ -428,10 +535,24 @@ class StudentService:
             password_hash=self._hasher.hash(temp_password),
             must_change_password=True,
         )
+        # BP28b: audit the credential resend (best-effort).
+        await self._record_action(
+            school_id=school_id,
+            actor_user_id=actor_user_id,
+            actor_role=actor_role,
+            action=AdminAction.STUDENT_INVITE_RESENT,
+            target_id=student.id,
+            target_label=student.name,
+        )
         return ProvisionedStudent(student, temp_password)
 
     async def bulk_resend_invite(
-        self, *, school_id: str, student_ids: list[str]
+        self,
+        *,
+        school_id: str,
+        student_ids: list[str],
+        actor_user_id: str | None = None,
+        actor_role: str | None = None,
     ) -> list[BulkResendResult]:
         """Re-issue a fresh one-time temp password for many students at once (BP27b) — a pure
         best-effort loop over the tested single-writer ``resend_invite``. Each ``sent`` row carries
@@ -448,7 +569,10 @@ class StudentService:
         for student_id in student_ids:
             try:
                 prov = await self.resend_invite(
-                    school_id=school_id, student_id=student_id
+                    school_id=school_id,
+                    student_id=student_id,
+                    actor_user_id=actor_user_id,
+                    actor_role=actor_role,
                 )
                 results.append(
                     BulkResendResult(
@@ -466,7 +590,13 @@ class StudentService:
         return results
 
     async def set_status(
-        self, *, school_id: str, student_id: str, status: UserStatus
+        self,
+        *,
+        school_id: str,
+        student_id: str,
+        status: UserStatus,
+        actor_user_id: str | None = None,
+        actor_role: str | None = None,
     ) -> Student:
         """Enable/disable a student's login (BP18d) — a non-destructive kill-switch.
 
@@ -480,10 +610,30 @@ class StudentService:
         student = await self.get_student(school_id=school_id, student_id=student_id)
         if student.status is not status:
             await self._users.set_status(student.user_id, status=status)
+            # BP28b: audit the state change (INSIDE the guard, so an idempotent no-op records
+            # nothing). Best-effort; the label is the student's name (not a redacted action).
+            await self._record_action(
+                school_id=school_id,
+                actor_user_id=actor_user_id,
+                actor_role=actor_role,
+                action=(
+                    AdminAction.STUDENT_DISABLED
+                    if status is UserStatus.DISABLED
+                    else AdminAction.STUDENT_ENABLED
+                ),
+                target_id=student.id,
+                target_label=student.name,
+            )
         return await self.get_student(school_id=school_id, student_id=student_id)
 
     async def bulk_set_status(
-        self, *, school_id: str, student_ids: list[str], status: UserStatus
+        self,
+        *,
+        school_id: str,
+        student_ids: list[str],
+        status: UserStatus,
+        actor_user_id: str | None = None,
+        actor_role: str | None = None,
     ) -> list[BulkActionResult]:
         """Enable/disable many students' logins at once (BP27) — a pure loop over the tested
         single-writer ``set_status``. Best-effort per id: a success is ``ok``; ANY exception
@@ -495,7 +645,11 @@ class StudentService:
         for student_id in student_ids:
             try:
                 await self.set_status(
-                    school_id=school_id, student_id=student_id, status=status
+                    school_id=school_id,
+                    student_id=student_id,
+                    status=status,
+                    actor_user_id=actor_user_id,
+                    actor_role=actor_role,
                 )
                 results.append(BulkActionResult(student_id, "ok"))
             except Exception:  # noqa: BLE001 — isolate one id's failure from the batch
@@ -506,7 +660,12 @@ class StudentService:
         return results
 
     async def bulk_delete_students(
-        self, *, school_id: str, student_ids: list[str]
+        self,
+        *,
+        school_id: str,
+        student_ids: list[str],
+        actor_user_id: str | None = None,
+        actor_role: str | None = None,
     ) -> list[BulkActionResult]:
         """Erase many students at once (BP27) — a pure loop over the tested single-writer
         ``delete_student``. Best-effort per id: a success is ``ok``; ANY exception (incl. the
@@ -519,7 +678,10 @@ class StudentService:
         for student_id in student_ids:
             try:
                 await self.delete_student(
-                    school_id=school_id, student_id=student_id
+                    school_id=school_id,
+                    student_id=student_id,
+                    actor_user_id=actor_user_id,
+                    actor_role=actor_role,
                 )
                 results.append(BulkActionResult(student_id, "ok"))
             except Exception:  # noqa: BLE001 — isolate one id's failure from the batch
@@ -658,7 +820,14 @@ class StudentService:
 
     # ---- delete (FR-E2) -------------------------------------------------
 
-    async def delete_student(self, *, school_id: str, student_id: str) -> None:
+    async def delete_student(
+        self,
+        *,
+        school_id: str,
+        student_id: str,
+        actor_user_id: str | None = None,
+        actor_role: str | None = None,
+    ) -> None:
         """Erase a student completely (BP8e, decisions/0053).
 
         ML delete FIRST (embeddings + reference-photo URIs + the student's ``matches`` and
@@ -677,6 +846,19 @@ class StudentService:
         if student.reference_photo_thumbnail_path is not None:
             await self._delete_object_best_effort(student.reference_photo_thumbnail_path)
         await self._users.delete(student.user_id)
+        # BP28b: audit the erasure — but store the student ID ONLY (target_label=None), NOT the
+        # name/email, to preserve BP8e's "delete means gone" (a deleted student's identity must
+        # not linger in the audit). This is the owner-chosen privacy-preserving default;
+        # full-identity retention would be the alternative. Best-effort — never re-raise (the
+        # student is already erased). Recorded AFTER the deletes so a delete failure logs nothing.
+        await self._record_action(
+            school_id=school_id,
+            actor_user_id=actor_user_id,
+            actor_role=actor_role,
+            action=AdminAction.STUDENT_DELETED,
+            target_id=student.id,
+            target_label=None,
+        )
 
     async def _delete_replaced_objects(
         self,

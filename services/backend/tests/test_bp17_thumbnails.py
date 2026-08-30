@@ -31,6 +31,7 @@ from backend.services.media_service import MediaService
 from backend.services.student_service import StudentService
 from backend.services.thumbnails import thumb_key
 from backend_fakes import (
+    FakeAdminActionAuditRepo,
     FakeDownloadAuditRepo,
     FakeEventRepo,
     FakeMatchCorrectionRepo,
@@ -196,6 +197,7 @@ def _student_svc(store: FakeObjectStore, *, students: list[Student]) -> StudentS
         FakeMlClient(),
         FakeThumbnailer(),
         FakeStudentGroupRepo(),
+        FakeAdminActionAuditRepo(),
         reference_photo_prefix="reference-photos",
         download_url_ttl_s=3600,
     )

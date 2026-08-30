@@ -5,6 +5,7 @@ import Link from "next/link";
 import { type FormEvent, Suspense, useEffect, useState } from "react";
 import { mutate as globalMutate } from "swr";
 
+import { DelegationBanner } from "@/components/delegation/delegation-banner";
 import { FocusToggle } from "@/components/delegation/focus-toggle";
 import { ManageCategoriesDialog } from "@/components/events/manage-categories-dialog";
 import { MonthCalendar } from "@/components/events/month-calendar";
@@ -309,6 +310,8 @@ function EventsContent() {
   const { user } = useMe();
   const isTeacher = user?.role === "teacher";
   const { classes: myClasses } = useMyClasses(isTeacher);
+  // BP29 (R4-T05): mark a teacher's own classes in the filter dropdown (text suffix only).
+  const mine = new Set(myClasses.map((c) => c.id));
   const canFocus = isTeacher && myClasses.length > 0;
   const focusOn = canFocus && focus;
 
@@ -404,6 +407,10 @@ function EventsContent() {
         }
       />
 
+      {/* BP29 (R4-T01): tell an un-delegated teacher why their lists show all classes. Mounted
+          above the conditional block so it shows in every state (self-gates to teacher + 0 classes). */}
+      <DelegationBanner />
+
       {isInitialLoading ? (
         <Card className="flex flex-col gap-2 p-4">
           {[0, 1, 2].map((i) => (
@@ -453,6 +460,7 @@ function EventsContent() {
                   {classes.map((c) => (
                     <option key={c.id} value={c.id}>
                       {c.name}
+                      {mine.has(c.id) ? " (my class)" : ""}
                     </option>
                   ))}
                 </select>

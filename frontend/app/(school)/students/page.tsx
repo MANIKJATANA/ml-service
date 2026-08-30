@@ -17,6 +17,7 @@ import { Dialog, DialogClose, DialogContent, DialogTrigger } from "@/components/
 import { EmptyState } from "@/components/ui/empty-state";
 import { Field } from "@/components/ui/field";
 import { FileDropzone } from "@/components/ui/file-dropzone";
+import { DelegationBanner } from "@/components/delegation/delegation-banner";
 import { FocusToggle } from "@/components/delegation/focus-toggle";
 import { type ChipItem, FilterChips } from "@/components/gallery/filter-chips";
 import { type Invite, InviteResultDialog } from "@/components/staff/invite-result-dialog";
@@ -358,6 +359,9 @@ function StudentsContent() {
   const { user } = useMe();
   const isTeacher = user?.role === "teacher";
   const { classes: myClasses } = useMyClasses(isTeacher);
+  // BP29 (R4-T05): mark a teacher's own classes in the filter dropdown so "my class" is legible
+  // (options can't be richly styled — a text suffix only).
+  const mine = new Set(myClasses.map((c) => c.id));
   // BP11c: the focus toggle is only meaningful for a teacher who actually has classes.
   const canFocus = isTeacher && myClasses.length > 0;
   const focusOn = canFocus && focus;
@@ -632,6 +636,10 @@ function StudentsContent() {
         }
       />
 
+      {/* BP29 (R4-T01): tell an un-delegated teacher why their lists show all classes. Mounted
+          above the conditional block so it shows in every state (self-gates to teacher + 0 classes). */}
+      <DelegationBanner />
+
       {isInitialLoading ? (
         <Card className="flex flex-col gap-2 p-4">
           {[0, 1, 2].map((i) => (
@@ -687,6 +695,7 @@ function StudentsContent() {
                   {classes.map((c) => (
                     <option key={c.id} value={c.id}>
                       {c.name}
+                      {mine.has(c.id) ? " (my class)" : ""}
                     </option>
                   ))}
                 </select>

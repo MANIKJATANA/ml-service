@@ -24,6 +24,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { StatCard } from "@/components/ui/stat-card";
 import type { DashboardResponse } from "@/lib/api/types";
 import { useDashboard } from "@/lib/hooks/use-dashboard";
+import { useMe } from "@/lib/hooks/use-me";
 import { cn } from "@/lib/utils";
 
 type Tone = "error" | "warning" | "info";
@@ -137,6 +138,7 @@ function photosHint(d: DashboardResponse): string {
 
 export default function DashboardPage() {
   const { dashboard, error, isLoading, mutate } = useDashboard();
+  const { user } = useMe();
 
   return (
     <div className="flex flex-col gap-6">
@@ -172,7 +174,7 @@ export default function DashboardPage() {
           }
         />
       ) : (
-        <DashboardBody d={dashboard} />
+        <DashboardBody d={dashboard} isTeacher={user?.role === "teacher"} />
       )}
     </div>
   );
@@ -180,13 +182,25 @@ export default function DashboardPage() {
 
 /** Orders the two dashboard layers: the first-run setup checklist (until the school has
  *  distributed) and the command center (stats + alerts, once there's any data). A brand-new
- *  school sees only the checklist — all-zero stat cards would be noise (BP7a). */
-function DashboardBody({ d }: { d: DashboardResponse }) {
+ *  school sees only the checklist — all-zero stat cards would be noise (BP7a).
+ *
+ *  BP29 (R4-T02/T08): the setup checklist is admin-framed (it links to `/staff`, a
+ *  school-admin-only page). A teacher gets a tiny one-line "your role" note instead — never the
+ *  checklist's "Add a teacher" dead-end. The command center (DashboardContent) is unchanged for
+ *  both roles. */
+function DashboardBody({ d, isTeacher }: { d: DashboardResponse; isTeacher: boolean }) {
   const setupComplete = d.setup_checklist.has_distributed;
   const isEmpty = d.students.total === 0 && d.events.total === 0;
   return (
     <div className="flex flex-col gap-6">
-      {!setupComplete ? <SetupChecklistCard checklist={d.setup_checklist} /> : null}
+      {isTeacher ? (
+        <p className="text-body-sm text-ink-secondary">
+          You&apos;re a teacher — your admin sets up the school. You can enroll students, create
+          events, and match photos.
+        </p>
+      ) : !setupComplete ? (
+        <SetupChecklistCard checklist={d.setup_checklist} />
+      ) : null}
       {!isEmpty ? <DashboardContent d={d} /> : null}
     </div>
   );

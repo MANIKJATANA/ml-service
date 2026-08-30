@@ -63,6 +63,11 @@ class SchoolDashboard:
     # above: ``has_staff`` (>=1 teacher) and ``has_distributed`` (>=1 announced event).
     has_staff: bool
     has_distributed: bool
+    # teacher-seat usage (A15) — surfaced on the staff page so an admin sees the cap
+    # before the create 409. ``teacher_count`` is status-agnostic (active + disabled
+    # teachers) so it matches the ``LimitExceededError`` enforcement in OnboardingService.
+    teacher_count: int
+    max_teachers: int
 
 
 class DashboardService:
@@ -114,6 +119,10 @@ class DashboardService:
             needs_review=needs_review,
             has_staff=teacher_count >= 1,
             has_distributed=distributed >= 1,
+            # A15: reuse the teacher_count already computed for has_staff (no 2nd query);
+            # max_teachers is on the school row loaded above.
+            teacher_count=teacher_count,
+            max_teachers=school.max_teachers,
         )
 
 
@@ -127,6 +136,8 @@ def _to_dashboard(
     needs_review: int,
     has_staff: bool,
     has_distributed: bool,
+    teacher_count: int,
+    max_teachers: int,
 ) -> SchoolDashboard:
     return SchoolDashboard(
         school_name=school_name,
@@ -145,4 +156,6 @@ def _to_dashboard(
         needs_review=needs_review,
         has_staff=has_staff,
         has_distributed=has_distributed,
+        teacher_count=teacher_count,
+        max_teachers=max_teachers,
     )

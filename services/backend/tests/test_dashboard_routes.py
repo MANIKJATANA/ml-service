@@ -105,6 +105,8 @@ def test_admin_gets_own_school_rollup() -> None:
     assert body["students"] == {"total": 1, "enrolled": 1, "pending": 0, "failed": 0}
     assert body["events"]["total"] == 1
     assert body["media"] == {"total": 1, "pending": 1, "failed": 0}
+    # A15: teacher-seat usage — s1 has one teacher (`te`) and the default cap of 5.
+    assert body["staff"] == {"teacher_count": 1, "max_teachers": 5}
     assert body["needs_attention"] == {
         "events_undistributed": 1,
         "enrollment_failures": 0,
@@ -152,6 +154,8 @@ def test_tenant_is_from_the_token_other_school_sees_its_own() -> None:
     assert body["students"]["total"] == 0
     assert body["events"]["total"] == 0
     assert body["media"]["total"] == 0
+    # A15: s2 has no teachers of its own — never s1's count; its own default cap of 5.
+    assert body["staff"] == {"teacher_count": 0, "max_teachers": 5}
     assert body["needs_attention"]["events_undistributed"] == 0
     # A fresh school's checklist is all-unchecked (nothing leaks from s1).
     assert body["setup_checklist"] == {

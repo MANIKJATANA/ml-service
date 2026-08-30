@@ -418,6 +418,9 @@ export interface DashboardResponse {
   students: { total: number; enrolled: number; pending: number; failed: number };
   events: { total: number; active: number; archived: number; processing: number };
   media: { total: number; pending: number; failed: number };
+  /** Teacher-seat usage (A15) — the staff page surfaces the cap before the create 409;
+   *  `teacher_count` is status-agnostic (active + disabled). */
+  staff: { teacher_count: number; max_teachers: number };
   /** First-run onboarding progress (BP7a, decisions/0044) — five booleans the dashboard
    *  renders as a guided checklist that retires once the school has distributed. */
   setup_checklist: {

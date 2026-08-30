@@ -33,6 +33,7 @@ import {
 import { isApiError } from "@/lib/api/errors";
 import type { ClassResponse, SortDir, UserResponse } from "@/lib/api/types";
 import { useClasses } from "@/lib/hooks/use-classes";
+import { useDashboard } from "@/lib/hooks/use-dashboard";
 import { useDebouncedValue } from "@/lib/hooks/use-debounced-value";
 import { useUrlListSort } from "@/lib/hooks/use-sort";
 import { useStaff } from "@/lib/hooks/use-staff";
@@ -59,9 +60,12 @@ function staffStatus(user: UserResponse): {
 function CreateTeacherDialog({
   onInvited,
   onCreated,
+  disabled = false,
 }: {
   onInvited: (invite: Invite) => void;
   onCreated: () => void;
+  /** A15: soft-gate at the teacher cap — the 409 stays the server backstop. */
+  disabled?: boolean;
 }) {
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
@@ -93,7 +97,7 @@ function CreateTeacherDialog({
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
-        <Button>
+        <Button disabled={disabled}>
           <UserPlus className="size-4" aria-hidden="true" />
           Add teacher
         </Button>
@@ -359,6 +363,15 @@ function StaffContent() {
   const { items, total, isLoading, isLoadingMore, error, reachedEnd, loadMore, mutate } =
     useStaff({ q: urlQ || undefined, sort, dir });
 
+  // A15: surface the teacher-seat cap BEFORE the create 409. The dashboard rollup already
+  // carries teacher_count/max_teachers (shared SWR key "dashboard" — no extra request).
+  // Advisory-only: if the read hasn't loaded / errored (`staff` absent), fall back to today's
+  // behavior (buttons enabled, 409 backstop) — never block create on a failed advisory read.
+  const { dashboard } = useDashboard();
+  const seats = dashboard?.staff;
+  const remaining = seats ? seats.max_teachers - seats.teacher_count : Infinity;
+  const atCapacity = remaining <= 0; // 0 = full; negative = over (a cap can be lowered)
+
   const isInitialLoading = isLoading && items.length === 0;
 
   return (
@@ -373,11 +386,32 @@ function StaffContent() {
         actions={
           <div className="flex flex-wrap gap-2">
             {/* BP27b: invite a batch of teachers from an email CSV (best-effort, shown-once passwords). */}
-            <BulkInviteDialog onInvited={() => mutate()} />
-            <CreateTeacherDialog onInvited={setInvite} onCreated={() => mutate()} />
+            <BulkInviteDialog onInvited={() => mutate()} disabled={atCapacity} />
+            <CreateTeacherDialog
+              onInvited={setInvite}
+              onCreated={() => mutate()}
+              disabled={atCapacity}
+            />
           </div>
         }
       />
+
+      {/* A15: teacher-seat usage — its own line, NOT the header description (which counts the
+          search-filtered page, not seats). Only rendered once the advisory read has loaded. */}
+      {seats && (
+        <div className="flex flex-col gap-1">
+          <p className="text-body-sm text-ink-secondary">
+            {atCapacity ? (remaining < 0 ? "Over capacity — " : "At capacity — ") : ""}
+            {seats.teacher_count} of {seats.max_teachers} teacher seats used
+          </p>
+          {atCapacity && (
+            <p className="text-body-sm text-ink-secondary">
+              You&rsquo;ve used all {seats.max_teachers} teacher seats. Ask your platform
+              administrator to raise the cap.
+            </p>
+          )}
+        </div>
+      )}
 
       {isInitialLoading ? (
         <Card className="flex flex-col gap-2 p-4">
@@ -401,7 +435,13 @@ function StaffContent() {
           icon={<Users className="size-8" aria-hidden="true" />}
           title="No teachers yet"
           description="Add a teacher to help manage this school."
-          action={<CreateTeacherDialog onInvited={setInvite} onCreated={() => mutate()} />}
+          action={
+            <CreateTeacherDialog
+              onInvited={setInvite}
+              onCreated={() => mutate()}
+              disabled={atCapacity}
+            />
+          }
         />
       ) : (
         <div className="flex flex-col gap-4">

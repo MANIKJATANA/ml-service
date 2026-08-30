@@ -25,6 +25,7 @@ from backend.domain.models import (
     School,
     Student,
     User,
+    UserStatus,
 )
 from backend.services.dashboard_service import DashboardService
 from backend_fakes import (
@@ -274,6 +275,44 @@ async def test_setup_checklist_signals_reflect_first_run_progress() -> None:
     d = await svc.school_summary(school_id=_S1)
     assert d.has_staff is True
     assert d.has_distributed is True
+
+
+async def test_teacher_seat_usage_reflects_cap_and_teacher_count() -> None:
+    # A15: the dashboard exposes the school's teacher cap and the current teacher count
+    # (status-agnostic — counts active + disabled, matching the create-409 enforcement).
+    svc = _svc(
+        schools=[make_school(id=_S1, name="Springfield", max_teachers=3)],
+        users=[
+            make_user(id="t1", school_id=_S1, role=Role.TEACHER),
+            make_user(id="t2", school_id=_S1, role=Role.TEACHER),
+            # A disabled teacher STILL consumes a seat (status-agnostic — matches the 409).
+            make_user(
+                id="t3",
+                school_id=_S1,
+                role=Role.TEACHER,
+                status=UserStatus.DISABLED,
+            ),
+            # An admin doesn't consume a teacher seat.
+            make_user(id="a1", school_id=_S1, role=Role.SCHOOL_ADMIN),
+        ],
+    )
+    d = await svc.school_summary(school_id=_S1)
+    assert d.teacher_count == 3
+    assert d.max_teachers == 3
+
+
+async def test_teacher_count_is_tenant_scoped() -> None:
+    # A teacher in another school must not inflate s1's seat usage.
+    svc = _svc(
+        schools=[make_school(id=_S1, name="Springfield", max_teachers=5)],
+        users=[
+            make_user(id="t1", school_id=_S1, role=Role.TEACHER),
+            make_user(id="z1", school_id="s2", role=Role.TEACHER),
+        ],
+    )
+    d = await svc.school_summary(school_id=_S1)
+    assert d.teacher_count == 1
+    assert d.max_teachers == 5
 
 
 async def test_has_staff_needs_a_teacher_not_just_an_admin() -> None:

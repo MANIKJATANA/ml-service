@@ -60,7 +60,14 @@ type Phase = "pick" | "preview";
  * per-row) → the shared `BulkCredentialsDialog` shows the ONE-TIME temp passwords for the created
  * accounts. On done the parent refreshes the staff roster (staff-bulk creates rows).
  */
-export function BulkInviteDialog({ onInvited }: { onInvited: () => void }) {
+export function BulkInviteDialog({
+  onInvited,
+  disabled = false,
+}: {
+  onInvited: () => void;
+  /** A15: soft-gate at the teacher cap — the create 409 stays the server backstop. */
+  disabled?: boolean;
+}) {
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
   const [phase, setPhase] = useState<Phase>("pick");
@@ -141,7 +148,7 @@ export function BulkInviteDialog({ onInvited }: { onInvited: () => void }) {
     <>
       <Dialog open={open} onOpenChange={handleOpenChange}>
         <DialogTrigger asChild>
-          <Button variant="secondary">
+          <Button variant="secondary" disabled={disabled}>
             <Upload className="size-4" aria-hidden="true" />
             Import CSV
           </Button>

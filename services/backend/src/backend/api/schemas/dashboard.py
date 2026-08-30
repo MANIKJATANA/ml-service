@@ -34,6 +34,14 @@ class MediaSummary(BaseModel):
     failed: int = 0  # BP19c: photos the worker couldn't process
 
 
+class StaffSummary(BaseModel):
+    """Teacher-seat usage (A15) — surfaced on the staff page so an admin sees the cap
+    before the create 409. ``teacher_count`` is status-agnostic (active + disabled)."""
+
+    teacher_count: int
+    max_teachers: int
+
+
 class NeedsAttention(BaseModel):
     """The dashboard's "do something" signals — each renders as an actionable alert."""
 
@@ -62,6 +70,7 @@ class DashboardResponse(BaseModel):
     students: StudentsSummary
     events: EventsSummary
     media: MediaSummary
+    staff: StaffSummary
     setup_checklist: SetupChecklist
     needs_attention: NeedsAttention
 
@@ -83,6 +92,9 @@ class DashboardResponse(BaseModel):
             ),
             media=MediaSummary(
                 total=d.photos_total, pending=d.photos_pending, failed=d.photos_failed
+            ),
+            staff=StaffSummary(
+                teacher_count=d.teacher_count, max_teachers=d.max_teachers
             ),
             setup_checklist=SetupChecklist(
                 has_staff=d.has_staff,

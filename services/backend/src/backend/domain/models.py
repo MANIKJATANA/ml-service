@@ -242,6 +242,10 @@ class Student:
     # BP18d: the linked login's status (active/disabled) — denormalized off the users JOIN
     # (like email). Lets staff show + toggle a student's non-destructive login kill-switch.
     status: UserStatus = UserStatus.ACTIVE
+    # Phase-0 WhatsApp contact (migration 0021): optional mobile number (NULL when unknown) +
+    # the opt-in consent flag (never assumed — defaults false). Provider validates at send time.
+    mobile_number: str | None = None
+    whatsapp_opt_in: bool = False
 
 
 @dataclass(frozen=True, slots=True)

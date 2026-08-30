@@ -186,6 +186,8 @@ def make_student(
     student_group_id: str | None = None,
     student_group_name: str | None = None,
     status: UserStatus = UserStatus.ACTIVE,
+    mobile_number: str | None = None,
+    whatsapp_opt_in: bool = False,
 ) -> Student:
     return Student(
         id=id,
@@ -200,6 +202,8 @@ def make_student(
         student_group_id=student_group_id,
         student_group_name=student_group_name,
         status=status,
+        mobile_number=mobile_number,
+        whatsapp_opt_in=whatsapp_opt_in,
         created_at=_NOW,
         updated_at=_NOW,
     )
@@ -756,6 +760,8 @@ class FakeStudentRepo:
         name: str,
         reference_photo_path: str | None = None,
         reference_photo_thumbnail_path: str | None = None,
+        mobile_number: str | None = None,
+        whatsapp_opt_in: bool = False,
     ) -> Student:
         if self.fail_create:
             raise RuntimeError("simulated students-insert failure")
@@ -769,6 +775,8 @@ class FakeStudentRepo:
             reference_photo_path=reference_photo_path,
             reference_photo_thumbnail_path=reference_photo_thumbnail_path,
             enrollment_status=EnrollmentStatus.PENDING,
+            mobile_number=mobile_number,
+            whatsapp_opt_in=whatsapp_opt_in,
         )
         self._by_id[student.id] = student
         return self._hydrate(student)
@@ -996,6 +1004,17 @@ class FakeStudentRepo:
                 )
                 n += 1
         return n
+
+    async def set_mobile(
+        self, student_id: str, *, mobile_number: str | None, whatsapp_opt_in: bool
+    ) -> None:
+        if student_id not in self._by_id:
+            raise NotFoundError(student_id)
+        self._by_id[student_id] = replace(
+            self._by_id[student_id],
+            mobile_number=mobile_number,
+            whatsapp_opt_in=whatsapp_opt_in,
+        )
 
     def group_counts(self, school_id: str) -> dict[str, int]:
         """Sync helper: per-class member count — mirrors the grouped students scan the

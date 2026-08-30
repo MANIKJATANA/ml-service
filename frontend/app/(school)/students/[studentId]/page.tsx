@@ -7,6 +7,7 @@ import {
   Download,
   ImagePlus,
   KeyRound,
+  Pencil,
   RefreshCw,
   Trash2,
 } from "lucide-react";
@@ -25,7 +26,9 @@ import { Card } from "@/components/ui/card";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Dialog, DialogClose, DialogContent, DialogTrigger } from "@/components/ui/dialog";
 import { EmptyState } from "@/components/ui/empty-state";
+import { Field } from "@/components/ui/field";
 import { FileDropzone } from "@/components/ui/file-dropzone";
+import { Input } from "@/components/ui/input";
 import { PageHeader } from "@/components/ui/page-header";
 import { ProgressBar } from "@/components/ui/progress-bar";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -39,6 +42,7 @@ import {
   setStudentClass,
   setStudentReferencePhoto,
   setStudentStatus,
+  updateStudentMobile,
 } from "@/lib/api/endpoints";
 import { isApiError } from "@/lib/api/errors";
 import type {
@@ -231,6 +235,120 @@ function ClassSelect({
         </option>
       ))}
     </select>
+  );
+}
+
+/** The loose client-side mobile shape (mirrors the backend `domain/phones.py` gate) — only a
+ *  pre-flight; the server validates authoritatively (and the provider validates at send time). */
+const MOBILE_RE = /^\+?[0-9]{7,15}$/;
+
+/** Set/clear the student's WhatsApp contact + opt-in (Phase 0). A compact dialog with a `tel`
+ *  input + an opt-in checkbox; writes through `updateStudentMobile` and refreshes the student.
+ *  Modeled on `ClassSelect` — the mobile edit isn't a governance action (no audit). */
+function MobileEditor({
+  studentId,
+  mobile,
+  optIn,
+  onChanged,
+}: {
+  studentId: string;
+  mobile: string | null;
+  optIn: boolean;
+  onChanged: (student: StudentResponse) => void;
+}) {
+  const { toast } = useToast();
+  const [open, setOpen] = useState(false);
+  const [value, setValue] = useState(mobile ?? "");
+  const [wantOptIn, setWantOptIn] = useState(optIn);
+  const [saving, setSaving] = useState(false);
+
+  function handleOpenChange(next: boolean) {
+    setOpen(next);
+    if (next) {
+      // Re-seed from the current student each time the dialog opens.
+      setValue(mobile ?? "");
+      setWantOptIn(optIn);
+    }
+  }
+
+  async function onSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const trimmed = value.trim();
+    if (trimmed && !MOBILE_RE.test(trimmed)) {
+      toast("Enter a valid mobile number (7–15 digits, optional leading +).", "error");
+      return;
+    }
+    setSaving(true);
+    try {
+      const updated = await updateStudentMobile(studentId, trimmed || null, wantOptIn);
+      onChanged(updated);
+      handleOpenChange(false);
+      toast("WhatsApp contact updated.", "success");
+    } catch (err) {
+      toast(isApiError(err) ? err.message : "Something went wrong", "error");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <DialogTrigger asChild>
+        <Button variant="secondary" className="h-8 px-2.5 text-body-sm">
+          <Pencil className="size-3.5" aria-hidden="true" />
+          Edit
+        </Button>
+      </DialogTrigger>
+      <DialogContent
+        title="WhatsApp contact"
+        description="An optional mobile number for WhatsApp, plus whether the student has opted in. Leave the number blank to clear it."
+      >
+        <form onSubmit={onSubmit} className="flex flex-col gap-4">
+          <Field
+            label="Mobile number"
+            htmlFor="student-mobile"
+            hint="Include the country code (e.g. +14155550123). Optional — leave blank to clear."
+          >
+            <Input
+              id="student-mobile"
+              type="tel"
+              autoComplete="off"
+              maxLength={32}
+              disabled={saving}
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+            />
+          </Field>
+          <div className="flex flex-col gap-1">
+            <label htmlFor="student-optin" className="flex items-center gap-3">
+              <input
+                id="student-optin"
+                type="checkbox"
+                checked={wantOptIn}
+                disabled={saving}
+                onChange={(e) => setWantOptIn(e.target.checked)}
+                aria-describedby="student-optin-hint"
+                className="size-4 rounded accent-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              />
+              <span className="text-body text-ink">Opted in to WhatsApp messages</span>
+            </label>
+            <p id="student-optin-hint" className="text-body-sm text-ink-secondary">
+              They&apos;ll receive their photos on WhatsApp once delivery is turned on.
+            </p>
+          </div>
+          <div className="mt-2 flex justify-end gap-2">
+            <DialogClose asChild>
+              <Button type="button" variant="secondary">
+                Cancel
+              </Button>
+            </DialogClose>
+            <Button type="submit" loading={saving}>
+              Save
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -657,6 +775,28 @@ export default function StudentDetailPage() {
                     <ClassSelect
                       studentId={studentId}
                       current={student.student_group_id}
+                      onChanged={(updated) => {
+                        void mutate(updated, { revalidate: false });
+                      }}
+                    />
+                  </dd>
+                </div>
+                {/* Phase 0: the WhatsApp contact — number + opt-in state + an inline editor. */}
+                <div className="flex flex-col gap-1">
+                  <dt className="text-body-sm text-ink-secondary">WhatsApp</dt>
+                  <dd className="flex items-center gap-3">
+                    <span className="text-body text-ink">
+                      {student.mobile_number ?? "—"}
+                    </span>
+                    <StatusPill
+                      tone={student.whatsapp_opt_in ? "success" : "neutral"}
+                    >
+                      {student.whatsapp_opt_in ? "Opted in" : "Not opted in"}
+                    </StatusPill>
+                    <MobileEditor
+                      studentId={studentId}
+                      mobile={student.mobile_number}
+                      optIn={student.whatsapp_opt_in}
                       onChanged={(updated) => {
                         void mutate(updated, { revalidate: false });
                       }}

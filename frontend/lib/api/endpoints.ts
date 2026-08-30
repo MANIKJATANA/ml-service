@@ -363,17 +363,39 @@ export function setStudentStatus(
   );
 }
 
+/** Set/clear a student's WhatsApp contact number + opt-in (Phase 0). A null/blank number clears
+ *  it; the server trims + validates (a malformed number → 400). */
+export function updateStudentMobile(
+  studentId: string,
+  mobileNumber: string | null,
+  whatsappOptIn: boolean,
+): Promise<StudentResponse> {
+  return bffFetch<StudentResponse>(
+    `/api/v1/students/${encodeURIComponent(studentId)}/mobile`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({
+        mobile_number: mobileNumber,
+        whatsapp_opt_in: whatsappOptIn,
+      }),
+    },
+  );
+}
+
 /** Mint a signed target for the reference photo (bytes go browser→Supabase). */
 export function studentUploadUrl(): Promise<UploadUrlResponse> {
   return bffFetch<UploadUrlResponse>("/api/v1/students/upload-url", { method: "POST" });
 }
 
 /** Create a student (BP7d): the temp password is server-generated + returned once; the
- *  reference photo is optional (omit -> a photoless, pending student). */
+ *  reference photo is optional (omit -> a photoless, pending student). Phase 0: an optional
+ *  WhatsApp mobile + opt-in consent (both default off). */
 export function createStudent(
   name: string,
   email: string,
   referencePhotoPath: string | null,
+  mobileNumber?: string | null,
+  whatsappOptIn?: boolean,
 ): Promise<ProvisionedStudentResponse> {
   return bffFetch<ProvisionedStudentResponse>("/api/v1/students", {
     method: "POST",
@@ -381,13 +403,21 @@ export function createStudent(
       name,
       email,
       reference_photo_path: referencePhotoPath,
+      mobile_number: mobileNumber ?? null,
+      whatsapp_opt_in: whatsappOptIn ?? false,
     }),
   });
 }
 
-/** Bulk-create students from CSV rows (BP7d) — best-effort, photoless (pending). */
+/** Bulk-create students from CSV rows (BP7d) — best-effort, photoless (pending). Phase 0: each
+ *  row may carry an optional WhatsApp `mobile_number` (bulk never opts in — stays off). */
 export function bulkImportStudents(
-  rows: { name: string; email: string; class_name?: string | null }[],
+  rows: {
+    name: string;
+    email: string;
+    class_name?: string | null;
+    mobile_number?: string | null;
+  }[],
 ): Promise<BulkImportResponse> {
   return bffFetch<BulkImportResponse>("/api/v1/students/bulk", {
     method: "POST",

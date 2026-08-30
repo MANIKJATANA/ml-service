@@ -91,6 +91,8 @@ function CreateStudentDialog({
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
+  const [mobile, setMobile] = useState(""); // Phase 0: optional WhatsApp contact
+  const [optIn, setOptIn] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [uploadedPath, setUploadedPath] = useState<string | null>(null); // survives a failed create
   const [progress, setProgress] = useState<number | null>(null); // non-null while uploading
@@ -101,6 +103,8 @@ function CreateStudentDialog({
     if (!next) {
       setName("");
       setEmail("");
+      setMobile("");
+      setOptIn(false);
       setFile(null);
       setUploadedPath(null);
       setProgress(null);
@@ -130,6 +134,8 @@ function CreateStudentDialog({
         name.trim(),
         email.trim(),
         objectPath,
+        mobile.trim() || null,
+        optIn,
       );
       toast("Student created.", "success");
       onCreated();
@@ -176,6 +182,35 @@ function CreateStudentDialog({
               onChange={(e) => setEmail(e.target.value)}
             />
           </Field>
+          {/* Phase 0: optional WhatsApp contact + opt-in consent. */}
+          <Field label="Mobile (WhatsApp)" htmlFor="student-mobile" hint="Optional. Include the country code, e.g. +14155550123.">
+            <Input
+              id="student-mobile"
+              type="tel"
+              autoComplete="off"
+              maxLength={32}
+              disabled={submitting}
+              value={mobile}
+              onChange={(e) => setMobile(e.target.value)}
+            />
+          </Field>
+          <div className="flex flex-col gap-1">
+            <label htmlFor="create-student-optin" className="flex items-center gap-3">
+              <input
+                id="create-student-optin"
+                type="checkbox"
+                checked={optIn}
+                disabled={submitting}
+                onChange={(e) => setOptIn(e.target.checked)}
+                aria-describedby="create-student-optin-hint"
+                className="size-4 rounded accent-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              />
+              <span className="text-body text-ink">Opted in to WhatsApp messages</span>
+            </label>
+            <p id="create-student-optin-hint" className="text-body-sm text-ink-secondary">
+              They&apos;ll receive their photos on WhatsApp once delivery is turned on.
+            </p>
+          </div>
           {/* A08: say what the reference photo is FOR — it enrolls the student's face. */}
           <FileDropzone
             file={file}

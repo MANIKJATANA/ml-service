@@ -43,6 +43,7 @@ from backend.api.schemas.students import (
     StudentIdsResponse,
     StudentListPageResponse,
     StudentResponse,
+    UpdateStudentMobileRequest,
     UpdateStudentRequest,
     UploadUrlResponse,
 )
@@ -86,6 +87,8 @@ async def create_student(
         name=body.name,
         email=body.email,
         reference_photo_path=body.reference_photo_path,
+        mobile_number=body.mobile_number,
+        whatsapp_opt_in=body.whatsapp_opt_in,
         actor_user_id=actor.id,
         actor_role=actor.role.value,
     )
@@ -102,7 +105,9 @@ async def bulk_import_students(
     created row carries its one-time temp password; the school is the token's."""
     results = await container.student_service().bulk_create_students(
         school_id=tenant_of(actor),
-        rows=[(r.name, r.email, r.class_name) for r in body.students],
+        rows=[
+            (r.name, r.email, r.class_name, r.mobile_number) for r in body.students
+        ],
         actor_user_id=actor.id,
         actor_role=actor.role.value,
     )
@@ -373,6 +378,25 @@ async def set_student_status(
         status=body.status,
         actor_user_id=actor.id,
         actor_role=actor.role.value,
+    )
+    return StudentResponse.from_student(student)
+
+
+@router.patch("/{student_id}/mobile", response_model=StudentResponse)
+async def set_student_mobile(
+    student_id: str,
+    body: UpdateStudentMobileRequest,
+    container: ContainerDep,
+    actor: StudentManager,
+) -> StudentResponse:
+    """Set/clear a student's WhatsApp contact number + opt-in (Phase 0). Tenant from the token
+    (a foreign student → 404); a malformed number → 400. Touches no photo / enrollment / match
+    data. No admin-action audit — a contact/consent edit isn't a governance action."""
+    student = await container.student_service().set_mobile(
+        school_id=tenant_of(actor),
+        student_id=student_id,
+        mobile_number=body.mobile_number,
+        whatsapp_opt_in=body.whatsapp_opt_in,
     )
     return StudentResponse.from_student(student)
 

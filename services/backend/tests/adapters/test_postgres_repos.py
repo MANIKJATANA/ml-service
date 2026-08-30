@@ -366,6 +366,58 @@ async def test_media_and_student_thumbnail_paths_round_trip(
     assert updated.reference_photo_thumbnail_path == "reference-photos/a/thumb-new.jpg"
 
 
+async def test_student_mobile_and_whatsapp_round_trip(
+    sm: async_sessionmaker[AsyncSession],
+) -> None:
+    # Phase 0: the WhatsApp contact + opt-in persist through create + set_mobile; a create
+    # without them adopts the server defaults (NULL mobile, opt_in false); set_mobile clears
+    # to NULL; and set_mobile on a missing id raises NotFoundError.
+    schools = PostgresSchoolRepository(sm)
+    users = PostgresUserRepository(sm)
+    students = PostgresStudentRepository(sm)
+    a = await schools.create(name="A", max_teachers=5)
+
+    # Created WITH a mobile + opt-in.
+    l1 = await users.create(
+        school_id=a.id, email="m@a.io", password_hash="h", role=Role.STUDENT
+    )
+    s_with = await students.create(
+        school_id=a.id, user_id=l1.id, name="With",
+        mobile_number="+123456789", whatsapp_opt_in=True,
+    )
+    got = await students.get(a.id, s_with.id)
+    assert got is not None
+    assert got.mobile_number == "+123456789" and got.whatsapp_opt_in is True
+
+    # Created WITHOUT — server defaults (NULL mobile, opt_in false).
+    l2 = await users.create(
+        school_id=a.id, email="n@a.io", password_hash="h", role=Role.STUDENT
+    )
+    s_none = await students.create(school_id=a.id, user_id=l2.id, name="None")
+    got_none = await students.get(a.id, s_none.id)
+    assert got_none is not None
+    assert got_none.mobile_number is None and got_none.whatsapp_opt_in is False
+
+    # set_mobile to a value, then clear to NULL.
+    await students.set_mobile(
+        s_none.id, mobile_number="+447700900000", whatsapp_opt_in=True
+    )
+    set_val = await students.get(a.id, s_none.id)
+    assert set_val is not None
+    assert set_val.mobile_number == "+447700900000" and set_val.whatsapp_opt_in is True
+
+    await students.set_mobile(s_none.id, mobile_number=None, whatsapp_opt_in=False)
+    cleared = await students.get(a.id, s_none.id)
+    assert cleared is not None
+    assert cleared.mobile_number is None and cleared.whatsapp_opt_in is False
+
+    # set_mobile on a missing student raises.
+    with pytest.raises(NotFoundError):
+        await students.set_mobile(
+            _MISSING_UUID, mobile_number="+123456789", whatsapp_opt_in=True
+        )
+
+
 async def test_media_list_by_ids_is_tenant_scoped_and_defensive(
     sm: async_sessionmaker[AsyncSession],
 ) -> None:

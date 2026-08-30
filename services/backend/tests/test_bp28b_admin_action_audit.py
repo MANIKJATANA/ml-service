@@ -354,7 +354,7 @@ async def test_bulk_create_records_one_row_per_target() -> None:
     svc, _, _, aud = _student_svc()
     results = await svc.bulk_create_students(
         school_id=_S1,
-        rows=[("Ann", "ann@x.io", None), ("Bob", "bob@x.io", None)],
+        rows=[("Ann", "ann@x.io", None, None), ("Bob", "bob@x.io", None, None)],
         actor_user_id="sa", actor_role="school_admin",
     )
     assert [r.status for r in results] == ["created", "created"]

@@ -232,6 +232,70 @@ def test_set_student_status_unknown_is_404() -> None:
     assert resp.status_code == 404, resp.text
 
 
+# ---- WhatsApp mobile + opt-in (Phase 0) --------------------------------
+
+
+def test_create_reflects_mobile_and_opt_in() -> None:
+    client, token, _ = _admin_client()
+    resp = client.post(
+        "/v1/students",
+        json={
+            "name": "Amy",
+            "email": "amy@s1.io",
+            "mobile_number": " +123456789 ",
+            "whatsapp_opt_in": True,
+        },
+        headers=_auth(token),
+    )
+    assert resp.status_code == 201, resp.text
+    student = resp.json()["student"]
+    assert student["mobile_number"] == "+123456789"  # trimmed
+    assert student["whatsapp_opt_in"] is True
+
+
+def test_set_student_mobile_updates_fields() -> None:
+    client, token, _ = _admin_client()
+    created = client.post(
+        "/v1/students", json={"name": "Amy", "email": "amy@s1.io"}, headers=_auth(token)
+    )
+    assert created.status_code == 201, created.text
+    student_id = created.json()["student"]["id"]
+
+    resp = client.patch(
+        f"/v1/students/{student_id}/mobile",
+        json={"mobile_number": "+447700900000", "whatsapp_opt_in": True},
+        headers=_auth(token),
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["mobile_number"] == "+447700900000"
+    assert body["whatsapp_opt_in"] is True
+
+
+def test_set_student_mobile_unknown_is_404() -> None:
+    client, token, _ = _admin_client()
+    resp = client.patch(
+        "/v1/students/00000000-0000-0000-0000-000000000000/mobile",
+        json={"mobile_number": "+123456789", "whatsapp_opt_in": True},
+        headers=_auth(token),
+    )
+    assert resp.status_code == 404, resp.text
+
+
+def test_set_student_mobile_malformed_is_400() -> None:
+    client, token, _ = _admin_client()
+    created = client.post(
+        "/v1/students", json={"name": "Amy", "email": "amy@s1.io"}, headers=_auth(token)
+    )
+    student_id = created.json()["student"]["id"]
+    resp = client.patch(
+        f"/v1/students/{student_id}/mobile",
+        json={"mobile_number": "12-34-567", "whatsapp_opt_in": False},
+        headers=_auth(token),
+    )
+    assert resp.status_code == 400, resp.text
+
+
 def test_disabling_a_student_kills_their_live_session() -> None:
     # BP18d: the point of the kill-switch — not just that a NEW login is blocked, but that a
     # student ALREADY holding a valid access token is locked out on their very next request

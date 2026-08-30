@@ -34,6 +34,7 @@ from backend.domain.models import (
     Student,
     UserStatus,
 )
+from backend.domain.phones import validate_mobile
 from backend.domain.ports import (
     AdminActionAuditRepository,
     MlEnrollmentClient,
@@ -263,14 +264,20 @@ class StudentService:
         name: str,
         email: str,
         reference_photo_path: str | None = None,
+        mobile_number: str | None = None,
+        whatsapp_opt_in: bool = False,
         actor_user_id: str | None = None,
         actor_role: str | None = None,
     ) -> ProvisionedStudent:
         """Create a student (+ login with a server-generated temp password, BP7d) and, if
         a reference photo was given, enroll it. With no photo the student is created
         ``pending`` (a bulk-style single create); a photo can be added later to enroll.
-        For a photo, the backend generates the BP17 display thumbnail (best-effort)."""
+        For a photo, the backend generates the BP17 display thumbnail (best-effort).
+
+        Phase 0: an optional WhatsApp ``mobile_number`` (blank → NULL, loosely validated) +
+        ``whatsapp_opt_in`` consent flag are stored on the profile."""
         clean_name = _clean_name(name)
+        clean_mobile = validate_mobile(mobile_number)
         await self._require_active_school(school_id)
         thumbnail_path: str | None = None
         if reference_photo_path is not None:
@@ -285,6 +292,8 @@ class StudentService:
             email=email,
             reference_photo_path=reference_photo_path,
             reference_photo_thumbnail_path=thumbnail_path,
+            mobile_number=clean_mobile,
+            whatsapp_opt_in=whatsapp_opt_in,
         )
         # BP28b: audit the create (governance action). The student's name is a safe label here
         # (only student_deleted redacts, per BP8e). Best-effort — never fails the create.
@@ -313,17 +322,20 @@ class StudentService:
         self,
         *,
         school_id: str,
-        rows: list[tuple[str, str, str | None]],
+        rows: list[tuple[str, str, str | None, str | None]],
         actor_user_id: str | None = None,
         actor_role: str | None = None,
     ) -> list[BulkStudentResult]:
-        """Create many students from ``(name, email, class_name?)`` rows (BP7d CSV import,
-        BP24 optional class). Best-effort per row — a bad/duplicate row is recorded and the
-        batch continues. Every student is created **photoless** (``pending``); photos are
-        added later. BP24: a non-blank ``class_name`` auto-creates the class by name (once per
-        distinct name, case-insensitive, memoized within the batch) and assigns the student —
-        a class blip is logged, never discards the created student. The active-school check is
-        a snapshot taken once up front. Each created row carries its one-time temp password.
+        """Create many students from ``(name, email, class_name?, mobile?)`` rows (BP7d CSV
+        import, BP24 optional class, Phase-0 optional WhatsApp mobile). Best-effort per row — a
+        bad/duplicate row (incl. a malformed mobile) is recorded and the batch continues. Every
+        student is created **photoless** (``pending``); photos are added later. BP24: a non-blank
+        ``class_name`` auto-creates the class by name (once per distinct name, case-insensitive,
+        memoized within the batch) and assigns the student — a class blip is logged, never
+        discards the created student. Phase 0: the optional ``mobile`` is loosely validated (a
+        malformed value → per-row ``invalid``); bulk never sets ``whatsapp_opt_in`` (stays
+        False — consent is opted in explicitly, not by import). The active-school check is a
+        snapshot taken once up front. Each created row carries its one-time temp password.
 
         BP28b: the ``actor`` is threaded down so each created student records one
         ``student_created`` audit row (one row per created target, for free)."""
@@ -335,15 +347,17 @@ class StudentService:
             for g in await self._groups.list_by_school(school_id)
         }
         results: list[BulkStudentResult] = []
-        for name, email, class_name in rows:
+        for name, email, class_name, mobile in rows:
             try:
                 clean_name = _clean_name(name)
                 clean_email = validate_email(email)  # per-row; never aborts the batch
+                clean_mobile = validate_mobile(mobile)  # per-row; malformed -> invalid
                 prov = await self._provision_student(
                     school_id=school_id,
                     name=clean_name,
                     email=clean_email,
                     reference_photo_path=None,
+                    mobile_number=clean_mobile,
                 )
                 # BP28b: one student_created audit row per created target (best-effort).
                 await self._record_action(
@@ -626,6 +640,28 @@ class StudentService:
             )
         return await self.get_student(school_id=school_id, student_id=student_id)
 
+    async def set_mobile(
+        self,
+        *,
+        school_id: str,
+        student_id: str,
+        mobile_number: str | None,
+        whatsapp_opt_in: bool,
+    ) -> Student:
+        """Set/clear a student's WhatsApp contact number + opt-in (Phase 0).
+
+        Tenant-scoped: ``get_student`` resolves a foreign/missing student to 404 BEFORE any
+        write. A blank/absent ``mobile_number`` clears it (stored NULL); a malformed number
+        raises ``ValidationError`` (400). NO admin-action audit — a mobile/consent edit isn't a
+        governance action (do NOT widen the AdminAction enum). Touches nothing else: the
+        profile, reference photo, enrollment, and ``matches`` are all left intact."""
+        await self.get_student(school_id=school_id, student_id=student_id)
+        clean = validate_mobile(mobile_number)
+        await self._students.set_mobile(
+            student_id, mobile_number=clean, whatsapp_opt_in=whatsapp_opt_in
+        )
+        return await self.get_student(school_id=school_id, student_id=student_id)
+
     async def bulk_set_status(
         self,
         *,
@@ -715,11 +751,14 @@ class StudentService:
         email: str,
         reference_photo_path: str | None,
         reference_photo_thumbnail_path: str | None = None,
+        mobile_number: str | None = None,
+        whatsapp_opt_in: bool = False,
     ) -> ProvisionedStudent:
         """The two writes (no shared UoW): create the login first with a server-generated
         temp password (a duplicate email raises ConflictError with nothing else written),
         then the profile; compensate a profile-insert failure by deleting the orphan login
-        (0026, BP7d). No enrollment here — the caller decides."""
+        (0026, BP7d). No enrollment here — the caller decides. Phase 0: the (already-validated)
+        WhatsApp ``mobile_number``/``whatsapp_opt_in`` are stored on the profile."""
         temp_password = generate_temp_password()
         user = await self._users.create(
             school_id=school_id,
@@ -735,6 +774,8 @@ class StudentService:
                 name=name,
                 reference_photo_path=reference_photo_path,
                 reference_photo_thumbnail_path=reference_photo_thumbnail_path,
+                mobile_number=mobile_number,
+                whatsapp_opt_in=whatsapp_opt_in,
             )
         except Exception:
             # Compensating action — remove the orphan login. Its own failure must NOT mask

@@ -51,6 +51,10 @@ class CreateStudentRequest(BaseModel):
     # create a photoless (pending) student. BP17: the backend generates the display thumbnail
     # from this object — the caller never supplies a thumbnail path.
     reference_photo_path: str | None = Field(default=None, min_length=1, max_length=1024)
+    # Phase 0: optional WhatsApp contact (blank/absent → NULL) + opt-in consent (default off).
+    # Loosely validated in the service; the provider validates authoritatively at send time.
+    mobile_number: str | None = Field(default=None, max_length=32)
+    whatsapp_opt_in: bool = False
 
 
 class SetReferencePhotoRequest(BaseModel):
@@ -68,6 +72,9 @@ class BulkStudentRow(BaseModel):
     name: str = Field(max_length=1000)
     email: str = Field(max_length=1000)
     class_name: str | None = Field(default=None, max_length=200)
+    # Phase 0: optional WhatsApp mobile (the CSV's 4th column). Validated per row in the service
+    # (a malformed value → that row is ``invalid``); bulk never sets opt-in (stays False).
+    mobile_number: str | None = Field(default=None, max_length=32)
 
 
 class BulkImportRequest(BaseModel):
@@ -111,6 +118,10 @@ class StudentResponse(BaseModel):
     # BP18d: the linked login's status (active/disabled). Staff show + toggle a student's
     # non-destructive login kill-switch; a disabled student can't sign in but keeps all history.
     status: UserStatus = UserStatus.ACTIVE
+    # Phase 0: the WhatsApp contact (null when unknown) + opt-in consent flag. Shown on the
+    # student detail only (no list column).
+    mobile_number: str | None = None
+    whatsapp_opt_in: bool = False
     created_at: datetime
     updated_at: datetime
 
@@ -128,6 +139,8 @@ class StudentResponse(BaseModel):
             student_group_id=student.student_group_id,
             student_group_name=student.student_group_name,
             status=student.status,
+            mobile_number=student.mobile_number,
+            whatsapp_opt_in=student.whatsapp_opt_in,
             created_at=student.created_at,
             updated_at=student.updated_at,
         )
@@ -139,6 +152,15 @@ class UpdateStudentRequest(BaseModel):
     un-assign). A foreign/unknown class → 404."""
 
     student_group_id: str | None = Field(max_length=64)
+
+
+class UpdateStudentMobileRequest(BaseModel):
+    """Set/clear a student's WhatsApp contact + opt-in (Phase 0). ``mobile_number`` null/blank
+    clears it (stored NULL); a non-empty value is trimmed + loosely validated server-side (a
+    malformed number → 400). ``whatsapp_opt_in`` carries the consent flag (default off)."""
+
+    mobile_number: str | None = Field(default=None, max_length=32)
+    whatsapp_opt_in: bool = False
 
 
 class ProvisionedStudentResponse(BaseModel):

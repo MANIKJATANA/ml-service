@@ -172,6 +172,8 @@ class StudentRepository(Protocol):
         name: str,
         reference_photo_path: str | None = None,
         reference_photo_thumbnail_path: str | None = None,
+        mobile_number: str | None = None,
+        whatsapp_opt_in: bool = False,
     ) -> Student: ...
     async def get(self, school_id: str, student_id: str) -> Student | None: ...
     async def get_by_user_id(
@@ -281,6 +283,13 @@ class StudentRepository(Protocol):
     ) -> int:
         """Assign many of one school's students to a class (BP11a); returns the count
         updated. Tenant-scoped — a foreign id is silently skipped."""
+        ...
+    async def set_mobile(
+        self, student_id: str, *, mobile_number: str | None, whatsapp_opt_in: bool
+    ) -> None:
+        """Set/clear the WhatsApp contact number + opt-in for one student (Phase 0); raises
+        ``NotFoundError`` on an unknown id. The service resolves tenancy via a school-scoped
+        ``get`` BEFORE calling — this write is not itself tenant-scoped."""
         ...
 
 

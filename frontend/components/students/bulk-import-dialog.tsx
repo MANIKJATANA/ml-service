@@ -149,7 +149,12 @@ export function BulkImportDialog({ onImported }: { onImported: () => void }) {
     setSubmitting(true);
     try {
       const res = await bulkImportStudents(
-        rows.map((r) => ({ name: r.name, email: r.email, class_name: r.className ?? null })),
+        rows.map((r) => ({
+          name: r.name,
+          email: r.email,
+          class_name: r.className ?? null,
+          mobile_number: r.mobile ?? null,
+        })),
       );
       setResults(res.results);
       setPhase("results");
@@ -192,6 +197,8 @@ export function BulkImportDialog({ onImported }: { onImported: () => void }) {
   const skippedCount = results.length - createdCount;
   // BP24: show a Class column in the preview only when the CSV actually carried one.
   const hasClasses = rows.some((r) => r.className);
+  // Phase 0: likewise show a Mobile column only when the CSV carried a mobile/phone column.
+  const hasMobiles = rows.some((r) => r.mobile);
   // BP24: pre-flag duplicate/invalid rows in the preview (the server still validates).
   const flags = flagRows(rows);
   const willSkip = flags.filter((f) => f !== "ok").length;
@@ -207,14 +214,16 @@ export function BulkImportDialog({ onImported }: { onImported: () => void }) {
         </DialogTrigger>
         <DialogContent
           title="Import students from CSV"
-          description="A CSV with name and email columns (add an optional class column to sort them into classes). Students are created without a photo (pending) — add each reference photo afterwards to enroll their face."
+          description="A CSV with name and email columns (add an optional class column to sort them into classes, and an optional mobile/phone column for WhatsApp). Students are created without a photo (pending) — add each reference photo afterwards to enroll their face."
         >
           {phase === "pick" ? (
             <div className="flex flex-col gap-4">
               <p className="text-body-sm text-ink-secondary">
-                The first row may be a header (<code>name,email,class</code>); otherwise the
-                first column is the name and the second is the email. Add a <code>class</code>
-                header to sort students into classes (created automatically by name).
+                The first row may be a header (<code>name,email,class,mobile</code>); otherwise
+                the first column is the name and the second is the email. Add a{" "}
+                <code>class</code> header to sort students into classes (created automatically by
+                name), and a <code>mobile</code> or <code>phone</code> header for the WhatsApp
+                contact.
               </p>
               <label
                 className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-button border border-dashed border-hairline-strong bg-surface px-4 py-10 text-center transition-colors hover:bg-surface-2 focus-within:outline-none focus-within:ring-2 focus-within:ring-ring"
@@ -253,6 +262,7 @@ export function BulkImportDialog({ onImported }: { onImported: () => void }) {
                       <TableHead>Name</TableHead>
                       <TableHead>Email</TableHead>
                       {hasClasses ? <TableHead>Class</TableHead> : null}
+                      {hasMobiles ? <TableHead>Mobile</TableHead> : null}
                       <TableHead>Status</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -264,6 +274,11 @@ export function BulkImportDialog({ onImported }: { onImported: () => void }) {
                         {hasClasses ? (
                           <TableCell className="text-ink-secondary">
                             {r.className || "—"}
+                          </TableCell>
+                        ) : null}
+                        {hasMobiles ? (
+                          <TableCell className="text-ink-secondary">
+                            {r.mobile || "—"}
                           </TableCell>
                         ) : null}
                         <TableCell>

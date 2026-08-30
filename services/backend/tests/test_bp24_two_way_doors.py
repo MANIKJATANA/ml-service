@@ -165,10 +165,10 @@ async def test_bulk_import_auto_creates_and_assigns_class() -> None:
     results = await svc.bulk_create_students(
         school_id=_S1,
         rows=[
-            ("Ann", "ann@x.io", "Grade 3B"),
-            ("Bob", "bob@x.io", "grade 3b"),  # same class (case-insensitive) → reused
-            ("Cy", "cy@x.io", "Grade 4A"),
-            ("Di", "di@x.io", None),  # no class
+            ("Ann", "ann@x.io", "Grade 3B", None),
+            ("Bob", "bob@x.io", "grade 3b", None),  # same class (case-insensitive) → reused
+            ("Cy", "cy@x.io", "Grade 4A", None),
+            ("Di", "di@x.io", None, None),  # no class
         ],
     )
     assert [r.status for r in results] == ["created"] * 4
@@ -187,7 +187,8 @@ async def test_bulk_import_without_class_column_creates_no_classes() -> None:
     grepo = FakeStudentGroupRepo()
     svc, strepo = _student_svc(groups=grepo)
     results = await svc.bulk_create_students(
-        school_id=_S1, rows=[("Ann", "ann@x.io", None), ("Bob", "bob@x.io", None)]
+        school_id=_S1,
+        rows=[("Ann", "ann@x.io", None, None), ("Bob", "bob@x.io", None, None)],
     )
     assert [r.status for r in results] == ["created", "created"]
     assert await grepo.list_by_school(_S1) == []
@@ -198,7 +199,7 @@ async def test_bulk_import_reuses_an_existing_class_by_name() -> None:
     grepo = FakeStudentGroupRepo([make_student_group(id="cls-1", school_id=_S1, name="Grade 3B")])
     svc, strepo = _student_svc(groups=grepo)
     await svc.bulk_create_students(
-        school_id=_S1, rows=[("Ann", "ann@x.io", "grade 3b")]
+        school_id=_S1, rows=[("Ann", "ann@x.io", "grade 3b", None)]
     )
     # No new class — the existing "Grade 3B" is reused (case-insensitive); the student joins it.
     assert len(await grepo.list_by_school(_S1)) == 1
@@ -285,7 +286,7 @@ async def test_bulk_import_class_assign_failure_keeps_student_created() -> None:
     grepo.create = _boom  # simulate a class-create outage
     svc, strepo = _student_svc(groups=grepo)
     results = await svc.bulk_create_students(
-        school_id=_S1, rows=[("Ann", "ann@x.io", "Grade 3B")]
+        school_id=_S1, rows=[("Ann", "ann@x.io", "Grade 3B", None)]
     )
     assert results[0].status == "created"  # the student survived the class failure
     students = await strepo.list_by_school(_S1)

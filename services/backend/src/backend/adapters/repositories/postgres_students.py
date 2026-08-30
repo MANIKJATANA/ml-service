@@ -72,6 +72,9 @@ def _to_student(
         # BP18d: the linked login's status, off the users JOIN (default active for a fresh
         # create()). A student never sees another's status — this is a staff-only read.
         status=UserStatus(status),
+        # Phase 0: the WhatsApp contact + opt-in, straight off the students row.
+        mobile_number=row.mobile_number,
+        whatsapp_opt_in=row.whatsapp_opt_in,
     )
 
 
@@ -104,6 +107,8 @@ class PostgresStudentRepository:
         name: str,
         reference_photo_path: str | None = None,
         reference_photo_thumbnail_path: str | None = None,
+        mobile_number: str | None = None,
+        whatsapp_opt_in: bool = False,
     ) -> Student:
         sid = req_uuid(school_id, field="school_id")
         uid = req_uuid(user_id, field="user_id")
@@ -114,6 +119,8 @@ class PostgresStudentRepository:
                 name=name,
                 reference_photo_path=reference_photo_path,
                 reference_photo_thumbnail_path=reference_photo_thumbnail_path,
+                mobile_number=mobile_number,
+                whatsapp_opt_in=whatsapp_opt_in,
             )
             session.add(row)
             await session.flush()
@@ -486,3 +493,18 @@ class PostgresStudentRepository:
                 .values(student_group_id=gid)
             )
             return int(result.rowcount or 0)  # type: ignore[attr-defined]
+
+    async def set_mobile(
+        self, student_id: str, *, mobile_number: str | None, whatsapp_opt_in: bool
+    ) -> None:
+        """Set/clear the WhatsApp contact number + opt-in for one student (Phase 0). The
+        service resolves tenancy via a school-scoped ``get`` first, so an unknown id here
+        raises. ``mobile_number`` is already trimmed/validated (or None) by the service."""
+        key = req_uuid(student_id, field="student_id")
+        async with self._sessionmaker() as session, session.begin():
+            row = await session.get(StudentRow, key)
+            if row is None:
+                raise NotFoundError(f"student not found: {student_id}")
+            # ORM mutation -> flush on commit; also trips updated_at's onupdate.
+            row.mobile_number = mobile_number
+            row.whatsapp_opt_in = whatsapp_opt_in

@@ -409,7 +409,8 @@ async def test_compensating_delete_failure_preserves_original_error() -> None:
 async def test_bulk_create_all_created_photoless_and_pending() -> None:
     svc, strepo, _, ml = _svc()
     results = await svc.bulk_create_students(
-        school_id=_S1, rows=[("Alice", "alice@x.io", None), ("Bob", "bob@x.io", None)],
+        school_id=_S1,
+        rows=[("Alice", "alice@x.io", None, None), ("Bob", "bob@x.io", None, None)],
     )
     assert [r.status for r in results] == ["created", "created"]
     assert all(r.temp_password and len(r.temp_password) >= 8 for r in results)
@@ -428,10 +429,10 @@ async def test_bulk_create_isolates_duplicate_invalid_and_error_rows() -> None:
     results = await svc.bulk_create_students(
         school_id=_S1,
         rows=[
-            ("New", "new@x.io", None),  # created
-            ("Dupe", "DUP@x.io", None),  # duplicate (case-insensitive)
-            ("Bad Email", "not-an-email", None),  # invalid
-            ("   ", "blank@x.io", None),  # invalid (empty name)
+            ("New", "new@x.io", None, None),  # created
+            ("Dupe", "DUP@x.io", None, None),  # duplicate (case-insensitive)
+            ("Bad Email", "not-an-email", None, None),  # invalid
+            ("   ", "blank@x.io", None, None),  # invalid (empty name)
         ],
     )
     assert [r.status for r in results] == ["created", "duplicate", "invalid", "invalid"]
@@ -444,7 +445,113 @@ async def test_bulk_create_isolates_duplicate_invalid_and_error_rows() -> None:
 async def test_bulk_create_rejected_up_front_for_suspended_school() -> None:
     svc, _, _, _ = _svc(schools=[make_school(id=_S1, status=SchoolStatus.SUSPENDED)])
     with pytest.raises(ValidationError):
-        await svc.bulk_create_students(school_id=_S1, rows=[("A", "a@x.io", None)])
+        await svc.bulk_create_students(school_id=_S1, rows=[("A", "a@x.io", None, None)])
+
+
+async def test_bulk_create_mobile_lands_and_malformed_row_is_invalid() -> None:
+    # Phase 0: a good 4th-column mobile is stored (normalized); a malformed mobile makes just
+    # that row `invalid`, while a sibling good row is still created (best-effort, no abort).
+    svc, strepo, _, _ = _svc()
+    results = await svc.bulk_create_students(
+        school_id=_S1,
+        rows=[
+            ("Good", "good@x.io", None, " +123456789 "),  # created, mobile normalized
+            ("Bad", "bad@x.io", None, "12-34"),  # invalid (malformed mobile)
+        ],
+    )
+    assert [r.status for r in results] == ["created", "invalid"]
+    students = {s.name: s for s in await strepo.list_by_school(_S1)}
+    assert len(students) == 1  # only the good row landed
+    assert students["Good"].mobile_number == "+123456789"
+    assert students["Good"].whatsapp_opt_in is False  # bulk never opts in
+
+
+# ---- WhatsApp contact (Phase 0) ----------------------------------------
+
+
+async def test_create_student_stores_mobile_and_opt_in() -> None:
+    svc, _, _, _ = _svc()
+    prov = await svc.create_student(
+        school_id=_S1,
+        name="Amy",
+        email="amy@x.io",
+        mobile_number=" +123456789 ",  # trimmed to +123456789
+        whatsapp_opt_in=True,
+    )
+    assert prov.student.mobile_number == "+123456789"
+    assert prov.student.whatsapp_opt_in is True
+
+
+async def test_create_student_with_malformed_mobile_raises() -> None:
+    svc, _, _, _ = _svc()
+    with pytest.raises(ValidationError):
+        await svc.create_student(
+            school_id=_S1, name="Amy", email="amy@x.io", mobile_number="12-34-567"
+        )
+
+
+async def test_set_mobile_sets_and_clears() -> None:
+    svc, _, _, _ = _svc()
+    student = await _create(svc, school_id=_S1, name="Amy", email="amy@x.io")
+    # Set it.
+    updated = await svc.set_mobile(
+        school_id=_S1,
+        student_id=student.id,
+        mobile_number=" +447700900000 ",
+        whatsapp_opt_in=True,
+    )
+    assert updated.mobile_number == "+447700900000"
+    assert updated.whatsapp_opt_in is True
+    # Clear it (blank → NULL) and opt back out.
+    cleared = await svc.set_mobile(
+        school_id=_S1, student_id=student.id, mobile_number="  ", whatsapp_opt_in=False
+    )
+    assert cleared.mobile_number is None
+    assert cleared.whatsapp_opt_in is False
+
+
+async def test_set_mobile_can_opt_in_an_existing_number_without_changing_it() -> None:
+    # Opt in an already-stored contact: flip only whatsapp_opt_in, keeping the same number.
+    svc, _, _, _ = _svc()
+    student = await _create(svc, school_id=_S1, name="Amy", email="amy@x.io")
+    stored = await svc.set_mobile(
+        school_id=_S1, student_id=student.id, mobile_number="+123456789", whatsapp_opt_in=False
+    )
+    assert stored.mobile_number == "+123456789" and stored.whatsapp_opt_in is False
+    opted = await svc.set_mobile(
+        school_id=_S1, student_id=student.id, mobile_number="+123456789", whatsapp_opt_in=True
+    )
+    assert opted.mobile_number == "+123456789"  # unchanged
+    assert opted.whatsapp_opt_in is True
+
+
+async def test_set_mobile_is_tenant_scoped_before_any_write() -> None:
+    # A student from another school resolves to 404 BEFORE any write.
+    svc, strepo, _, _ = _svc(
+        schools=[make_school(id=_S1, max_teachers=5), make_school(id="s2", max_teachers=5)]
+    )
+    student = await _create(svc, school_id=_S1, name="Amy", email="amy@x.io")
+    with pytest.raises(NotFoundError):
+        await svc.set_mobile(
+            school_id="s2",
+            student_id=student.id,
+            mobile_number="+123456789",
+            whatsapp_opt_in=True,
+        )
+    # Untouched by the rejected cross-tenant call.
+    fresh = await strepo.get(_S1, student.id)
+    assert fresh is not None and fresh.mobile_number is None
+
+
+async def test_set_mobile_missing_student_raises() -> None:
+    svc, _, _, _ = _svc()
+    with pytest.raises(NotFoundError):
+        await svc.set_mobile(
+            school_id=_S1,
+            student_id="nope",
+            mobile_number="+123456789",
+            whatsapp_opt_in=True,
+        )
 
 
 # ---- re-enroll ---------------------------------------------------------

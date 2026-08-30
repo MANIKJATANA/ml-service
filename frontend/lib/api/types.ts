@@ -59,6 +59,10 @@ export interface StudentResponse {
   // BP18d: the linked login's status. Staff show + toggle a non-destructive kill-switch — a
   // disabled student can't sign in but keeps all history (unlike delete).
   status: UserStatus;
+  // Phase 0: the WhatsApp contact (null when unknown) + opt-in consent flag. Shown on the
+  // student detail only (no list column).
+  mobile_number: string | null;
+  whatsapp_opt_in: boolean;
   created_at: string;
   updated_at: string;
 }

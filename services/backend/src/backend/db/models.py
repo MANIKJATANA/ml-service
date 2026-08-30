@@ -166,6 +166,13 @@ class Student(Base):
         ForeignKey("student_groups.id", ondelete="SET NULL"),
         nullable=True,
     )
+    # Phase-0 WhatsApp contact (migration 0021): optional mobile number (NULL when unknown,
+    # loosely validated — the provider validates at send time) + the opt-in consent flag.
+    mobile_number: Mapped[str | None] = mapped_column(String, nullable=True)
+    # Consent is never assumed — existing rows adopt false; only an explicit opt-in flips it.
+    whatsapp_opt_in: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

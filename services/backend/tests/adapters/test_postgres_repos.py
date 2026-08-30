@@ -875,7 +875,10 @@ async def test_download_audit_record_list_and_scope(
     )
 
     assert await audit.count_for_media(a.id, m.id) == 0
-    # A staff download (no subject) + a student self-download (subject = the student).
+    # A staff download (no subject) + a student self-download (subject = the student). Bracket
+    # each with a wall-clock read so BP28a's date-range window can assert against the real
+    # server-side created_at (which the test can't set directly).
+    before = datetime.now(UTC) - timedelta(seconds=1)
     await audit.record(
         school_id=a.id, media_id=m.id, event_id=ev.id, actor_user_id=staff.id,
         actor_role="school_admin", subject_student_id=None,
@@ -884,6 +887,7 @@ async def test_download_audit_record_list_and_scope(
         school_id=a.id, media_id=m.id, event_id=ev.id, actor_user_id=login.id,
         actor_role="student", subject_student_id=student.id,
     )
+    after = datetime.now(UTC) + timedelta(seconds=1)
 
     assert await audit.count_for_media(a.id, m.id) == 2
     entries = await audit.list_for_media(a.id, m.id, limit=10)
@@ -901,6 +905,27 @@ async def test_download_audit_record_list_and_scope(
     assert [e.actor_role for e in by_student] == ["student"]
     assert await audit.count_recent(a.id, event_id=ev.id) == 2
     assert await audit.count_recent(a.id, student_id=student.id) == 1
+
+    # BP28a: date-range window on the REAL SQL (>= / <=). A window spanning both records
+    # includes them; one entirely before the first excludes them.
+    assert await audit.count_recent(a.id, created_from=before, created_to=after) == 2
+    in_window = await audit.list_recent(
+        a.id, limit=10, offset=0, created_from=before, created_to=after
+    )
+    assert len(in_window) == 2
+    assert await audit.count_recent(a.id, created_to=before) == 0
+    assert await audit.count_recent(a.id, created_from=after) == 0
+
+    # BP28a: actor_role filter on the DENORMALIZED column. The student row's actor account is
+    # then deleted (its actor_user_id FK SET NULL); the role stays, so the filter still matches.
+    assert await audit.count_recent(a.id, actor_role="school_admin") == 1
+    assert await audit.count_recent(a.id, actor_role="student") == 1
+    await users.delete(login.id)  # remove the student's login account
+    student_rows = await audit.list_recent(a.id, limit=10, offset=0, actor_role="student")
+    assert len(student_rows) == 1
+    assert student_rows[0].actor_role == "student"  # denormalized role survives
+    assert student_rows[0].actor_user_id is None  # actor FK SET NULL after the delete
+    assert await audit.count_recent(a.id, actor_role="student") == 1
 
     # Pagination.
     page1 = await audit.list_recent(a.id, limit=1, offset=0)

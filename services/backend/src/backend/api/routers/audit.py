@@ -9,6 +9,7 @@ by ``GalleryService`` on the download path; this router only reads them.
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
@@ -19,7 +20,7 @@ from backend.api.schemas.audit import (
     DownloadLogPageResponse,
     MediaDownloadLogResponse,
 )
-from backend.domain.models import User
+from backend.domain.models import Role, User
 from backend.domain.permissions import Permission
 
 router = APIRouter(prefix="/v1", tags=["audit"])
@@ -45,6 +46,11 @@ async def download_log(
     offset: OffsetQuery = 0,
     event_id: Annotated[str | None, Query()] = None,
     student_id: Annotated[str | None, Query()] = None,
+    # BP28a: typed at the boundary so a malformed value 422s here — a bad date (created_from/to)
+    # or an unknown role never reaches the service.
+    created_from: Annotated[datetime | None, Query()] = None,
+    created_to: Annotated[datetime | None, Query()] = None,
+    actor_role: Annotated[Role | None, Query()] = None,
 ) -> DownloadLogPageResponse:
     page = await container.audit_service().school_download_log(
         school_id=tenant_of(actor),
@@ -52,5 +58,8 @@ async def download_log(
         offset=offset,
         event_id=event_id,
         student_id=student_id,
+        created_from=created_from,
+        created_to=created_to,
+        actor_role=actor_role.value if actor_role else None,
     )
     return DownloadLogPageResponse.from_page(page)

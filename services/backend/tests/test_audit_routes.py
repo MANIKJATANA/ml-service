@@ -7,11 +7,15 @@ endpoint records a row the log then surfaces; tenant is strictly from the token.
 
 from __future__ import annotations
 
+from datetime import datetime
+from typing import Any
+
 from backend.adapters.security.argon2_hasher import Argon2PasswordHasher
 from backend.api.deps import get_container_dep
-from backend.domain.models import Role, User
+from backend.domain.models import DownloadAuditEntry, Role, User
 from backend.main import create_app
 from backend_fakes import (
+    FakeDownloadAuditRepo,
     FakeEventRepo,
     FakeMediaRepo,
     FakeMlResultsReader,
@@ -173,3 +177,81 @@ def test_download_log_tenant_scoped_foreign_media_404() -> None:
     client = _build()
     sa = _auth(_token(client, "sa"))
     assert client.get("/v1/media/ghost/download-log", headers=sa).status_code == 404
+
+
+# ---- BP28a: date-range + actor-role filters + boundary 422 -------------
+
+
+class _SpyAuditRepo:
+    """Records the kwargs of the last list_recent call so a route test can prove the new query
+    params (created_from/created_to/actor_role) reach the service unchanged. Delegates every
+    other method to a plain FakeDownloadAuditRepo (composition, not subclassing — the fake is
+    untyped under mypy, so subclassing it isn't type-safe)."""
+
+    def __init__(self) -> None:
+        self._inner = FakeDownloadAuditRepo([])
+        self.last_kwargs: dict[str, Any] = {}
+
+    async def list_recent(
+        self, school_id: str, **kwargs: Any
+    ) -> list[DownloadAuditEntry]:
+        self.last_kwargs = kwargs
+        result: list[DownloadAuditEntry] = await self._inner.list_recent(
+            school_id, **kwargs
+        )
+        return result
+
+    def __getattr__(self, name: str) -> Any:
+        # Delegate everything else (record/count_recent/list_for_media/…) to the fake so the
+        # spy satisfies the whole DownloadAuditRepository surface with one line.
+        return getattr(self._inner, name)
+
+
+def _build_with_spy(spy: _SpyAuditRepo) -> TestClient:
+    container = SeededContainer(
+        FakeUserRepo(
+            [_user(id="sa", role=Role.SCHOOL_ADMIN, school_id="s1", email="sa@x.io")]
+        ),
+        FakeSchoolRepo([make_school(id="s1")]),
+        download_audit=spy,
+    )
+    app = create_app()
+    app.dependency_overrides[get_container_dep] = lambda: container
+    return TestClient(app)
+
+
+def test_malformed_created_from_is_422() -> None:
+    # Typed datetime at the boundary — a garbage value is rejected before the service.
+    client = _build()
+    sa = _auth(_token(client, "sa"))
+    resp = client.get("/v1/audit/downloads?created_from=not-a-date", headers=sa)
+    assert resp.status_code == 422
+
+
+def test_unknown_actor_role_is_422() -> None:
+    client = _build()
+    sa = _auth(_token(client, "sa"))
+    resp = client.get("/v1/audit/downloads?actor_role=wizard", headers=sa)
+    assert resp.status_code == 422
+
+
+def test_new_filter_params_reach_the_service() -> None:
+    spy = _SpyAuditRepo()
+    client = _build_with_spy(spy)
+    sa = _auth(_token(client, "sa"))
+    resp = client.get(
+        "/v1/audit/downloads"
+        "?created_from=2026-01-01T00:00:00Z"
+        "&created_to=2026-01-31T23:59:59Z"
+        "&actor_role=student",
+        headers=sa,
+    )
+    assert resp.status_code == 200
+    assert spy.last_kwargs["created_from"] == datetime.fromisoformat(
+        "2026-01-01T00:00:00+00:00"
+    )
+    assert spy.last_kwargs["created_to"] == datetime.fromisoformat(
+        "2026-01-31T23:59:59+00:00"
+    )
+    # The Role enum is passed to the service as its raw string value (the denormalized column).
+    assert spy.last_kwargs["actor_role"] == "student"

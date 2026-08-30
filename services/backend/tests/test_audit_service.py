@@ -177,6 +177,74 @@ async def test_log_filters_by_student() -> None:
     assert page.items[0].subject_student_name == "Ann"
 
 
+async def test_log_filters_by_date_range_inclusive() -> None:
+    # BP28a: created_from/created_to are inclusive day/instant boundaries; total tracks the
+    # filtered window (honest pagination) and the window's rows come back newest-first.
+    svc = _log_svc()  # a1..a5 at _t(1).._t(5)
+    page = await svc.school_download_log(
+        school_id=_S1, limit=50, offset=0, created_from=_t(2), created_to=_t(4)
+    )
+    assert page.total == 3
+    assert [i.id for i in page.items] == ["a4", "a3", "a2"]  # newest-first, boundaries included
+    # created_from alone (>= is inclusive of a5's exact instant).
+    from_only = await svc.school_download_log(
+        school_id=_S1, limit=50, offset=0, created_from=_t(5)
+    )
+    assert from_only.total == 1 and [i.id for i in from_only.items] == ["a5"]
+    # created_to alone.
+    to_only = await svc.school_download_log(
+        school_id=_S1, limit=50, offset=0, created_to=_t(1)
+    )
+    assert to_only.total == 1 and [i.id for i in to_only.items] == ["a1"]
+
+
+async def test_log_filters_by_actor_role() -> None:
+    # BP28a: the actor_role filter matches the denormalized role (staff rows vs a student row).
+    svc = _svc(
+        media=[make_media(id="m1", school_id=_S1, event_id="e1")],
+        events=[make_event(id="e1", school_id=_S1, name="Sports Day")],
+        students=[make_student(id="a", school_id=_S1, user_id="ua", name="Ann")],
+        users=[make_user(id="staff", school_id=_S1, role=Role.SCHOOL_ADMIN)],
+        entries=[
+            make_download_audit_entry(
+                id="staff1", school_id=_S1, media_id="m1", event_id="e1",
+                actor_user_id="staff", actor_role="school_admin",
+                subject_student_id=None, created_at=_t(1),
+            ),
+            make_download_audit_entry(
+                id="stu1", school_id=_S1, media_id="m1", event_id="e1",
+                actor_user_id=None, actor_role="student",
+                subject_student_id="a", created_at=_t(2),
+            ),
+        ],
+    )
+    admins = await svc.school_download_log(
+        school_id=_S1, limit=50, offset=0, actor_role="school_admin"
+    )
+    assert admins.total == 1 and [i.id for i in admins.items] == ["staff1"]
+    # A deleted-actor student row (actor_user_id None) still matches its denormalized role.
+    students = await svc.school_download_log(
+        school_id=_S1, limit=50, offset=0, actor_role="student"
+    )
+    assert students.total == 1 and [i.id for i in students.items] == ["stu1"]
+    assert students.items[0].actor_user_id is None  # actor gone, role survives
+
+
+async def test_log_combines_date_range_and_actor_role() -> None:
+    # BP28a: the filters compose (an AND) and the paginated total reflects the intersection.
+    svc = _log_svc()  # all rows are actor_role="school_admin", a1..a5
+    page = await svc.school_download_log(
+        school_id=_S1, limit=50, offset=0,
+        actor_role="school_admin", created_from=_t(3),
+    )
+    assert page.total == 3 and [i.id for i in page.items] == ["a5", "a4", "a3"]
+    # A role with no matching rows in the window → empty.
+    none = await svc.school_download_log(
+        school_id=_S1, limit=50, offset=0, actor_role="student"
+    )
+    assert none.total == 0 and none.items == []
+
+
 async def test_log_tenant_scoped_excludes_foreign_rows() -> None:
     svc = _svc(
         media=[make_media(id="m1", school_id=_S1, event_id="e1")],

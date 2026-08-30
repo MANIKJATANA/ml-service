@@ -2093,8 +2093,13 @@ class FakeDownloadAuditRepo:
         offset: int,
         event_id: str | None = None,
         student_id: str | None = None,
+        created_from: datetime | None = None,
+        created_to: datetime | None = None,
+        actor_role: str | None = None,
     ) -> list[DownloadAuditEntry]:
-        rows = self._filtered(school_id, event_id, student_id)
+        rows = self._filtered(
+            school_id, event_id, student_id, created_from, created_to, actor_role
+        )
         return rows[offset : offset + limit]
 
     async def count_recent(
@@ -2103,17 +2108,37 @@ class FakeDownloadAuditRepo:
         *,
         event_id: str | None = None,
         student_id: str | None = None,
+        created_from: datetime | None = None,
+        created_to: datetime | None = None,
+        actor_role: str | None = None,
     ) -> int:
-        return len(self._filtered(school_id, event_id, student_id))
+        return len(
+            self._filtered(
+                school_id, event_id, student_id, created_from, created_to, actor_role
+            )
+        )
 
     def _filtered(
-        self, school_id: str, event_id: str | None, student_id: str | None
+        self,
+        school_id: str,
+        event_id: str | None,
+        student_id: str | None,
+        created_from: datetime | None = None,
+        created_to: datetime | None = None,
+        actor_role: str | None = None,
     ) -> list[DownloadAuditEntry]:
         rows = self._scoped(school_id)
         if event_id is not None:
             rows = [r for r in rows if r.event_id == event_id]
         if student_id is not None:
             rows = [r for r in rows if r.subject_student_id == student_id]
+        # BP28a: inclusive date-range window + denormalized actor-role, mirroring the real SQL.
+        if created_from is not None:
+            rows = [r for r in rows if r.created_at >= created_from]
+        if created_to is not None:
+            rows = [r for r in rows if r.created_at <= created_to]
+        if actor_role is not None:
+            rows = [r for r in rows if r.actor_role == actor_role]
         return rows
 
     async def count_distinct_saver_students(self, school_id: str) -> int:

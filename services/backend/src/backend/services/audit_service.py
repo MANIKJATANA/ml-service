@@ -102,17 +102,29 @@ class AuditService:
         offset: int,
         event_id: str | None = None,
         student_id: str | None = None,
+        created_from: datetime | None = None,
+        created_to: datetime | None = None,
+        actor_role: str | None = None,
     ) -> DownloadLogPage:
-        """The school-wide access log, newest-first, optionally filtered by event/student."""
+        """The school-wide access log, newest-first, optionally filtered by event/student, a
+        date range (BP28a, inclusive ``created_from``/``created_to``), and actor role."""
         rows = await self._audit.list_recent(
             school_id,
             limit=limit,
             offset=offset,
             event_id=event_id,
             student_id=student_id,
+            created_from=created_from,
+            created_to=created_to,
+            actor_role=actor_role,
         )
         total = await self._audit.count_recent(
-            school_id, event_id=event_id, student_id=student_id
+            school_id,
+            event_id=event_id,
+            student_id=student_id,
+            created_from=created_from,
+            created_to=created_to,
+            actor_role=actor_role,
         )
         return DownloadLogPage(
             items=await self._compose(school_id, rows),

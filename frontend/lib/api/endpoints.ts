@@ -875,12 +875,16 @@ export function getMediaDownloadLog(mediaId: string): Promise<MediaDownloadLogRe
   );
 }
 
-/** One page of the school-wide access log, newest first (school-admin only). */
+/** One page of the school-wide access log, newest first (school-admin only). BP28a adds the
+ *  event/student/actor-role + inclusive date-range (ISO `created_from`/`created_to`) filters. */
 export function getDownloadLog(params: {
   limit: number;
   offset: number;
   eventId?: string;
   studentId?: string;
+  actorRole?: string;
+  createdFrom?: string;
+  createdTo?: string;
 }): Promise<DownloadLogPageResponse> {
   const q = new URLSearchParams({
     limit: String(params.limit),
@@ -888,6 +892,9 @@ export function getDownloadLog(params: {
   });
   if (params.eventId) q.set("event_id", params.eventId);
   if (params.studentId) q.set("student_id", params.studentId);
+  if (params.actorRole) q.set("actor_role", params.actorRole);
+  if (params.createdFrom) q.set("created_from", params.createdFrom);
+  if (params.createdTo) q.set("created_to", params.createdTo);
   return bffFetch<DownloadLogPageResponse>(`/api/v1/audit/downloads?${q.toString()}`);
 }
 

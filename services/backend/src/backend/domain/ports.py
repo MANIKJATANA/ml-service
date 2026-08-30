@@ -727,13 +727,23 @@ class DownloadAuditRepository(Protocol):
         offset: int,
         event_id: str | None = None,
         student_id: str | None = None,
-    ) -> list[DownloadAuditEntry]: ...
+        created_from: datetime | None = None,
+        created_to: datetime | None = None,
+        actor_role: str | None = None,
+    ) -> list[DownloadAuditEntry]:
+        """One page of the school-wide access log, newest-first. BP28a adds a date-range
+        (``created_from``/``created_to``, inclusive) + an ``actor_role`` filter (matched against
+        the DENORMALIZED role column, so a deleted actor's rows still match)."""
+        ...
     async def count_recent(
         self,
         school_id: str,
         *,
         event_id: str | None = None,
         student_id: str | None = None,
+        created_from: datetime | None = None,
+        created_to: datetime | None = None,
+        actor_role: str | None = None,
     ) -> int: ...
     async def count_distinct_saver_students(self, school_id: str) -> int:
         """Distinct students who saved >=1 of their OWN photos (BP23 "Saved a photo") —

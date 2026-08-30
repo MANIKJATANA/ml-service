@@ -9,6 +9,8 @@ ids read back as ``None``.
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from sqlalchemy import func, insert, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -108,6 +110,9 @@ class PostgresDownloadAuditRepository:
         offset: int,
         event_id: str | None = None,
         student_id: str | None = None,
+        created_from: datetime | None = None,
+        created_to: datetime | None = None,
+        actor_role: str | None = None,
     ) -> list[DownloadAuditEntry]:
         sid = opt_uuid(school_id)
         if sid is None:
@@ -123,6 +128,15 @@ class PostgresDownloadAuditRepository:
             if stid is None:
                 return []
             conds.append(AuditRow.subject_student_id == stid)
+        # BP28a: inclusive date-range + actor-role filters. The role matches the DENORMALIZED
+        # column (not a users JOIN), so a row whose actor account was later deleted still
+        # matches its recorded role. The existing (school_id, created_at) index serves the range.
+        if created_from is not None:
+            conds.append(AuditRow.created_at >= created_from)
+        if created_to is not None:
+            conds.append(AuditRow.created_at <= created_to)
+        if actor_role is not None:
+            conds.append(AuditRow.actor_role == actor_role)
         async with self._sessionmaker() as session:
             result = await session.execute(
                 select(AuditRow)
@@ -140,6 +154,9 @@ class PostgresDownloadAuditRepository:
         *,
         event_id: str | None = None,
         student_id: str | None = None,
+        created_from: datetime | None = None,
+        created_to: datetime | None = None,
+        actor_role: str | None = None,
     ) -> int:
         sid = opt_uuid(school_id)
         if sid is None:
@@ -155,6 +172,14 @@ class PostgresDownloadAuditRepository:
             if stid is None:
                 return 0
             conds.append(AuditRow.subject_student_id == stid)
+        # BP28a: same date-range + denormalized actor-role predicates as list_recent, so total
+        # tracks the filtered set (honest pagination).
+        if created_from is not None:
+            conds.append(AuditRow.created_at >= created_from)
+        if created_to is not None:
+            conds.append(AuditRow.created_at <= created_to)
+        if actor_role is not None:
+            conds.append(AuditRow.actor_role == actor_role)
         async with self._sessionmaker() as session:
             result = await session.execute(
                 select(func.count()).select_from(AuditRow).where(*conds)

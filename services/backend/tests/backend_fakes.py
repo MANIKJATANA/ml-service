@@ -43,6 +43,7 @@ from backend.domain.models import (
     SchoolStatus,
     SchoolWhatsAppConfig,
     SignedUpload,
+    StoredObject,
     Student,
     StudentAppearanceCounts,
     StudentGroup,
@@ -1127,21 +1128,32 @@ class FakeStudentGroupRepo:
 class FakeObjectStore:
     """ObjectStore double: returns deterministic signed upload/download URLs and records
     deletes. ``fail_deletes`` makes ``delete`` raise ``UpstreamError`` (to exercise the
-    BP8e retry/best-effort path)."""
+    BP8e retry/best-effort path); ``fail_delete_keys`` narrows that to specific keys (W3a
+    best-effort reaper coverage)."""
 
     def __init__(
-        self, *, fail_deletes: bool = False, fail_downloads: bool = False
+        self,
+        *,
+        fail_deletes: bool = False,
+        fail_downloads: bool = False,
+        fail_delete_keys: set[str] | None = None,
     ) -> None:
         self.deleted: list[str] = []
         self.delete_attempts = 0
         self._fail_deletes = fail_deletes
         self._fail_downloads = fail_downloads
+        self._fail_delete_keys = fail_delete_keys or set()
         # BP17: the last object path a download URL was minted for — tests assert that the
         # thumbnail variant selects the stored thumb path (and full-res otherwise).
         self.last_download_path: str | None = None
         # BP17: objects the backend wrote via upload_bytes (path -> bytes) — tests assert a
         # thumbnail was generated + stored under the tenant/event prefix.
         self.uploaded: dict[str, bytes] = {}
+        # W3a: per-key last-modified timestamp for list_prefix. ``upload_bytes`` stamps
+        # ``_clock``; a test can seed/backdate a key with ``put_object`` to make "old" vs
+        # "new" objects deterministically.
+        self._modified: dict[str, datetime] = {}
+        self._clock: datetime = _NOW
 
     async def create_signed_upload_url(self, object_path: str) -> SignedUpload:
         return SignedUpload(
@@ -1158,9 +1170,11 @@ class FakeObjectStore:
 
     async def delete(self, object_path: str) -> None:
         self.delete_attempts += 1
-        if self._fail_deletes:
+        if self._fail_deletes or object_path in self._fail_delete_keys:
             raise UpstreamError(f"fake delete failed for {object_path}")
         self.deleted.append(object_path)
+        self.uploaded.pop(object_path, None)
+        self._modified.pop(object_path, None)
 
     async def download_bytes(self, object_path: str) -> bytes:
         # BP17: the backend reads a just-uploaded original to thumbnail it. Return
@@ -1174,6 +1188,33 @@ class FakeObjectStore:
         self, object_path: str, data: bytes, *, content_type: str
     ) -> None:
         self.uploaded[object_path] = data
+        self._modified[object_path] = self._clock
+
+    async def list_prefix(self, prefix: str) -> list[StoredObject]:
+        # W3a: every uploaded key under ``prefix`` (a leading-slash-normalised, "/"-boundary
+        # match so ``pfx`` never matches ``pfx-other``), with its recorded timestamp.
+        base = prefix.strip("/")
+        out: list[StoredObject] = []
+        for key, data in self.uploaded.items():  # noqa: B007 - data unused, key is the point
+            if key == base or key.startswith(base + "/"):
+                out.append(
+                    StoredObject(
+                        key=key,
+                        last_modified=self._modified.get(key, self._clock),
+                    )
+                )
+        return out
+
+    # ---- W3a test helpers ---------------------------------------------------
+    def put_object(self, key: str, *, modified: datetime) -> None:
+        """Seed one object with an explicit ``last_modified`` (to make old vs recent objects
+        for the reaper). Bypasses ``_clock`` so a test controls the age directly."""
+        self.uploaded[key] = b""
+        self._modified[key] = modified
+
+    def set_clock(self, now: datetime) -> None:
+        """Set the timestamp ``upload_bytes`` stamps on new keys."""
+        self._clock = now
 
 
 class FakeThumbnailer:

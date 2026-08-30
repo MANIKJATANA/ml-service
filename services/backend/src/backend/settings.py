@@ -96,8 +96,14 @@ class Settings(BaseSettings):
     # start). ~1 message per photo; 12000/school/month covers a full whole-school event.
     whatsapp_monthly_send_cap: int = 12000
     # Object-key prefix for the ≤5 MB WhatsApp send variants (distinct from originals). Each is
-    # a deterministic per-media key (overwritten on re-send); v1 does not reap these objects.
+    # a deterministic per-media key (overwritten on re-send).
     whatsapp_variant_prefix: str = "whatsapp-variants"
+    # W3a: the reaper (python -m backend.cli.reap_whatsapp_variants) deletes send variants
+    # older than this. Variants are ephemeral send artifacts — the 1h signed-URL TTL
+    # (download_url_ttl_s) means anything older is safely reapable (re-created on the next
+    # send, since the key is deterministic). Run this on a cron / one-shot; the default is
+    # generous (24h) to never race a fresh send.
+    whatsapp_variant_retention_hours: int = 24
 
     # --- galleries / download (decisions/0028) ---------------------------
     # TTL of the short-lived signed download URLs the galleries mint on demand.

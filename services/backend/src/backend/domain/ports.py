@@ -42,6 +42,7 @@ from backend.domain.models import (
     SchoolStatus,
     SchoolWhatsAppConfig,
     SignedUpload,
+    StoredObject,
     Student,
     StudentAppearanceCounts,
     StudentGroup,
@@ -614,6 +615,14 @@ class ObjectStore(Protocol):
     ) -> None:
         """Write bytes to one object key, overwriting (BP17 thumbnail, decisions/0056). Raises
         ``UpstreamError`` when the store is unreachable."""
+        ...
+
+    async def list_prefix(self, prefix: str) -> list[StoredObject]:
+        """List every object under ``prefix``, recursively, each with its ``last_modified``
+        timestamp (W3a WhatsApp-variant reaper). Keys are ``{prefix}/{school_id}/{media_id}.jpg``
+        — two levels deep — so an implementation must descend, not stop at the prefix folder. An
+        empty/missing prefix yields ``[]``. Raises ``UpstreamError`` when the store is
+        unreachable."""
         ...
 
 

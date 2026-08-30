@@ -290,6 +290,16 @@ class SignedUpload:
 
 
 @dataclass(frozen=True, slots=True)
+class StoredObject:
+    """One object listed from the object store (W3a). ``key`` is the full object path (the
+    same string ``ObjectStore.delete``/``download_bytes`` take); ``last_modified`` is a
+    tz-aware UTC timestamp. Used by the WhatsApp-variant reaper to age-filter what to delete."""
+
+    key: str
+    last_modified: datetime
+
+
+@dataclass(frozen=True, slots=True)
 class WhatsAppReceipt:
     """The result of one WhatsApp send (W1). A provider-agnostic acknowledgement — the
     provider's message id + the recipient it went to. Mirrors ``SignedUpload``: a small,

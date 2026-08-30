@@ -237,9 +237,10 @@ class WhatsAppShareService:
             )
 
         # Upload the variant to a deterministic per-media key (a re-send OVERWRITES it, never
-        # accumulates) + mint a short-lived signed URL to pass as image_url. v1 limit: the
-        # variant OBJECT itself is not reaped (only the signed URL is short-lived) — one small
-        # private JPEG per distinct media ever sent; a cleanup job is a documented follow-up.
+        # accumulates) + mint a short-lived signed URL to pass as image_url. The variant object
+        # outlives the 1h signed URL; it is reaped age-based by the W3a cleanup CLI
+        # (`python -m backend.cli.reap_whatsapp_variants`) — one small private JPEG per media
+        # until then, re-created on the next send since the key is deterministic.
         key = f"{self._prefix}/{school_id}/{media.id}.jpg"
         try:
             await self._object_store.upload_bytes(

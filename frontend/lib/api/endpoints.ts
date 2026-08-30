@@ -301,6 +301,18 @@ export function bulkDeleteStudents(studentIds: string[]): Promise<BulkActionResp
   });
 }
 
+/** Remove many students from their class at once (BP27c) — clears each student's class pointer
+ *  (never deletes the student). Best-effort per id; a foreign/missing id comes back `error` and
+ *  the batch never aborts. Returns each id's outcome. */
+export function bulkRemoveStudentsFromClass(
+  studentIds: string[],
+): Promise<BulkActionResponse> {
+  return bffFetch<BulkActionResponse>("/api/v1/students/bulk-remove-class", {
+    method: "POST",
+    body: JSON.stringify({ student_ids: studentIds }),
+  });
+}
+
 /** Re-issue a fresh one-time temp password for many students at once (BP27b) — recovery without
  *  the destructive delete. The response carries each `sent` row's ONE-TIME temp password (shown
  *  once, never returned again); a foreign/missing id comes back `error` and the batch never aborts. */

@@ -18,11 +18,13 @@ from backend.domain.models import (
     EnrollmentStatus,
     Role,
     Student,
+    StudentGroup,
     User,
     UserStatus,
 )
 from backend.domain.ports import MlEnrollmentClient
 from backend.main import create_app
+from backend.services.class_service import ClassService
 from backend.services.listing_service import ListingService
 from backend.services.student_service import StudentService
 from backend_fakes import (
@@ -40,6 +42,7 @@ from backend_fakes import (
     SeededContainer,
     make_school,
     make_student,
+    make_student_group,
     make_user,
 )
 from fastapi.testclient import TestClient
@@ -113,6 +116,18 @@ def _listing_svc(
         FakeMlResultsReader(),
     )
     return svc, strepo
+
+
+def _class_svc(
+    *, students: list[Student], groups: list[StudentGroup]
+) -> tuple[ClassService, FakeStudentRepo, FakeStudentGroupRepo]:
+    """A ClassService wired to the same fakes as the container (BP27c remove-from-class): the
+    student read carries its class name (LEFT JOIN) and deleting a class un-assigns its students."""
+    strepo = FakeStudentRepo(students)
+    grepo = FakeStudentGroupRepo(groups)
+    strepo.link_groups(grepo.name_of)
+    grepo.link_students(strepo.group_counts, on_delete=strepo.unassign_group)
+    return ClassService(grepo, strepo), strepo, grepo
 
 
 def _linked_pair(
@@ -283,6 +298,59 @@ async def test_list_student_ids_honors_the_mine_scope() -> None:
     scan = await svc.list_student_ids(school_id=_S1, scope_group_ids=["c1"])
     assert set(scan.ids) == {"p1"}
     assert scan.total == 1
+
+
+# ---- remove_students_bulk (BP27c) --------------------------------------
+
+
+async def test_remove_students_bulk_clears_selected_only() -> None:
+    # p1/p2/p3 all in class c1; removing p1+p2 clears their pointer, p3 keeps its class.
+    grp = make_student_group(id="c1", school_id=_S1, name="3B")
+    students = [
+        make_student(id="p1", school_id=_S1, student_group_id="c1", student_group_name="3B"),
+        make_student(id="p2", school_id=_S1, student_group_id="c1", student_group_name="3B"),
+        make_student(id="p3", school_id=_S1, student_group_id="c1", student_group_name="3B"),
+    ]
+    svc, strepo, _ = _class_svc(students=students, groups=[grp])
+
+    results = await svc.remove_students_bulk(school_id=_S1, student_ids=["p1", "p2"])
+    assert [r.status for r in results] == ["ok", "ok"]
+    assert (await strepo.get(_S1, "p1")).student_group_id is None
+    assert (await strepo.get(_S1, "p2")).student_group_id is None
+    # The non-selected same-class student keeps its group.
+    assert (await strepo.get(_S1, "p3")).student_group_id == "c1"
+
+
+async def test_remove_students_bulk_isolates_a_foreign_id_and_continues() -> None:
+    # "s2" is a student in the OTHER school (in its own class); the s1 caller can't touch it —
+    # set_student_group 404s it (error), but p1 still clears (the batch never aborts).
+    grp1 = make_student_group(id="c1", school_id=_S1, name="3B")
+    grp2 = make_student_group(id="c2", school_id=_S2, name="4A")
+    students = [
+        make_student(id="p1", school_id=_S1, student_group_id="c1", student_group_name="3B"),
+        make_student(id="s2", school_id=_S2, student_group_id="c2", student_group_name="4A"),
+    ]
+    svc, strepo, _ = _class_svc(students=students, groups=[grp1, grp2])
+
+    results = await svc.remove_students_bulk(school_id=_S1, student_ids=["s2", "p1"])
+    by_id = {r.student_id: r.status for r in results}
+    assert by_id == {"s2": "error", "p1": "ok"}
+    assert (await strepo.get(_S1, "p1")).student_group_id is None
+    # The foreign student is untouched — still in its class in s2.
+    assert (await strepo.get(_S2, "s2")).student_group_id == "c2"
+
+
+async def test_remove_students_bulk_unknown_id_is_error() -> None:
+    grp = make_student_group(id="c1", school_id=_S1, name="3B")
+    students = [
+        make_student(id="p1", school_id=_S1, student_group_id="c1", student_group_name="3B"),
+    ]
+    svc, strepo, _ = _class_svc(students=students, groups=[grp])
+
+    results = await svc.remove_students_bulk(school_id=_S1, student_ids=["p1", "nope"])
+    by_id = {r.student_id: r.status for r in results}
+    assert by_id == {"p1": "ok", "nope": "error"}
+    assert (await strepo.get(_S1, "p1")).student_group_id is None
 
 
 # ---- routes ------------------------------------------------------------
@@ -471,3 +539,117 @@ def test_bulk_routes_reject_over_the_cap(path: str) -> None:
     if path == "bulk-status":
         body["status"] = "disabled"
     assert client.post(f"/v1/students/{path}", headers=sa, json=body).status_code == 422
+
+
+# ---- bulk-remove-class routes (BP27c) ----------------------------------
+
+
+async def _seed_class_and_assign(
+    container: SeededContainer, *, school_id: str, student_ids: list[str]
+) -> str:
+    """Create a class in ``school_id`` (via the container-wired ClassService, so the
+    student↔class links are the same the routes exercise) and bulk-assign the given students to
+    it; returns the new class id."""
+    cls: StudentGroup = await container.class_service().create_class(
+        school_id=school_id, name="3B", grade="3", section="B"
+    )
+    await container.class_service().assign_students(
+        school_id=school_id, group_id=cls.id, student_ids=student_ids
+    )
+    return cls.id
+
+
+async def test_bulk_remove_class_round_trip_clears_the_class() -> None:
+    client, container = _build()
+    await _seed_class_and_assign(container, school_id=_S1, student_ids=["p1", "p2", "p3"])
+    sa = _auth(_token(client, "sa"))
+    resp = client.post(
+        "/v1/students/bulk-remove-class", headers=sa, json={"student_ids": ["p1", "p2"]}
+    )
+    assert resp.status_code == 200, resp.text
+    assert {r["student_id"]: r["status"] for r in resp.json()["results"]} == {
+        "p1": "ok",
+        "p2": "ok",
+    }
+    # p1/p2 read no class; p3 (not selected) keeps it.
+    assert client.get("/v1/students/p1", headers=sa).json()["student_group_id"] is None
+    assert client.get("/v1/students/p2", headers=sa).json()["student_group_id"] is None
+    assert client.get("/v1/students/p3", headers=sa).json()["student_group_id"] is not None
+
+
+async def test_bulk_remove_class_mixed_ids_are_best_effort() -> None:
+    client, container = _build()
+    await _seed_class_and_assign(container, school_id=_S1, student_ids=["p1"])
+    sa = _auth(_token(client, "sa"))
+    resp = client.post(
+        "/v1/students/bulk-remove-class", headers=sa, json={"student_ids": ["p1", "nope"]}
+    )
+    assert resp.status_code == 200, resp.text
+    assert {r["student_id"]: r["status"] for r in resp.json()["results"]} == {
+        "p1": "ok",
+        "nope": "error",
+    }
+    assert client.get("/v1/students/p1", headers=sa).json()["student_group_id"] is None
+
+
+async def test_bulk_remove_class_never_cross_tenant() -> None:
+    # The s1 admin posts a REAL foreign-school (s2) student id (pf, assigned to an s2 class). It
+    # comes back `error` (best-effort, p1 still clears) and pf keeps its class in s2 — inspected
+    # with an s2 admin token.
+    client, container = _build()
+    await _seed_class_and_assign(container, school_id=_S1, student_ids=["p1"])
+    await _seed_class_and_assign(container, school_id=_S2, student_ids=["pf"])
+    sa = _auth(_token(client, "sa"))
+    sa2 = _auth(_token(client, "sa2"))
+    resp = client.post(
+        "/v1/students/bulk-remove-class", headers=sa, json={"student_ids": ["pf", "p1"]}
+    )
+    assert resp.status_code == 200, resp.text
+    assert {r["student_id"]: r["status"] for r in resp.json()["results"]} == {
+        "pf": "error",
+        "p1": "ok",
+    }
+    assert client.get("/v1/students/p1", headers=sa).json()["student_group_id"] is None
+    # The foreign student's class pointer is untouched (still set in its own school).
+    assert client.get("/v1/students/pf", headers=sa2).json()["student_group_id"] is not None
+
+
+def test_bulk_remove_class_requires_student_manage_and_validates() -> None:
+    client, _ = _build()
+    body = {"student_ids": ["p1"]}
+    # A student token lacks student:manage.
+    stu = _auth(_token(client, "p1"))
+    assert (
+        client.post("/v1/students/bulk-remove-class", headers=stu, json=body).status_code == 403
+    )
+    # No token -> 401.
+    assert client.post("/v1/students/bulk-remove-class", json=body).status_code == 401
+    sa = _auth(_token(client, "sa"))
+    # Empty -> 422 (schema min_length=1).
+    assert (
+        client.post(
+            "/v1/students/bulk-remove-class", headers=sa, json={"student_ids": []}
+        ).status_code
+        == 422
+    )
+    # Over the cap -> 422.
+    ids = [f"x{i}" for i in range(1001)]
+    assert (
+        client.post(
+            "/v1/students/bulk-remove-class", headers=sa, json={"student_ids": ids}
+        ).status_code
+        == 422
+    )
+
+
+def test_bulk_remove_class_route_not_shadowed_by_wildcard() -> None:
+    # Regression guard: POST /v1/students/bulk-remove-class must NOT be swallowed by the
+    # /{student_id} routes (it's registered before them) — it returns the bulk envelope, not a 404
+    # treating "bulk-remove-class" as a student id.
+    client, _ = _build()
+    sa = _auth(_token(client, "sa"))
+    resp = client.post(
+        "/v1/students/bulk-remove-class", headers=sa, json={"student_ids": ["p1"]}
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["results"] == [{"student_id": "p1", "status": "ok"}]

@@ -35,6 +35,7 @@ import { useToast } from "@/components/ui/toast";
 import {
   assignStudentsToClass,
   bulkDeleteStudents,
+  bulkRemoveStudentsFromClass,
   bulkResendStudentInvites,
   bulkSetStudentStatus,
   createStudent,
@@ -387,7 +388,7 @@ function StudentsContent() {
   // Which bulk op is in flight (null = idle) — drives the disabled/double-submit guard AND a
   // spinner on the *clicked* button (not every button). `bulkBusy` is derived, one source of truth.
   const [bulkAction, setBulkAction] = useState<
-    "disable" | "enable" | "delete" | "assign" | "resend" | null
+    "disable" | "enable" | "delete" | "assign" | "removeClass" | "resend" | null
   >(null);
   const bulkBusy = bulkAction !== null;
   const [selectingAll, setSelectingAll] = useState(false);
@@ -503,6 +504,22 @@ function StudentsContent() {
         `Assigned ${assigned} ${assigned === 1 ? "student" : "students"} to the class.`,
         "success",
       );
+      await afterBulkMutation();
+    } catch (err) {
+      toast(isApiError(err) ? err.message : "Something went wrong", "error");
+    } finally {
+      setBulkAction(null);
+    }
+  }
+
+  async function removeFromClassBulk() {
+    if (selectedCount === 0) return;
+    setBulkAction("removeClass");
+    try {
+      const resp = await bulkRemoveStudentsFromClass(targetIds);
+      // "Cleared class for" (not "Removed") — the backend returns ok even for a student who wasn't
+      // in a class (a no-op clear), so "Removed N" would over-claim.
+      reportBulk(resp, "Cleared class for", "updated");
       await afterBulkMutation();
     } catch (err) {
       toast(isApiError(err) ? err.message : "Something went wrong", "error");
@@ -762,29 +779,42 @@ function StudentsContent() {
                   Resend credentials
                 </Button>
                 {classes.length > 0 ? (
-                  <div className="flex items-center gap-2">
-                    <select
-                      aria-label="Class to assign to"
-                      value={bulkClassId}
-                      onChange={(e) => setBulkClassId(e.target.value)}
-                      className="h-9 rounded-button border border-hairline bg-canvas px-3 text-body-sm text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    >
-                      <option value="">Assign to class…</option>
-                      {classes.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.name}
-                        </option>
-                      ))}
-                    </select>
+                  <>
+                    <div className="flex items-center gap-2">
+                      <select
+                        aria-label="Class to assign to"
+                        value={bulkClassId}
+                        onChange={(e) => setBulkClassId(e.target.value)}
+                        className="h-9 rounded-button border border-hairline bg-canvas px-3 text-body-sm text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      >
+                        <option value="">Assign to class…</option>
+                        {classes.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.name}
+                          </option>
+                        ))}
+                      </select>
+                      <Button
+                        size="sm"
+                        onClick={assignBulk}
+                        loading={bulkAction === "assign"}
+                        disabled={!bulkClassId || bulkBusy}
+                      >
+                        Assign
+                      </Button>
+                    </div>
+                    {/* BP27c: clear the selected students' class (R4-A10) — the inverse of Assign,
+                        so a mis-assignment is a two-way door. */}
                     <Button
                       size="sm"
-                      onClick={assignBulk}
-                      loading={bulkAction === "assign"}
-                      disabled={!bulkClassId || bulkBusy}
+                      variant="secondary"
+                      onClick={removeFromClassBulk}
+                      loading={bulkAction === "removeClass"}
+                      disabled={bulkBusy}
                     >
-                      Assign
+                      Remove from class
                     </Button>
-                  </div>
+                  </>
                 ) : null}
                 <Button
                   size="sm"

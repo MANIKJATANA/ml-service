@@ -242,6 +242,20 @@ async def bulk_resend_student_invites(
     return BulkResendResponse.from_results(results)
 
 
+@router.post("/bulk-remove-class", response_model=BulkActionResponse)
+async def bulk_remove_students_from_class(
+    body: BulkIdsRequest, container: ContainerDep, actor: StudentManager
+) -> BulkActionResponse:
+    """Remove many students from their class at once (BP27c / R4-A10) — best-effort per id (a
+    foreign/missing id is recorded ``error`` and the batch continues). Clears each student's class
+    pointer (``student_group_id → null``); never deletes the student or the class. Tenant from the
+    token; registered before ``/{student_id}`` so the literal wins the route match."""
+    results = await container.class_service().remove_students_bulk(
+        school_id=tenant_of(actor), student_ids=body.student_ids
+    )
+    return BulkActionResponse.from_results(results)
+
+
 @router.get("/{student_id}", response_model=StudentResponse)
 async def get_student(
     student_id: str, container: ContainerDep, actor: StudentManager

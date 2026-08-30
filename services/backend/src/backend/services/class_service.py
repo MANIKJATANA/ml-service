@@ -10,9 +10,14 @@ belongs to at most one class (a nullable pointer); deleting a class un-assigns i
 
 from __future__ import annotations
 
+import structlog
+
 from backend.domain.errors import NotFoundError, ValidationError
 from backend.domain.models import Student, StudentGroup, StudentGroupListing
 from backend.domain.ports import StudentGroupRepository, StudentRepository
+from backend.services.student_service import BulkActionResult
+
+_log = structlog.get_logger(__name__)
 
 
 def _clean_name(name: str) -> str:
@@ -134,6 +139,30 @@ class ClassService:
         )
         unmatched = [e for e in cleaned if e.lower() not in matched]
         return assigned, unmatched
+
+    async def remove_students_bulk(
+        self, *, school_id: str, student_ids: list[str]
+    ) -> list[BulkActionResult]:
+        """Remove many students from their class at once (BP27c / R4-A10) — a best-effort loop
+        over the tested single-writer ``set_student_group(group_id=None)``. Per id: a success is
+        ``ok``; ANY exception (incl. ``NotFoundError`` for a foreign/missing id, which
+        ``set_student_group``'s tenant-scoped ``get`` raises BEFORE any write) is ``error`` and the
+        batch continues. Tenant-safe by construction — a foreign id 404s before touching a row.
+        (Option B: ``set_group_bulk`` can only *set* a group, never clear it, so we loop the
+        single clear.) PII-safe logging (id only)."""
+        results: list[BulkActionResult] = []
+        for student_id in student_ids:
+            try:
+                await self.set_student_group(
+                    school_id=school_id, student_id=student_id, group_id=None
+                )
+                results.append(BulkActionResult(student_id, "ok"))
+            except Exception:  # noqa: BLE001 — isolate one id's failure from the batch
+                _log.warning(
+                    "bulk_remove_from_class_failed", student_id=student_id, exc_info=True
+                )
+                results.append(BulkActionResult(student_id, "error"))
+        return results
 
     async def set_student_group(
         self, *, school_id: str, student_id: str, group_id: str | None

@@ -48,6 +48,12 @@ export interface BulkEnrollItem {
 export function useBulkPhotoEnroll() {
   const [items, setItems] = useState<BulkEnrollItem[]>([]);
   const mounted = useRef(true);
+  // BP27c: retain each row's full enroll input (incl. its `File` handle) by item id so a failed
+  // row can be RE-tried without re-picking. `run` (re)writes the current batch's inputs here before
+  // the pool starts; row ids are the per-batch index, so a new batch OVERWRITES the same keys — and
+  // `retryFailed` only looks up the CURRENT `items`, so it always resolves a live handle. File
+  // objects are cheap references (the bytes aren't held until read), and the map dies with the page.
+  const inputsById = useRef<Map<string, BulkEnrollInput>>(new Map());
 
   useEffect(() => {
     return () => {
@@ -106,9 +112,27 @@ export function useBulkPhotoEnroll() {
     }
   }
 
+  // Bounded pool: `worker`s share `idx`, each pulling the next entry until the batch drains.
+  // idx++ is synchronous between awaits, so no two workers take the same item. Reads from its
+  // `entries` argument (NOT `items` state), so `run` and `retryFailed` reuse one implementation;
+  // the two never overlap because the "Retry failed" button only mounts once the prior pool's
+  // `Promise.all` has drained (its `!isRunning` gate).
+  function runPool(entries: BulkEnrollInput[]) {
+    let idx = 0;
+    const worker = async () => {
+      while (idx < entries.length) {
+        await runOne(entries[idx++]);
+      }
+    };
+    void Promise.all(
+      Array.from({ length: Math.min(UPLOAD_CONCURRENCY, entries.length) }, worker),
+    );
+  }
+
   /** Start a fresh batch (replaces any prior run's items). */
   function run(inputs: BulkEnrollInput[]) {
     if (inputs.length === 0) return;
+    for (const it of inputs) inputsById.current.set(it.id, it); // retain for a later retry
     setItems(
       inputs.map((it) => ({
         id: it.id,
@@ -118,18 +142,44 @@ export function useBulkPhotoEnroll() {
         progress: 0,
       })),
     );
-    // Bounded pool: workers share `idx`, each pulling the next input until the batch drains.
-    // idx++ is synchronous between awaits, so no two workers take the same item.
-    let idx = 0;
-    const worker = async () => {
-      while (idx < inputs.length) {
-        await runOne(inputs[idx++]);
-      }
-    };
-    void Promise.all(
-      Array.from({ length: Math.min(UPLOAD_CONCURRENCY, inputs.length) }, worker),
-    );
+    runPool(inputs);
   }
 
-  return { items, isRunning, summary, run };
+  // BP27c: re-run just the failed rows (using their retained inputs) so a flaky upload/enroll
+  // doesn't force the user to re-pick every photo. "Failed" == `error` OR a `done` row whose
+  // enrollment didn't succeed (matching `summary.failed`). Only offered when the batch is idle
+  // (no overlapping pools), so no two workers race the same item.
+  function retryFailed() {
+    const entries: BulkEnrollInput[] = [];
+    for (const it of items) {
+      const isFailed =
+        it.status === "error" ||
+        (it.status === "done" && it.enrollmentStatus !== "enrolled");
+      if (!isFailed) continue;
+      // The map is append-only (set in `run`, never deleted), so this lookup is always a hit;
+      // the guard is defensive — a miss would just leave that item as-is, never wrongly done.
+      const input = inputsById.current.get(it.id);
+      if (input !== undefined) entries.push(input);
+    }
+    if (entries.length === 0) return;
+    if (!mounted.current) return;
+    const retrying = new Set(entries.map((e) => e.id));
+    setItems((prev) =>
+      prev.map((it) =>
+        retrying.has(it.id)
+          ? {
+              ...it,
+              status: "queued" as const,
+              progress: 0,
+              error: undefined,
+              // Clear the stale enroll-failed pill so the row re-enters the running set.
+              enrollmentStatus: undefined,
+            }
+          : it,
+      ),
+    );
+    runPool(entries);
+  }
+
+  return { items, isRunning, summary, run, retryFailed };
 }

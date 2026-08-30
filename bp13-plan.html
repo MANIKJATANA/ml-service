@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>BP13 — Bulk actions & batch review · plan explainer</title>
+<style>
+  :root{
+    --bg:#0b0e14; --panel:#121722; --panel2:#1a2130; --ink:#e6e9f0; --muted:#9aa4b8;
+    --line:#26304a; --accent:#6ea8fe; --green:#5bd6a3; --amber:#f0c674; --red:#f2777a; --pill:#223048; --code:#0f1420;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:linear-gradient(180deg,#0b0e14,#0c1018 60%,#0b0e14);color:var(--ink);
+    font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
+  .wrap{max-width:980px;margin:0 auto;padding:40px 24px 90px}
+  header.hero{border:1px solid var(--line);border-radius:16px;padding:30px 32px;
+    background:radial-gradient(1200px 300px at 10% -10%,rgba(110,168,254,.18),transparent),var(--panel)}
+  .tag{display:inline-block;font-size:12px;letter-spacing:.12em;text-transform:uppercase;
+    color:var(--accent);background:rgba(110,168,254,.1);border:1px solid rgba(110,168,254,.35);
+    padding:4px 10px;border-radius:999px;margin-bottom:14px}
+  h1{margin:.1em 0 .2em;font-size:30px;letter-spacing:-.02em}
+  h2{margin:44px 0 14px;font-size:22px;letter-spacing:-.01em;padding-bottom:8px;border-bottom:1px solid var(--line)}
+  h3{margin:26px 0 10px;font-size:17px;color:#cdd6ea}
+  p{color:#d3d9e6}
+  .lead{font-size:17px;color:#c6cfe0}
+  .muted{color:var(--muted)}
+  .grid{display:grid;gap:14px}
+  .cols-2{grid-template-columns:1fr 1fr}
+  .cols-3{grid-template-columns:1fr 1fr 1fr}
+  @media(max-width:760px){.cols-2,.cols-3{grid-template-columns:1fr}}
+  .card{border:1px solid var(--line);border-radius:12px;padding:16px 18px;background:var(--panel)}
+  .card h4{margin:0 0 8px;font-size:15px}
+  .card.good{border-color:rgba(91,214,163,.4)}
+  .card.no{border-color:rgba(242,119,122,.35)}
+  .pill{display:inline-block;background:var(--pill);border:1px solid var(--line);border-radius:999px;
+    padding:2px 10px;font-size:12.5px;color:#cdd6ea;margin:2px 4px 2px 0}
+  .pill.g{background:rgba(91,214,163,.12);border-color:rgba(91,214,163,.4);color:#bff0d8}
+  .pill.b{background:rgba(110,168,254,.12);border-color:rgba(110,168,254,.4);color:#cfe0ff}
+  code,kbd{font-family:"SF Mono",ui-monospace,Menlo,Consolas,monospace;font-size:13px}
+  code.inline{background:var(--code);border:1px solid var(--line);border-radius:6px;padding:1px 6px;color:#dfe6f5}
+  pre{background:var(--code);border:1px solid var(--line);border-radius:10px;padding:14px 16px;overflow:auto;
+    font-family:"SF Mono",ui-monospace,Menlo,Consolas,monospace;font-size:12.7px;color:#d8e0f2;line-height:1.5}
+  .kw{color:#8bb5ff}.cm{color:#7c88a1}
+  table{border-collapse:collapse;width:100%;margin:10px 0;font-size:13.5px}
+  th,td{border:1px solid var(--line);padding:8px 10px;text-align:left;vertical-align:top}
+  th{background:var(--panel2);color:#cdd6ea;font-weight:600}
+  .diagram{border:1px solid var(--line);border-radius:12px;background:var(--panel2);padding:20px;margin:14px 0}
+  .callout{border-left:3px solid var(--accent);background:rgba(110,168,254,.07);padding:12px 16px;border-radius:0 10px 10px 0;margin:14px 0}
+  .callout.g{border-color:var(--green);background:rgba(91,214,163,.07)}
+  .callout.a{border-color:var(--amber);background:rgba(240,198,116,.07)}
+  ul{padding-left:20px}li{margin:5px 0}
+  .step{display:flex;gap:14px;margin:12px 0}
+  .step .n{flex:0 0 30px;height:30px;border-radius:50%;background:rgba(110,168,254,.15);border:1px solid rgba(110,168,254,.5);
+    display:flex;align-items:center;justify-content:center;font-weight:700;color:#cfe0ff;font-size:14px}
+  .step .b{flex:1}
+  .filerow{display:flex;justify-content:space-between;gap:10px;padding:7px 0;border-bottom:1px dashed var(--line)}
+  .filerow:last-child{border-bottom:0}
+  .filerow code{color:#cfe0ff}
+  .filerow .k{font-size:12px;color:var(--muted);white-space:nowrap}
+  .toc{display:flex;flex-wrap:wrap;gap:8px;margin:18px 0 6px}
+  .toc a{font-size:13px;color:#cfe0ff;text-decoration:none;border:1px solid var(--line);padding:4px 10px;border-radius:8px;background:var(--panel)}
+  .toc a:hover{border-color:var(--accent)}
+  .mini{font-size:12.5px;color:var(--muted)}
+  hr{border:0;border-top:1px solid var(--line);margin:30px 0}
+  .mock{font-size:12px;line-height:1.5}
+  .chk{color:var(--green)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <span class="tag">Round 2 · BP13 · bulk actions</span>
+  <h1>Bulk actions &amp; batch review</h1>
+  <p class="lead">Stop doing everything one-at-a-time. Triage a whole event's ambiguous matches in a few
+  actions instead of 100, archive several events together, and grab several photos in one download.</p>
+  <div style="margin-top:10px">
+    <span class="pill b">Reuses BP5 corrections + BP9 download-all</span>
+    <span class="pill g">No migration · no ML change</span>
+  </div>
+</header>
+
+<div class="toc">
+  <a href="#why">The problem</a>
+  <a href="#decisions">Your 3 decisions</a>
+  <a href="#review">1 · Batch review</a>
+  <a href="#archive">2 · Bulk archive</a>
+  <a href="#download">3 · Multi-select download</a>
+  <a href="#how">How it works</a>
+  <a href="#files">Files &amp; endpoints</a>
+  <a href="#notin">Not in scope</a>
+  <a href="#verify">Verification</a>
+</div>
+
+<h2 id="why">The problem</h2>
+<p>When the face-matcher isn't sure who's in a photo — two candidates are close, so it flags the match
+<b>"needs review"</b> — staff have to open <b>each photo, one at a time</b>, and confirm or reject. BP5
+built that loop; but at a real event there can be <b>100+</b> ambiguous matches. Nobody clicks 100 times,
+so review gets skipped and the trust loop goes unused. Same story for archiving a term's worth of events
+and for grabbing a handful of photos — all one-at-a-time.</p>
+<p>BP13 adds the "…to many at once" verb across three places, <b>reusing what BP5 and BP9 already built</b>.</p>
+
+<h2 id="decisions">The 3 decisions you locked</h2>
+<div class="grid cols-3">
+  <div class="card good">
+    <h4>Scope <span class="pill g">chosen</span></h4>
+    <p class="mini"><b>All three</b> — batch review + bulk event archive + multi-select photo download.
+    One cohesive "bulk" phase.</p>
+  </div>
+  <div class="card good">
+    <h4>Auto-confirm <span class="pill g">chosen</span></h4>
+    <p class="mini"><b>No auto-confirm.</b> Staff tick the ones they want — no confidence-threshold
+    one-click confirm. (The lane is still <b>sorted by confidence</b> so the obvious ones are up top.)</p>
+  </div>
+  <div class="card good">
+    <h4>Batch reject <span class="pill g">chosen</span></h4>
+    <p class="mini"><b>One-click "Reject all remaining"</b> — after confirming the good ones, clear the
+    rest in one action. Guarded by a confirm dialog (it hides photos from students).</p>
+  </div>
+</div>
+
+<h2 id="review">1 · Batch review — the flagship</h2>
+<p>The event gallery already has a <b>Needs review</b> tab (BP5). Today each ambiguous match links out to a
+single photo. BP13 turns that tab into a checklist:</p>
+
+<div class="card" style="margin:14px 0">
+<pre class="mock">Needs review · Sports Day                         118 matches to review
+
+  [ Select all ]                    <span class="cm">confirmed 12 · sorted by confidence ▼</span>
+  ───────────────────────────────────────────────────────────────
+  <span class="chk">☑</span>  [photo]  Aisha Khan      is this them?      0.86
+  <span class="chk">☑</span>  [photo]  Ravi Patel      is this them?      0.79
+  ☐  [photo]  Sara Ali        is this them?      0.71
+  ☐  [photo]  Meera Rao       is this them?      0.55
+  ☐  [photo]  …                                  0.41
+  ───────────────────────────────────────────────────────────────
+  <b>2 selected</b>   [ Confirm selected ]  [ Reject selected ]      [ Reject all remaining ]</pre>
+</div>
+
+<div class="grid cols-2">
+  <div class="card">
+    <h4>What each button does</h4>
+    <ul class="mini" style="margin:0">
+      <li><b>Confirm selected</b> — the ticked matches stand (the student keeps the photo). ✓ undoable.</li>
+      <li><b>Reject selected</b> — the ticked matches are wrong → the photo is hidden from that student.</li>
+      <li><b>Reject all remaining</b> — one click rejects <i>every still-pending</i> match in the lane
+        (a confirm dialog first: "Hide N photos from those students?").</li>
+      <li><b>Select all</b> — tick every loaded row (for a fast "confirm the whole page").</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h4>All of it reuses BP5</h4>
+    <p class="mini">Each decision is exactly the BP5 <code class="inline">set_verdict</code> written to the
+    <code class="inline">match_corrections</code> overlay — just applied to <b>many pairs in one request</b>.
+    So a confirm/reject here behaves identically to the single-photo one (same hide-from-student gate, same
+    undo, same "N to review" dashboard count auto-decrementing). <b>No new table, no ML change.</b></p>
+  </div>
+</div>
+
+<div class="callout a">
+  <b>Why the reject guard matters.</b> Confirming only ever <i>shows</i> a student more photos — safe. But
+  rejecting <i>hides</i> a photo from a student, so "Reject all remaining" always asks first ("Reject the
+  remaining N matches? This hides those photos from those students.") — no accidental mass-hide.
+</div>
+
+<h2 id="archive">2 · Bulk event archive</h2>
+<p>The events list gets row checkboxes + a bulk bar. Select several events → <b>Archive</b> (or
+<b>Restore</b>) them together. It's the existing per-event archive, applied to a set.</p>
+<div class="card" style="margin:10px 0">
+<pre class="mock">Events        [☑ 3 selected]   [ Archive ]  [ Restore ]           Search…
+
+  <span class="chk">☑</span>  Sports Day 2024      Sports    12 Jul 2024    completed
+  <span class="chk">☑</span>  Winter Concert       Arts      08 Dec 2024    completed
+  <span class="chk">☑</span>  Grade 3 Trip         Trip      02 Nov 2024    archived
+  ☐  Annual Day          Ceremony  15 Mar 2025    completed</pre>
+</div>
+<p class="mini">One small endpoint sets the status on the chosen ids (tenant-scoped); archiving keeps the
+photos, just hides the event from active workflows (unchanged BP5/0027 semantics). Restore flips it back.</p>
+
+<h2 id="download">3 · Multi-select photo download</h2>
+<p>The staff event gallery's <b>All photos</b> tab gets a <b>Select</b> mode: tick the photos you want →
+<b>Download N</b> saves them as one zip — reusing the exact BP9 streaming download-all machinery (bounded
+memory, survives hundreds of photos, each recorded in the BP8b audit).</p>
+<div class="card" style="margin:10px 0">
+<pre class="mock">All photos          [ Select ]                          ↓ Download all
+
+  — Select mode on —              <b>4 selected</b>   [ Download 4 ]  [ Cancel ]
+  <span class="chk">☑</span>[img] <span class="chk">☑</span>[img]  ☐[img]  <span class="chk">☑</span>[img]  ☐[img]  <span class="chk">☑</span>[img]  ☐[img] …</pre>
+</div>
+<p class="mini"><b>Entirely frontend</b> — the download + audit endpoints already exist; this just lets you
+pick a subset instead of all-or-one.</p>
+
+<h2 id="how">How it works (the whole build)</h2>
+<div class="diagram">
+  <div class="step"><div class="n">1</div><div class="b"><b>Batch review</b> → one new endpoint
+    <code class="inline">POST /v1/events/{id}/review/batch</code> takes a list of
+    <code class="inline">{media_id, student_id, verdict}</code> and loops BP5's
+    <code class="inline">set_verdict</code> (validated once against the event's matches — a pair that isn't a
+    real match in this event is skipped, tenant-safe). "Reject all remaining" = the FE sends every pending
+    pair with <code class="inline">rejected</code>.</div></div>
+  <div class="step"><div class="n">2</div><div class="b"><b>Bulk archive</b> → one new endpoint
+    <code class="inline">POST /v1/events/bulk-status</code> takes <code class="inline">{event_ids, status}</code>
+    and sets it on all in-school ids in one query.</div></div>
+  <div class="step"><div class="n">3</div><div class="b"><b>Multi-select download</b> → no endpoint;
+    <code class="inline">PhotoGrid</code> gains a selection mode + the existing
+    <code class="inline">useDownloadAll(selectedIds)</code>.</div></div>
+</div>
+
+<h2 id="files">Files &amp; endpoints</h2>
+<h3>New endpoints (both admin + teacher; existing permissions)</h3>
+<table>
+  <tr><th>Endpoint</th><th>Perm</th><th>Does</th></tr>
+  <tr><td><code>POST /v1/events/{id}/review/batch</code></td><td class="mini">match:review</td>
+    <td class="mini">apply many confirm/reject verdicts at once → <code class="inline">{applied: N}</code></td></tr>
+  <tr><td><code>POST /v1/events/bulk-status</code></td><td class="mini">event:manage</td>
+    <td class="mini">archive/restore a set of events → <code class="inline">{updated: N}</code></td></tr>
+</table>
+
+<h3>Backend</h3>
+<div class="card">
+  <div class="filerow"><code>services/review_service.py</code><span class="k">set_verdicts_batch (loop set_verdict, event-scoped validate)</span></div>
+  <div class="filerow"><code>services/event_service.py + domain/ports.py + adapters/…/postgres_events.py</code><span class="k">set_status_bulk (one tenant-scoped UPDATE)</span></div>
+  <div class="filerow"><code>api/routers/{review,events}.py + api/schemas/{review,events}.py</code><span class="k">the 2 routes + request schemas (batch capped)</span></div>
+  <div class="filerow"><code>tests/backend_fakes.py + test_bp13_*.py</code><span class="k">fakes + unit/route tests + a gated PG bulk-status test</span></div>
+</div>
+
+<h3>Frontend</h3>
+<div class="card">
+  <div class="filerow"><code>app/(school)/events/[eventId]/gallery/**</code><span class="k">the batch Needs-review checklist + action bar</span></div>
+  <div class="filerow"><code>components/gallery/{photo-grid,photo-tile}.tsx</code><span class="k">optional selection mode + tile checkbox</span></div>
+  <div class="filerow"><code>app/(school)/events/page.tsx</code><span class="k">row checkboxes + bulk archive/restore bar</span></div>
+  <div class="filerow"><code>lib/api/{endpoints,types}.ts + lib/hooks/**</code><span class="k">batchReview / bulkEventStatus + a useDownloadAll(selected) wire</span></div>
+</div>
+
+<h2 id="notin">Deliberately NOT in scope</h2>
+<div class="grid cols-2">
+  <div class="card no">
+    <h4>✗ Auto-confirm by threshold</h4>
+    <p class="mini">You chose manual multi-select — no "confirm everything ≥ X%" one-click. (The lane is
+    confidence-sorted so it's still fast.)</p>
+  </div>
+  <div class="card no">
+    <h4>✗ A cross-event review queue</h4>
+    <p class="mini">Batch review stays <b>per-event</b> (the existing lane). One global "all pending
+    reviews everywhere" queue is a future add.</p>
+  </div>
+  <div class="card no">
+    <h4>✗ Any ML / matching change</h4>
+    <p class="mini">The confidence shown is the ML's; the review threshold is ML-owned (BP5). BP13 only
+    reads confidence + writes the backend correction overlay.</p>
+  </div>
+  <div class="card no">
+    <h4>✗ Bulk student/staff ops</h4>
+    <p class="mini">Bulk re-enroll already exists (BP8a/BP10 "Retry failed"); other bulk student/staff
+    actions aren't part of this slice.</p>
+  </div>
+</div>
+
+<h2 id="verify">How we verify (before you see it)</h2>
+<div class="grid cols-2">
+  <div class="card">
+    <h4>Gates</h4>
+    <ul class="mini" style="margin:0">
+      <li>Backend: <code class="inline">ruff</code> + <code class="inline">mypy</code> + full
+        <code class="inline">pytest</code> + the layering grep</li>
+      <li>Frontend: <code class="inline">lint</code> + <code class="inline">tsc --noEmit</code> +
+        <code class="inline">next build</code></li>
+      <li><b>No migration</b> — reuses <code class="inline">match_corrections</code> +
+        <code class="inline">events.status</code>; the bulk-status query still gets a gated real-Postgres test
+        on a <b>throwaway</b> DB</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h4>Tests</h4>
+    <ul class="mini" style="margin:0">
+      <li>batch verdict: applies many, skips a foreign/non-event pair, stamps
+        <code class="inline">resolves_review</code>, tenant-isolated, the dashboard count drops</li>
+      <li>reject-all-remaining hides from students (the BP5 gate still holds)</li>
+      <li>bulk-status is tenant-scoped (a foreign event id is never touched)</li>
+      <li>2× review→fix loop (R1 correctness/security/tenant · R2 edges/a11y/coverage), gate green after each</li>
+    </ul>
+  </div>
+</div>
+
+<hr/>
+<p class="muted" style="text-align:center">
+  This is the plan for your review — <b>no code written yet.</b> Say the word and I'll build it:
+  backend (2 endpoints) → frontend (3 surfaces) → gate green → 2× review → stop for your review. Nothing
+  committed without you asking.
+</p>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WhatsApp (Gupshup) — Setup &amp; Go-Live Guide</title>
+<style>
+  :root{
+    --ink:#1a2233; --ink2:#4a5568; --muted:#718096; --line:#e2e8f0;
+    --bg:#f7f9fc; --card:#ffffff; --accent:#2563eb; --accent2:#1d4ed8;
+    --green:#e6f7ec; --green-b:#28a745; --green-ink:#176a33;
+    --amber:#fff6e5; --amber-b:#f0a500; --amber-ink:#8a5a00;
+    --blue:#eaf1ff; --blue-b:#2563eb; --blue-ink:#1a3d8f;
+    --code-bg:#0f172a; --code-ink:#e2e8f0;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    line-height:1.62;font-size:16px;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:820px;margin:0 auto;padding:40px 22px 80px}
+  header.top{text-align:center;margin-bottom:8px}
+  header.top h1{font-size:30px;margin:0 0 6px;letter-spacing:-.02em}
+  header.top .sub{color:var(--muted);font-size:15px}
+  .lede{background:var(--card);border:1px solid var(--line);border-radius:14px;
+    padding:20px 22px;margin:26px 0;box-shadow:0 1px 2px rgba(16,24,40,.04)}
+  .lede p{margin:.4em 0}
+  h2{font-size:15px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);
+    margin:40px 0 14px;padding-bottom:8px;border-bottom:1px solid var(--line)}
+  .step{background:var(--card);border:1px solid var(--line);border-radius:14px;
+    padding:20px 22px;margin:16px 0;box-shadow:0 1px 2px rgba(16,24,40,.04)}
+  .step h3{margin:0 0 10px;font-size:18px;display:flex;align-items:center;gap:12px}
+  .num{flex:0 0 auto;width:30px;height:30px;border-radius:50%;background:var(--accent);
+    color:#fff;font-size:15px;font-weight:700;display:flex;align-items:center;justify-content:center}
+  .step ol,.step ul{margin:.5em 0;padding-left:1.3em}
+  .step li{margin:.35em 0}
+  .callout{border-radius:12px;padding:16px 18px;margin:20px 0;border:1px solid}
+  .callout .tag{font-weight:700;font-size:13px;text-transform:uppercase;letter-spacing:.05em;
+    display:block;margin-bottom:6px}
+  .callout p{margin:.35em 0}
+  .ok{background:var(--green);border-color:var(--green-b)}
+  .ok .tag{color:var(--green-ink)}
+  .warn{background:var(--amber);border-color:var(--amber-b)}
+  .warn .tag{color:var(--amber-ink)}
+  .tip{background:var(--blue);border-color:var(--blue-b)}
+  .tip .tag{color:var(--blue-ink)}
+  code{background:#eef2f7;color:#1e293b;padding:1px 6px;border-radius:5px;
+    font-family:"SF Mono",Consolas,"Roboto Mono",monospace;font-size:13.5px}
+  pre{background:var(--code-bg);color:var(--code-ink);border-radius:12px;padding:16px 18px;
+    overflow:auto;font-size:13px;line-height:1.55;margin:14px 0}
+  pre code{background:none;color:inherit;padding:0;font-size:13px}
+  .cmt{color:#7d8aa5}
+  table{width:100%;border-collapse:collapse;margin:14px 0;font-size:14.5px}
+  th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--muted);font-size:13px;text-transform:uppercase;letter-spacing:.04em}
+  .pill{display:inline-block;background:#eef2f7;border-radius:20px;padding:2px 10px;font-size:12.5px;
+    color:var(--ink2);font-weight:600}
+  strong.k{color:var(--accent2)}
+  footer{margin-top:40px;text-align:center;color:var(--muted);font-size:13.5px}
+  .foot-cta{background:var(--card);border:1px dashed var(--accent);border-radius:14px;
+    padding:20px 22px;margin:30px 0 0}
+  a{color:var(--accent2)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="top">
+    <h1>WhatsApp (Gupshup) — Setup &amp; Go-Live</h1>
+    <div class="sub">The step-by-step to turn on <b>real</b> WhatsApp photo delivery</div>
+  </header>
+
+  <div class="lede">
+    <p><strong>You do</strong> — create a Gupshup account, get a WhatsApp Business number, and get
+      one message template approved (Steps 1–3). ~30–60 min of clicking, plus waiting on Meta's
+      template approval (minutes to a day).</p>
+    <p><strong>The app already has</strong> — the settings screen, the per-student "Send on
+      WhatsApp" button, the ≤5 MB image handling, the 12,000/school/month budget cap, opt-in +
+      audit logging. Everything runs on a built-in <em>fake</em> sender today (nothing goes out);
+      this guide flips it to live Gupshup.</p>
+  </div>
+
+  <div class="callout ok">
+    <span class="tag">✅ Adapter status — good news</span>
+    <p>The Gupshup adapter in the code has already been <strong>confirmed against Gupshup's current
+      public docs</strong> — the endpoint, the <code>apikey</code> auth, the form fields, the
+      template + image-header payload, and the response shape all match Gupshup's <b>self-serve</b>
+      WhatsApp API.</p>
+    <p><strong>The one thing you must get right:</strong> the <strong class="k">Template ID</strong>
+      you paste into the settings screen must be the template's <strong>UUID</strong> from Gupshup
+      (e.g. <code>c6aecef6-bcb0-4fb1-8100-28c094e3bc6b</code>), <em>not</em> its display name — see
+      Steps 3 &amp; 6.</p>
+    <p>The only thing that can't be tested without your live account is <strong>real
+      delivery</strong>. So once your key is set + a template approved, <strong>ping me and I'll
+      walk the smoke test with you</strong> (and patch anything the live API surprises us with). A
+      first-attempt error is possible — that's just the signal to look at the exact response
+      together.</p>
+  </div>
+
+  <h2>Prerequisites</h2>
+  <div class="step">
+    <ul>
+      <li>A <strong>business</strong> (Gupshup/Meta ask for a business name + basic details).</li>
+      <li>A <strong>phone number that is NOT currently on the WhatsApp or WhatsApp Business consumer
+        app</strong> — it becomes your sending number and must be free to register to a WhatsApp
+        Business Account (WABA). A cheap dedicated SIM / virtual number works.</li>
+      <li>Access to the backend's <code>.env</code> file (you edit it; it's gitignored — never
+        commit real secrets).</li>
+    </ul>
+  </div>
+
+  <h2>The setup</h2>
+
+  <div class="step">
+    <h3><span class="num">1</span> Create a Gupshup account + a WhatsApp app</h3>
+    <ol>
+      <li>Sign up at <a href="https://www.gupshup.io/">gupshup.io</a> and log in.</li>
+      <li>Create a new <strong>WhatsApp</strong> app/channel (Gupshup's "WhatsApp API" product).
+        Give it a name — this becomes your <strong class="k">app name</strong> (the adapter sends
+        it as the message source <code>src.name</code>).</li>
+      <li>Keep the dashboard open — you'll come back for the API key and the number.</li>
+    </ol>
+    <div class="callout tip">
+      <span class="tag">Tip</span>
+      <p>Gupshup offers a <strong>sandbox</strong> for quick testing to your own opted-in number
+        before a real number/template is fully live. Handy for a first smoke — but real
+        business-initiated photo messages need an approved template + a registered number
+        (Steps 2–3).</p>
+    </div>
+  </div>
+
+  <div class="step">
+    <h3><span class="num">2</span> Get a WhatsApp Business number</h3>
+    <ol>
+      <li>In the dashboard, start the <strong>"go live" / onboard a number</strong> flow — Gupshup
+        walks you through creating/linking a <strong>WhatsApp Business Account (WABA)</strong> via
+        Meta and registering your phone number to it.</li>
+      <li>Complete Meta <strong>business verification</strong> if prompted (raises your daily
+        limits; a number can start at a lower tier without it).</li>
+      <li>Note the number in <strong>E.164 digits only</strong> — no <code>+</code>, spaces, or
+        dashes — e.g. <code>919812345678</code> (India) or <code>15551234567</code> (US). This is
+        your <strong class="k">sender number</strong>.</li>
+    </ol>
+  </div>
+
+  <div class="step">
+    <h3><span class="num">3</span> Create + submit ONE message template</h3>
+    <p>Business-initiated messages ("here are your photos") require a <strong>pre-approved
+      template</strong>. Create exactly one:</p>
+    <ul>
+      <li><strong>Category:</strong> <span class="pill">Utility</span> (transactional) — <em>not</em>
+        Marketing. Utility is cheaper and approves faster.</li>
+      <li><strong>Header:</strong> <span class="pill">Media → Image</span> — this carries each
+        inline photo (the app fills in a fresh image link per photo at send time).</li>
+      <li><strong>Body:</strong> keep it minimal so it approves fast — either fully static
+        (e.g. <em>"Here are your event photos."</em>) or one/two variables. Fewer variables =
+        faster approval. <em>(The app currently sends the template with no body variables, so a
+        static body is the safest first template.)</em></li>
+      <li><strong>Buttons:</strong> none.</li>
+    </ul>
+    <div class="callout warn">
+      <span class="tag">⚠️ Copy the template ID, not the name</span>
+      <p>Once approved, <strong>copy the template's ID — a UUID</strong>
+        (e.g. <code>c6aecef6-bcb0-4fb1-8100-28c094e3bc6b</code>), shown next to the template in the
+        Gupshup template manager. You paste this <strong>ID (not the display name)</strong> into the
+        app — Gupshup matches the send by template UUID, so the name won't work.</p>
+    </div>
+  </div>
+
+  <div class="step">
+    <h3><span class="num">4</span> Get your API key</h3>
+    <p>In the Gupshup dashboard, find your <strong class="k">API key</strong> (account-level or
+      per-app). Treat it as a <strong>secret</strong> — it goes only in <code>.env</code>, never in
+      code, chat, or a commit.</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="num">5</span> Configure the backend (<code>.env</code>)</h3>
+    <p>Edit the backend <code>.env</code> (same file as <code>BE_DATABASE_URL</code> etc.):</p>
+<pre><code><span class="cmt"># Flip the provider from the built-in fake to real Gupshup:</span>
+BE_WHATSAPP_SENDER_IMPL=gupshup
+
+<span class="cmt"># The ONE platform secret (Step 4) — never commit this:</span>
+BE_WHATSAPP_API_KEY=&lt;your-gupshup-api-key&gt;
+
+<span class="cmt"># Gupshup API base + your app name (Step 1):</span>
+BE_WHATSAPP_BASE_URL=https://api.gupshup.io
+BE_WHATSAPP_APP_NAME=&lt;your-gupshup-app-name&gt;
+
+<span class="cmt"># The shared sender number (Step 2), E.164 digits only.</span>
+<span class="cmt"># A school can override this in its settings screen.</span>
+BE_WHATSAPP_DEFAULT_SENDER_NUMBER=&lt;e.g. 919812345678&gt;
+
+<span class="cmt"># (Optional — sane defaults already exist)</span>
+BE_WHATSAPP_MONTHLY_SEND_CAP=12000     <span class="cmt"># per school, per month</span>
+BE_WHATSAPP_IMAGE_MAX_BYTES=4800000    <span class="cmt"># keep each photo under 5 MB</span></code></pre>
+    <p>Then <strong>restart the backend</strong> so it picks up the new values.</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="num">6</span> Configure the school (in the app)</h3>
+    <p>Sign in as a <strong>school admin</strong> → <strong>WhatsApp</strong> in the left nav
+      (<code>/settings/whatsapp</code>):</p>
+    <ol>
+      <li><strong>Enable WhatsApp for this school</strong> — turn it on.</li>
+      <li><strong>Sender number</strong> — leave blank to use the shared number from
+        <code>.env</code>, or set this school's own registered number.</li>
+      <li><strong>Template ID</strong> — paste the approved template's <strong>UUID</strong> from
+        Step 3 (e.g. <code>c6aecef6-bcb0-4fb1-8100-28c094e3bc6b</code>), <strong>not</strong> its
+        display name.</li>
+      <li><strong>Business name</strong> — optional display label.</li>
+      <li>Save.</li>
+    </ol>
+  </div>
+
+  <div class="step">
+    <h3><span class="num">7</span> Prepare a test student (opt-in + number)</h3>
+    <p>The app <strong>only</strong> sends to a student who is <strong>opted in</strong> <em>and</em>
+      has a <strong>mobile number</strong>:</p>
+    <ol>
+      <li>Open a student's detail page → the <strong>WhatsApp</strong> row → <strong>Edit</strong>.</li>
+      <li>Set the <strong>mobile number</strong> to <strong>your own WhatsApp number</strong>
+        (E.164, e.g. <code>+91…</code>) for the test.</li>
+      <li>Check <strong>"Opted in to WhatsApp messages"</strong> → Save.</li>
+    </ol>
+    <div class="callout tip">
+      <span class="tag">Tip</span>
+      <p>For the very first test, message your business number from your own phone first (or use
+        Gupshup's sandbox opt-in) so your number is a known contact — avoids delivery being blocked
+        for lack of consent.</p>
+    </div>
+  </div>
+
+  <div class="step">
+    <h3><span class="num">8</span> The live smoke test</h3>
+    <ol>
+      <li>Make sure your test student <strong>appears in at least one photo</strong> (enrolled + an
+        event with their photo processed) — the "Send on WhatsApp" button is in their
+        <strong>"Appears in"</strong> section (and on the event gallery <strong>By student</strong>
+        tab).</li>
+      <li>Click <strong>"Send N on WhatsApp"</strong> → the confirm dialog shows the exact cost →
+        <strong>Send</strong>.</li>
+      <li><strong>Expected success:</strong> the message(s) arrive on your WhatsApp (one image per
+        photo); the toast reads <em>"Sent N of N."</em>; a send-log row is written per photo with a
+        provider message id.</li>
+      <li><strong>If it fails</strong> (a <code>502</code> / "failed"): send me the error and I'll
+        verify/patch the Gupshup call against the live docs.</li>
+    </ol>
+  </div>
+
+  <h2>Costs &amp; limits</h2>
+  <div class="step">
+    <table>
+      <tr><th>What</th><th>Detail</th></tr>
+      <tr><td><strong>Per photo</strong></td><td>1 photo = 1 WhatsApp message = 1 billed
+        conversation (images can't be batched into an album). A 30-student class of ~4 photos each
+        ≈ 120 messages.</td></tr>
+      <tr><td><strong>Budget cap</strong></td><td>12,000 sends per school per month by default
+        (successful sends only). Over the cap, remaining photos are cleanly skipped
+        ("monthly WhatsApp limit reached"). Raise it via
+        <code>BE_WHATSAPP_MONTHLY_SEND_CAP</code>.</td></tr>
+      <tr><td><strong>Billing</strong></td><td>On the platform (your Gupshup account); schools don't
+        pay per message. Utility-template pricing is the cheaper tier.</td></tr>
+      <tr><td><strong>Privacy</strong></td><td>A recipient's phone number is never logged, stored in
+        the audit row, or returned by the API (redacted even in errors).</td></tr>
+    </table>
+  </div>
+
+  <h2>Known v1 limits</h2>
+  <div class="step">
+    <ul>
+      <li><strong>No auto re-try dedupe:</strong> re-sending after a partial failure re-sends the
+        photos that already went (and re-bills them). The button is disabled while a send is in
+        flight, so no accidental double-clicks.</li>
+      <li><strong>Send is per-student</strong> (pick a student, send their photos). "Send to
+        everyone in an event" is a future phase (W3c).</li>
+      <li><strong>Compressed image copies aren't auto-deleted</strong> — run the cleanup CLI
+        periodically (<code>python -m backend.cli.reap_whatsapp_variants</code>); a compose comment
+        documents it.</li>
+    </ul>
+  </div>
+
+  <div class="foot-cta">
+    <strong>When you're ready</strong> — get through Steps 1–3 (account + number + an approved
+    template), then ping me with your <strong>API key set in <code>.env</code></strong> and the
+    <strong>Template ID (UUID)</strong>. I'll confirm the adapter against the live API, patch it if
+    needed, and walk the smoke test with you. That's the last mile to real delivery.
+  </div>
+
+  <footer>Photos · WhatsApp delivery setup · generated for the owner</footer>
+
+</div>
+</body>
+</html>

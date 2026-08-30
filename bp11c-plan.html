@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>BP11c — Teacher delegation · plan explainer</title>
+<style>
+  :root{
+    --bg:#0b0e14; --panel:#121722; --panel2:#1a2130; --ink:#e6e9f0; --muted:#9aa4b8;
+    --line:#26304a; --accent:#6ea8fe; --accent2:#8b5cff; --green:#5bd6a3; --amber:#f0c674;
+    --red:#f2777a; --pill:#223048; --code:#0f1420;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:linear-gradient(180deg,#0b0e14,#0c1018 60%,#0b0e14);color:var(--ink);
+    font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
+  .wrap{max-width:980px;margin:0 auto;padding:40px 24px 90px}
+  header.hero{border:1px solid var(--line);border-radius:16px;padding:30px 32px;
+    background:radial-gradient(1200px 300px at 10% -10%,rgba(110,168,254,.18),transparent),var(--panel)}
+  .tag{display:inline-block;font-size:12px;letter-spacing:.12em;text-transform:uppercase;
+    color:var(--accent);background:rgba(110,168,254,.1);border:1px solid rgba(110,168,254,.35);
+    padding:4px 10px;border-radius:999px;margin-bottom:14px}
+  h1{margin:.1em 0 .2em;font-size:30px;letter-spacing:-.02em}
+  h2{margin:44px 0 14px;font-size:22px;letter-spacing:-.01em;padding-bottom:8px;border-bottom:1px solid var(--line)}
+  h3{margin:26px 0 10px;font-size:17px;color:#cdd6ea}
+  p{color:#d3d9e6}
+  .lead{font-size:17px;color:#c6cfe0}
+  .muted{color:var(--muted)}
+  .grid{display:grid;gap:14px}
+  .cols-2{grid-template-columns:1fr 1fr}
+  .cols-3{grid-template-columns:1fr 1fr 1fr}
+  @media(max-width:760px){.cols-2,.cols-3{grid-template-columns:1fr}}
+  .card{border:1px solid var(--line);border-radius:12px;padding:16px 18px;background:var(--panel)}
+  .card h4{margin:0 0 8px;font-size:15px}
+  .card.good{border-color:rgba(91,214,163,.4)}
+  .card.warn{border-color:rgba(240,198,116,.35)}
+  .card.no{border-color:rgba(242,119,122,.35)}
+  .pill{display:inline-block;background:var(--pill);border:1px solid var(--line);border-radius:999px;
+    padding:2px 10px;font-size:12.5px;color:#cdd6ea;margin:2px 4px 2px 0}
+  .pill.g{background:rgba(91,214,163,.12);border-color:rgba(91,214,163,.4);color:#bff0d8}
+  .pill.a{background:rgba(240,198,116,.12);border-color:rgba(240,198,116,.4);color:#f4e2b8}
+  .pill.b{background:rgba(110,168,254,.12);border-color:rgba(110,168,254,.4);color:#cfe0ff}
+  code,kbd{font-family:"SF Mono",ui-monospace,Menlo,Consolas,monospace;font-size:13px}
+  code.inline{background:var(--code);border:1px solid var(--line);border-radius:6px;padding:1px 6px;color:#dfe6f5}
+  pre{background:var(--code);border:1px solid var(--line);border-radius:10px;padding:14px 16px;overflow:auto;
+    font-family:"SF Mono",ui-monospace,Menlo,Consolas,monospace;font-size:12.7px;color:#d8e0f2;line-height:1.5}
+  .kw{color:#8bb5ff}.st{color:#7fe0b0}.cm{color:#7c88a1}.nm{color:#f0c674}
+  table{border-collapse:collapse;width:100%;margin:10px 0;font-size:13.5px}
+  th,td{border:1px solid var(--line);padding:8px 10px;text-align:left;vertical-align:top}
+  th{background:var(--panel2);color:#cdd6ea;font-weight:600}
+  .diagram{border:1px solid var(--line);border-radius:12px;background:var(--panel2);padding:20px;margin:14px 0}
+  .flow{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:center}
+  .node{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 14px;font-size:13px;text-align:center}
+  .node .t{font-size:11px;color:var(--muted);letter-spacing:.06em;text-transform:uppercase}
+  .node b{display:block;font-size:14px;margin-top:2px}
+  .arrow{color:var(--accent);font-size:20px}
+  .arrow.dn{width:100%;text-align:center}
+  .callout{border-left:3px solid var(--accent);background:rgba(110,168,254,.07);padding:12px 16px;border-radius:0 10px 10px 0;margin:14px 0}
+  .callout.g{border-color:var(--green);background:rgba(91,214,163,.07)}
+  .callout.a{border-color:var(--amber);background:rgba(240,198,116,.07)}
+  .callout.r{border-color:var(--red);background:rgba(242,119,122,.07)}
+  ul{padding-left:20px}li{margin:5px 0}
+  .step{display:flex;gap:14px;margin:12px 0}
+  .step .n{flex:0 0 30px;height:30px;border-radius:50%;background:rgba(110,168,254,.15);border:1px solid rgba(110,168,254,.5);
+    display:flex;align-items:center;justify-content:center;font-weight:700;color:#cfe0ff;font-size:14px}
+  .step .b{flex:1}
+  .tbl-mini td{padding:5px 8px}
+  .legend{font-size:12.5px;color:var(--muted);margin-top:8px}
+  .filerow{display:flex;justify-content:space-between;gap:10px;padding:7px 0;border-bottom:1px dashed var(--line)}
+  .filerow:last-child{border-bottom:0}
+  .filerow code{color:#cfe0ff}
+  .filerow .k{font-size:12px;color:var(--muted);white-space:nowrap}
+  .toc{display:flex;flex-wrap:wrap;gap:8px;margin:18px 0 6px}
+  .toc a{font-size:13px;color:#cfe0ff;text-decoration:none;border:1px solid var(--line);padding:4px 10px;border-radius:8px;background:var(--panel)}
+  .toc a:hover{border-color:var(--accent)}
+  .mini{font-size:12.5px;color:var(--muted)}
+  hr{border:0;border-top:1px solid var(--line);margin:30px 0}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <span class="tag">BP11 · slice c of 3 · the last one</span>
+  <h1>Teacher delegation</h1>
+  <p class="lead">Give each teacher <b>their own classes</b> — so their students and events lists open
+  focused on the kids they actually teach, instead of the whole 800-student school. The final piece of
+  BP11's "organizing structure."</p>
+  <div style="margin-top:10px">
+    <span class="pill b">BP11a: student classes ✓</span>
+    <span class="pill b">BP11b: event terms/categories + calendar ✓</span>
+    <span class="pill g">BP11c: teacher delegation ← this</span>
+  </div>
+</header>
+
+<div class="toc">
+  <a href="#what">The plain-English idea</a>
+  <a href="#decisions">Your 3 decisions</a>
+  <a href="#model">Data model</a>
+  <a href="#focus">How "focus" works</a>
+  <a href="#events">The event↔class link</a>
+  <a href="#ui">What you'll see</a>
+  <a href="#files">Files & endpoints</a>
+  <a href="#notin">Not in scope</a>
+  <a href="#verify">How we verify</a>
+</div>
+
+<h2 id="what">The plain-English idea</h2>
+<p>Right now a teacher who logs in sees <b>every</b> student and <b>every</b> event in the school — one
+flat 800-row list. There's no notion of "these are <i>my</i> classes." BP11c adds that:</p>
+
+<div class="grid cols-3">
+  <div class="card">
+    <h4>1 · Assign</h4>
+    <p class="mini">A school admin links teachers to the classes (from BP11a) they teach. A teacher can
+    own several classes; a class can have several teachers.</p>
+  </div>
+  <div class="card">
+    <h4>2 · Focus</h4>
+    <p class="mini">When that teacher opens Students or Events, the list <b>defaults to their classes</b>
+    — the kids and events they care about — with a one-tap switch to see the whole school.</p>
+  </div>
+  <div class="card">
+    <h4>3 · Tag events</h4>
+    <p class="mini">An event can optionally belong to a class ("Grade 3B trip"). Untagged events
+    ("Sports Day") stay school-wide and show up for everyone.</p>
+  </div>
+</div>
+
+<div class="callout g">
+  <b>The gentle version.</b> You chose <b>focus, not lockdown</b>: delegation is a helpful default, not a
+  wall. A teacher can always flip to "All students / All events." That means BP11c adds <b>no new security
+  boundary</b> — a teacher could already see the whole school, so there's nothing to bypass — and tenant
+  isolation (one school never sees another) is completely unchanged.
+</div>
+
+<h2 id="decisions">The 3 decisions you locked</h2>
+<div class="grid cols-3">
+  <div class="card good">
+    <h4>Scope <span class="pill g">chosen</span></h4>
+    <p class="mini"><b>Students + events.</b> We add the optional event↔class link that BP11b deferred to
+    here — so a focused teacher sees their classes' students <i>and</i> their classes' events (plus
+    school-wide untagged events).</p>
+  </div>
+  <div class="card good">
+    <h4>Assign UI <span class="pill g">chosen</span></h4>
+    <p class="mini"><b>Both surfaces.</b> "Assign teachers" on a class's detail page <i>and</i> an
+    editable "classes" chip on each teacher's staff row — two doors to the same link.</p>
+  </div>
+  <div class="card good">
+    <h4>Strictness <span class="pill g">chosen</span></h4>
+    <p class="mini"><b>Focus filter only.</b> A soft "My classes / All" default. <i>No</i> hard restrict
+    switch, no new user column — the simplest, safest slice.</p>
+  </div>
+</div>
+
+<h2 id="model">Data model — one new table + one new column</h2>
+<p>Everything mirrors the patterns BP11a and BP11b already established. This is <b>migration 0015</b>
+(head is 0014), verified up→down→up on a throwaway Postgres — never the dev database.</p>
+
+<div class="diagram">
+  <div class="flow">
+    <div class="node"><span class="t">existing</span><b>users</b><span class="mini">role=teacher</span></div>
+    <span class="arrow">→</span>
+    <div class="node" style="border-color:rgba(91,214,163,.5)"><span class="t">NEW join table</span><b>teacher_classes</b>
+      <span class="mini">teacher ↔ class (N:M)</span></div>
+    <span class="arrow">←</span>
+    <div class="node"><span class="t">existing (BP11a)</span><b>student_groups</b><span class="mini">a class</span></div>
+  </div>
+  <div class="arrow dn" style="margin:8px 0">↑ SET-based</div>
+  <div class="flow">
+    <div class="node"><span class="t">existing</span><b>events</b></div>
+    <span class="arrow">→</span>
+    <div class="node" style="border-color:rgba(240,198,116,.5)"><span class="t">NEW column</span><b>events.student_group_id</b>
+      <span class="mini">nullable · SET NULL</span></div>
+    <span class="arrow">→</span>
+    <div class="node"><b>student_groups</b><span class="mini">a class (optional)</span></div>
+  </div>
+</div>
+
+<h3>New table <code class="inline">teacher_classes</code></h3>
+<pre><span class="kw">CREATE TABLE</span> teacher_classes (
+  id               uuid  <span class="kw">PRIMARY KEY</span>,
+  school_id        uuid  <span class="kw">NOT NULL REFERENCES</span> schools(id)         <span class="kw">ON DELETE CASCADE</span>,
+  teacher_user_id  uuid  <span class="kw">NOT NULL REFERENCES</span> users(id)           <span class="kw">ON DELETE CASCADE</span>,
+  student_group_id uuid  <span class="kw">NOT NULL REFERENCES</span> student_groups(id)  <span class="kw">ON DELETE CASCADE</span>,
+  created_at       timestamptz <span class="kw">NOT NULL</span>,
+  <span class="kw">UNIQUE</span> (teacher_user_id, student_group_id)   <span class="cm">-- can't double-assign</span>
+);
+<span class="cm">-- indexes both directions: (school_id, teacher_user_id) and (school_id, student_group_id)</span></pre>
+<p class="mini"><b>CASCADE</b> on both foreign keys: delete a teacher <i>or</i> delete a class and the link
+just vanishes — no orphans, no student/teacher ever deleted as a side effect.</p>
+
+<h3>New column <code class="inline">events.student_group_id</code></h3>
+<p class="mini">A nullable FK → <code class="inline">student_groups</code>, <b>ON DELETE SET NULL</b> —
+exactly like BP11b's <code class="inline">events.category_id</code>. Deleting a class un-tags its events,
+never deletes them. The class <i>name</i> is denormalized onto the event read model via a LEFT JOIN
+(like <code class="inline">category_name</code>), so lists show a class badge with no extra fetch.</p>
+
+<h2 id="focus">How "focus" works (the request flow)</h2>
+<p>A teacher's list request carries a small flag <code class="inline">mine=true</code> (the FE sends it by
+default; the "All" toggle drops it). The server does the class math so a teacher with 3 classes gets the
+<b>union</b> of all three in one page:</p>
+
+<div class="diagram">
+  <div class="step"><div class="n">1</div><div class="b"><b>Teacher opens Students</b> → FE calls
+    <code class="inline">GET /v1/students?mine=true</code></div></div>
+  <div class="step"><div class="n">2</div><div class="b"><b>Router</b> sees the actor is a teacher +
+    <code class="inline">mine=true</code> → looks up <i>their</i> assigned class ids from
+    <code class="inline">teacher_classes</code></div></div>
+  <div class="step"><div class="n">3</div><div class="b"><b>Listing service</b> adds a scope:
+    <code class="inline">student_group_id IN (my class ids)</code> — ANDed under the existing school
+    tenant scope</div></div>
+  <div class="step"><div class="n">4</div><div class="b"><b>One bounded page</b> comes back — only the
+    teacher's kids. Flip to "All" (<code class="inline">mine</code> dropped) → the full school list, exactly
+    as today</div></div>
+</div>
+
+<table class="tbl-mini">
+  <tr><th>View</th><th>Students shown</th><th>Events shown</th></tr>
+  <tr><td><b>Teacher · My classes</b> (default)</td><td>only students in my classes</td>
+    <td>events tagged to my classes <b>+ untagged school-wide events</b></td></tr>
+  <tr><td><b>Teacher · All</b> (toggle)</td><td>every student (as today)</td><td>every event (as today)</td></tr>
+  <tr><td><b>School admin</b></td><td>every student (<code class="inline">mine</code> ignored)</td>
+    <td>every event</td></tr>
+</table>
+
+<div class="callout a">
+  <b>One deliberate asymmetry.</b> A focused teacher's <b>events</b> include untagged (school-wide) events —
+  a school assembly concerns everyone. But their <b>students</b> do <i>not</i> include un-classed students —
+  a student who isn't in any class isn't "yours." Both are the intuitive reading; we document it.
+</div>
+
+<h2 id="events">The event↔class link</h2>
+<p>This is the piece BP11b explicitly parked here. It's small — it copies BP11b's own category machinery:</p>
+<div class="grid cols-2">
+  <div class="card">
+    <h4>On the backend</h4>
+    <ul class="mini" style="margin:0">
+      <li><code class="inline">events.student_group_id</code> (nullable, SET NULL)</li>
+      <li>create/edit thread the class id (a foreign class → 404; can't be cleared via PATCH, same
+        None-means-unchanged rule as category/term)</li>
+      <li>a class filter + the focus scope on the events list — through both the row-native and count-sort
+        paths (the BP9 pattern)</li>
+      <li>the class <i>name</i> LEFT-JOINed onto the read model</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h4>On the frontend</h4>
+    <ul class="mini" style="margin:0">
+      <li>a class <code class="inline">&lt;select&gt;</code> on the create/edit event dialogs (optional —
+        "No class / school-wide" default)</li>
+      <li>a class badge on the events list + detail</li>
+      <li>a class filter on the events list (alongside category/term)</li>
+      <li>the "My classes / All" focus toggle (teachers only)</li>
+    </ul>
+  </div>
+</div>
+
+<h2 id="ui">What you'll actually see</h2>
+
+<h3>School admin — assigning teachers (both doors)</h3>
+<div class="grid cols-2">
+  <div class="card">
+    <h4>Door A · Class detail</h4>
+    <pre style="font-size:12px">Grade 3B                    [Edit] [Delete]
+──────────────────────────────────────
+Teachers   Ms. Khan  Mr. Roy   <b>[+ Assign]</b>
+Students   28 in this class
+  Aisha K.     …   Ravi P.   …</pre>
+    <p class="mini">An "Assign teachers" dialog — a searchable teacher picker (reuses BP11a's inline
+    pattern), multi-select, bulk-assign.</p>
+  </div>
+  <div class="card">
+    <h4>Door B · Staff row</h4>
+    <pre style="font-size:12px">Teacher            Classes         Status
+──────────────────────────────────────────
+ms.khan@…       <b>Grade 3B, 4A [Edit]</b>  Active
+mr.roy@…        Grade 3B     [Edit]  Active
+new.teach@…     — none —     [Edit]  Active</pre>
+    <p class="mini">Same link from the teacher's side — an "Edit classes" dialog with a multi-select of
+    the school's classes.</p>
+  </div>
+</div>
+
+<h3>Teacher — the focused lists</h3>
+<div class="card">
+<pre style="font-size:12px">Students          <b>[● My classes]  [ All ]</b>        Search…  Sort ▾
+────────────────────────────────────────────────────────
+Showing 28 of 28 in your classes
+  Aisha K.    Grade 3B   ● enrolled
+  Ravi P.     Grade 3B   ● enrolled
+  …           <span class="cm">(flip to "All" → the full 800-student school list)</span></pre>
+</div>
+<p class="mini">Same toggle on Events. The existing per-class dropdown, status chips, search and sort all
+still work and combine with the focus scope.</p>
+
+<h2 id="files">Files &amp; endpoints (the build surface)</h2>
+
+<h3>New backend endpoints</h3>
+<table class="tbl-mini">
+  <tr><th>Endpoint</th><th>Who</th><th>Does</th></tr>
+  <tr><td><code>GET /v1/classes/{id}/teachers</code></td><td class="mini">admin</td><td class="mini">list a class's teachers</td></tr>
+  <tr><td><code>POST /v1/classes/{id}/teachers</code></td><td class="mini">admin</td><td class="mini">bulk-assign teachers to a class</td></tr>
+  <tr><td><code>DELETE /v1/classes/{id}/teachers/{tid}</code></td><td class="mini">admin</td><td class="mini">remove one teacher</td></tr>
+  <tr><td><code>GET /v1/staff/{id}/classes</code></td><td class="mini">admin</td><td class="mini">list a teacher's classes</td></tr>
+  <tr><td><code>PUT /v1/staff/{id}/classes</code></td><td class="mini">admin</td><td class="mini">set a teacher's whole class set</td></tr>
+  <tr><td><code>GET /v1/me/classes</code></td><td class="mini">teacher</td><td class="mini">the teacher's own classes (labels the focus)</td></tr>
+  <tr><td><code>GET /v1/students?mine=true</code></td><td class="mini">teacher</td><td class="mini">focus scope (existing route, new param)</td></tr>
+  <tr><td><code>GET /v1/events?mine=true &amp; student_group_id=…</code></td><td class="mini">teacher</td><td class="mini">focus scope + class filter/tag</td></tr>
+</table>
+<p class="mini">Assignment is admin-only — it reuses BP11a's <code class="inline">class:manage</code>
+permission (no new permission). Reads &amp; focus ride on the existing <code class="inline">student:manage</code>
+/ <code class="inline">event:manage</code>. A foreign class or non-teacher target → <b>404</b> (never leaks
+existence), a duplicate assignment is a no-op.</p>
+
+<h3>Backend files</h3>
+<div class="card">
+  <div class="filerow"><code>db/migrations/versions/0015_teacher_classes.py</code><span class="k">new · table + events column</span></div>
+  <div class="filerow"><code>domain/models.py</code><span class="k">TeacherClass VO · Event.student_group_id/name</span></div>
+  <div class="filerow"><code>db/models.py</code><span class="k">TeacherClass ORM · events col + index</span></div>
+  <div class="filerow"><code>domain/ports.py</code><span class="k">TeacherClassRepository · EventRepo scope params</span></div>
+  <div class="filerow"><code>adapters/repositories/postgres_teacher_classes.py</code><span class="k">new</span></div>
+  <div class="filerow"><code>adapters/repositories/postgres_events.py</code><span class="k">class LEFT JOIN + filter + scope</span></div>
+  <div class="filerow"><code>services/delegation_service.py</code><span class="k">new · assign/list/remove + validation</span></div>
+  <div class="filerow"><code>services/listing_service.py</code><span class="k">thread the focus scope</span></div>
+  <div class="filerow"><code>api/routers/{classes,staff,events,students,me}.py</code><span class="k">the routes above</span></div>
+  <div class="filerow"><code>wiring/{registry,container}.py + main.py</code><span class="k">wire the repo/service</span></div>
+</div>
+
+<h3>Frontend files</h3>
+<div class="card">
+  <div class="filerow"><code>app/(school)/classes/[classId]/page.tsx</code><span class="k">"Assign teachers" dialog + roster</span></div>
+  <div class="filerow"><code>app/(school)/staff/page.tsx</code><span class="k">classes chip + "Edit classes" dialog</span></div>
+  <div class="filerow"><code>app/(school)/students/page.tsx</code><span class="k">"My classes / All" focus toggle (teacher)</span></div>
+  <div class="filerow"><code>app/(school)/events/page.tsx + [eventId]/page.tsx</code><span class="k">focus toggle · class select/badge/filter</span></div>
+  <div class="filerow"><code>lib/hooks/use-my-classes.ts, use-teacher-classes.ts</code><span class="k">new</span></div>
+  <div class="filerow"><code>lib/api/{types,endpoints}.ts · use-infinite-list.ts</code><span class="k">mine flag · new endpoints · event class</span></div>
+</div>
+
+<h2 id="notin">Deliberately NOT in scope</h2>
+<div class="grid cols-2">
+  <div class="card no">
+    <h4>✗ Hard "restrict" lockdown</h4>
+    <p class="mini">You chose focus-only. No server-enforced wall, no <code class="inline">users</code>
+    restrict column. A teacher can always view all. (A future opt-in restrict is a documented follow-up.)</p>
+  </div>
+  <div class="card no">
+    <h4>✗ Any ML / matching change</h4>
+    <p class="mini">Cohort-scoped <i>matching</i> (narrowing face search to a grade) stays deferred to
+    <b>BP15</b>. Classes remain organizational only — the ML <code class="inline">matches</code> seam is
+    never touched.</p>
+  </div>
+  <div class="card no">
+    <h4>✗ Assign at create/import time</h4>
+    <p class="mini">Teachers are linked from the two management surfaces; wiring class-assignment into the
+    create-teacher / CSV flows is a small future add (same as BP11a chose for students).</p>
+  </div>
+  <div class="card no">
+    <h4>✗ Multi-class events</h4>
+    <p class="mini">An event belongs to at most one class (or none = school-wide), mirroring one-class-per-student.
+    Multi-tag is a documented future extension.</p>
+  </div>
+</div>
+
+<h2 id="verify">How we verify (before you see it)</h2>
+<div class="grid cols-2">
+  <div class="card">
+    <h4>Gates</h4>
+    <ul class="mini" style="margin:0">
+      <li>Backend: <code class="inline">ruff</code> + <code class="inline">mypy</code> + full
+        <code class="inline">pytest</code> + the layering grep</li>
+      <li>Frontend: <code class="inline">lint</code> + <code class="inline">tsc --noEmit</code> +
+        <code class="inline">next build</code></li>
+      <li>Migration 0015 up→down→up on a <b>throwaway</b> Postgres (dev <code class="inline">app</code> DB
+        untouched)</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h4>Tests</h4>
+    <ul class="mini" style="margin:0">
+      <li>new <code class="inline">test_bp11c_delegation.py</code>: assign/list/remove, the N:M unique,
+        CASCADE on teacher/class delete, foreign/non-teacher 404s, the focus scope (union of classes) on
+        both lists, event↔class tag + filter, tenant isolation</li>
+      <li>a gated real-Postgres round-trip (join CRUD + CASCADE + the scope SQL)</li>
+      <li>2× review→fix loop (R1 correctness/security/async · R2 edges/a11y/coverage), gate green after each</li>
+    </ul>
+  </div>
+</div>
+
+<hr/>
+<p class="muted" style="text-align:center">
+  This is the plan for your review — <b>no code has been written yet.</b> Say the word and I'll build it:
+  migration → backend → frontend → gate green → 2× review → stop for your review. Nothing is committed
+  without you asking.
+</p>
+
+</div>
+</body>
+</html>

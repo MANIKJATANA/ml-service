@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>BP14 — Program analytics & trends · plan explainer</title>
+<style>
+  :root{
+    --bg:#0b0e14; --panel:#121722; --panel2:#1a2130; --ink:#e6e9f0; --muted:#9aa4b8;
+    --line:#26304a; --accent:#6ea8fe; --green:#5bd6a3; --amber:#f0c674; --red:#f2777a; --pill:#223048; --code:#0f1420;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:linear-gradient(180deg,#0b0e14,#0c1018 60%,#0b0e14);color:var(--ink);
+    font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
+  .wrap{max-width:980px;margin:0 auto;padding:40px 24px 90px}
+  header.hero{border:1px solid var(--line);border-radius:16px;padding:30px 32px;
+    background:radial-gradient(1200px 300px at 10% -10%,rgba(110,168,254,.18),transparent),var(--panel)}
+  .tag{display:inline-block;font-size:12px;letter-spacing:.12em;text-transform:uppercase;
+    color:var(--accent);background:rgba(110,168,254,.1);border:1px solid rgba(110,168,254,.35);
+    padding:4px 10px;border-radius:999px;margin-bottom:14px}
+  h1{margin:.1em 0 .2em;font-size:30px;letter-spacing:-.02em}
+  h2{margin:44px 0 14px;font-size:22px;letter-spacing:-.01em;padding-bottom:8px;border-bottom:1px solid var(--line)}
+  h3{margin:26px 0 10px;font-size:17px;color:#cdd6ea}
+  p{color:#d3d9e6}
+  .lead{font-size:17px;color:#c6cfe0}
+  .muted{color:var(--muted)}
+  .grid{display:grid;gap:14px}
+  .cols-2{grid-template-columns:1fr 1fr}
+  .cols-3{grid-template-columns:1fr 1fr 1fr}
+  @media(max-width:760px){.cols-2,.cols-3{grid-template-columns:1fr}}
+  .card{border:1px solid var(--line);border-radius:12px;padding:16px 18px;background:var(--panel)}
+  .card h4{margin:0 0 8px;font-size:15px}
+  .card.good{border-color:rgba(91,214,163,.4)}
+  .card.no{border-color:rgba(242,119,122,.35)}
+  .pill{display:inline-block;background:var(--pill);border:1px solid var(--line);border-radius:999px;
+    padding:2px 10px;font-size:12.5px;color:#cdd6ea;margin:2px 4px 2px 0}
+  .pill.g{background:rgba(91,214,163,.12);border-color:rgba(91,214,163,.4);color:#bff0d8}
+  .pill.b{background:rgba(110,168,254,.12);border-color:rgba(110,168,254,.4);color:#cfe0ff}
+  .pill.a{background:rgba(240,198,116,.12);border-color:rgba(240,198,116,.4);color:#f4e2b6}
+  code,kbd{font-family:"SF Mono",ui-monospace,Menlo,Consolas,monospace;font-size:13px}
+  code.inline{background:var(--code);border:1px solid var(--line);border-radius:6px;padding:1px 6px;color:#dfe6f5}
+  pre{background:var(--code);border:1px solid var(--line);border-radius:10px;padding:14px 16px;overflow:auto;
+    font-family:"SF Mono",ui-monospace,Menlo,Consolas,monospace;font-size:12.7px;color:#d8e0f2;line-height:1.5}
+  .cm{color:#7c88a1}
+  table{border-collapse:collapse;width:100%;margin:10px 0;font-size:13.5px}
+  th,td{border:1px solid var(--line);padding:8px 10px;text-align:left;vertical-align:top}
+  th{background:var(--panel2);color:#cdd6ea;font-weight:600}
+  .diagram{border:1px solid var(--line);border-radius:12px;background:var(--panel2);padding:20px;margin:14px 0}
+  .callout{border-left:3px solid var(--accent);background:rgba(110,168,254,.07);padding:12px 16px;border-radius:0 10px 10px 0;margin:14px 0}
+  .callout.g{border-color:var(--green);background:rgba(91,214,163,.07)}
+  .callout.a{border-color:var(--amber);background:rgba(240,198,116,.07)}
+  ul{padding-left:20px}li{margin:5px 0}
+  .step{display:flex;gap:14px;margin:12px 0}
+  .step .n{flex:0 0 30px;height:30px;border-radius:50%;background:rgba(110,168,254,.15);border:1px solid rgba(110,168,254,.5);
+    display:flex;align-items:center;justify-content:center;font-weight:700;color:#cfe0ff;font-size:14px}
+  .step .b{flex:1}
+  .filerow{display:flex;justify-content:space-between;gap:10px;padding:7px 0;border-bottom:1px dashed var(--line)}
+  .filerow:last-child{border-bottom:0}
+  .filerow code{color:#cfe0ff}
+  .filerow .k{font-size:12px;color:var(--muted);white-space:nowrap}
+  .toc{display:flex;flex-wrap:wrap;gap:8px;margin:18px 0 6px}
+  .toc a{font-size:13px;color:#cfe0ff;text-decoration:none;border:1px solid var(--line);padding:4px 10px;border-radius:8px;background:var(--panel)}
+  .toc a:hover{border-color:var(--accent)}
+  .mini{font-size:12.5px;color:var(--muted)}
+  hr{border:0;border-top:1px solid var(--line);margin:30px 0}
+  .mock{font-size:12px;line-height:1.55}
+  .bar{display:inline-block;height:10px;border-radius:3px;background:var(--accent);vertical-align:middle}
+  .barwrap{display:flex;align-items:center;gap:8px;margin:3px 0}
+  .barwrap .lab{width:64px;font-size:11.5px;color:var(--muted);text-align:right}
+  .funnel{font-size:12px;line-height:1.7}
+  .g2{color:var(--green)}.a2{color:var(--amber)}.r2{color:var(--red)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <span class="tag">Round 2 · BP14 · program analytics</span>
+  <h1>Program analytics &amp; trends</h1>
+  <p class="lead">Turn the dashboards from a <i>snapshot</i> ("you have 812 students") into a <i>program view</i>:
+  how distribution went this term, how many students have actually signed in, and — for you as the operator —
+  which schools adopted and which stalled.</p>
+  <div style="margin-top:10px">
+    <span class="pill b">Reuses BP1/BP2 aggregates</span>
+    <span class="pill g">Query-only trends</span>
+    <span class="pill a">1 tiny migration: users.last_login_at</span>
+  </div>
+</header>
+
+<div class="toc">
+  <a href="#why">The problem</a>
+  <a href="#decisions">Your 3 decisions</a>
+  <a href="#school">1 · School analytics</a>
+  <a href="#estate">2 · Estate / adoption</a>
+  <a href="#login">The one new column</a>
+  <a href="#how">How it works</a>
+  <a href="#files">Files &amp; endpoints</a>
+  <a href="#notin">Not in scope</a>
+  <a href="#verify">Verification</a>
+</div>
+
+<h2 id="why">The problem</h2>
+<p>Every dashboard we have is a <b>point-in-time count</b> — "340 enrolled, 47 events, 5,102 photos." That's
+the <i>state</i>, not the <i>program</i>. The people accountable for the program can't answer the questions
+they actually have:</p>
+<div class="grid cols-2">
+  <div class="card">
+    <h4>School admin can't ask…</h4>
+    <ul class="mini" style="margin:0">
+      <li>"How did distribution go <b>this term</b>?"</li>
+      <li>"How many of my 800 students have <b>ever signed in</b>?"</li>
+      <li>"Which events actually <b>reached</b> their audience?"</li>
+      <li>"Are we uploading more or fewer photos month over month?"</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h4>Platform admin (you) can't ask…</h4>
+    <ul class="mini" style="margin:0">
+      <li>"Which schools <b>adopted</b> — and which <b>stalled</b>?"</li>
+      <li>A school that imported 800 students and <b>enrolled zero</b> looks
+        <i>identical</i> on the estate list to a thriving one.</li>
+      <li>"Where's the drop-off — staff, enrollment, events, or delivery?"</li>
+    </ul>
+  </div>
+</div>
+<p>BP14 adds the <b>rate + trend + funnel</b> framing on top of the counting machinery BP1/BP2 already built.
+Almost all of it is <b>query-only</b> — we group rows we already stamp (photos by upload date, events by term,
+"seen" reads vs announced). The <i>one</i> thing we don't record today is a <b>sign-in</b>, so that gets one
+tiny new column.</p>
+
+<h2 id="decisions">The 3 decisions you locked</h2>
+<div class="grid cols-3">
+  <div class="card good">
+    <h4>Trends approach <span class="pill g">chosen</span></h4>
+    <p class="mini"><b>Derived from timestamps</b> — group the rows we already have into buckets + rates.
+    No snapshot table, no background job. (Trade-off: trends cover timestamped things like uploads &amp;
+    distribution; "enrolled" is shown as a <i>current funnel</i>, not a historical line — nobody stored
+    yesterday's enrolled count.)</p>
+  </div>
+  <div class="card good">
+    <h4>Sign-in metric <span class="pill g">chosen</span></h4>
+    <p class="mini"><b>Add <code>users.last_login_at</code></b> — one nullable column (migration
+    <code class="inline">0016</code>) + a one-line write on login. Powers "ever signed in" and an engagement
+    rate at both tiers.</p>
+  </div>
+  <div class="card good">
+    <h4>Scope <span class="pill g">chosen</span></h4>
+    <p class="mini"><b>Both tiers in one phase</b> — the school-admin analytics page <i>and</i> the platform
+    per-school adoption funnel + stalled-school flag. One decisions record (<code class="inline">0062</code>).</p>
+  </div>
+</div>
+
+<h2 id="school">1 · School analytics — the program view</h2>
+<p>A new <b>Analytics</b> page (school admin + teacher, same permission as the dashboard). Three rate cards up
+top, a per-term table, and a simple month-by-month trend — all built from data we already have plus the new
+sign-in signal.</p>
+
+<div class="card" style="margin:14px 0">
+<pre class="mock">Analytics · Greenfield School
+
+  ┌─ Delivery rate ─────┐  ┌─ Sign-in rate ──────┐  ┌─ Engagement ────────┐
+  │      <b>78%</b>            │  │      <b>41%</b>            │  │      <b>63%</b>            │
+  │  37 of 47 events    │  │  <b>331</b> of 812 students  │  │  seen ≥1 of what    │
+  │  announced          │  │  have ever signed in│  │  reached them       │
+  └─────────────────────┘  └─────────────────────┘  └─────────────────────┘
+
+  By term                                     Photos uploaded / month
+  ─────────────────────────────────           ─────────────────────────────
+  Term 1   22 events · 3.1k photos · 91%       Mar ▇▇▇▇▇▇▇▇▇▇  1,204
+  Term 2   18 events · 1.6k photos · 72%       Apr ▇▇▇▇▇▇▇      812
+  Term 3    7 events · 0.4k photos · 40%       May ▇▇▇▇▇▇▇▇▇▇▇▇ 1,510
+  (term = the free-text label from BP11b)      Jun ▇▇▇          390</pre>
+</div>
+
+<div class="grid cols-2">
+  <div class="card">
+    <h4>What each number means</h4>
+    <ul class="mini" style="margin:0">
+      <li><b>Delivery rate</b> = announced events ÷ total events (reuses BP4's "announced" =
+        <code class="inline">notified_at</code> set, or auto-notify + completed).</li>
+      <li><b>Sign-in rate</b> = students whose <code class="inline">last_login_at</code> is set ÷ all students.</li>
+      <li><b>Engagement</b> = distinct students who've opened ≥1 distribution ÷ students who had one reach them
+        (from the <code class="inline">notification_reads</code> BP4 already writes).</li>
+      <li><b>By term</b> = events grouped by BP11b's <code class="inline">term</code> label → event count,
+        photo count, % announced.</li>
+      <li><b>Trend</b> = photos (and events) bucketed by month from their <code class="inline">created_at</code>,
+        last ~12 months.</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h4>Reuse, don't rebuild</h4>
+    <p class="mini">The counts (students/enrolled/events/photos/distributed) are the <i>same</i> aggregates
+    the dashboard already runs. BP14 adds a handful of grouped queries (by term, by month, distinct-seen,
+    signed-in count) and a pure <code class="inline">AnalyticsService</code> that composes them into rates —
+    the exact BP1 pattern. No N+1: each metric is one grouped scan, zipped in Python.</p>
+  </div>
+</div>
+
+<h2 id="estate">2 · Estate analytics — the adoption funnel</h2>
+<p>For the platform admin: a per-school <b>funnel</b> (staff → students → <i>enrolled</i> → events →
+distributed) and a <b>stalled-school</b> flag, so a stuck school stops looking like a healthy one.</p>
+
+<div class="card" style="margin:14px 0">
+<pre class="mock">Estate health                                    3 schools need attention
+
+  <span class="r2">⚠ Greenfield School</span>   imported 812 students, <b>enrolled 0</b>, 0 events — <b>stalled</b>
+  <span class="a2">⚠ Maple High</span>          420 students, no events in 34 days
+  ─────────────────────────────────────────────────────────────────────
+  School            Staff   Students   Enrolled   Events   Distributed
+  Riverside Prep      6       540        512        61        54  <span class="g2">healthy</span>
+  Greenfield School   3       812          0         0         0  <span class="r2">stalled</span>
+  Maple High          4       420        380        12         9  <span class="a2">idle</span></pre>
+</div>
+
+<div class="grid cols-2">
+  <div class="card">
+    <h4>The funnel per school</h4>
+    <p class="mini">Each row is the <b>drop-off</b>: how many staff, students, <i>enrolled</i> students,
+    events, and <i>distributed</i> events. Enrolled-vs-total is the review's headline signal — the gap between
+    "imported" and "enrolled" is the enrollment wall made visible.</p>
+  </div>
+  <div class="card">
+    <h4>The stalled heuristic (simple, documented)</h4>
+    <p class="mini">A school is flagged when a plain rule trips — e.g. <b>students &gt; 0 but enrolled = 0</b>,
+    or <b>0 events created in the last 30 days</b>. No ML, no scoring model; a transparent rule the operator
+    can trust and we can tune.</p>
+  </div>
+</div>
+<p class="mini">Built from the same <b>cross-tenant grouped aggregates</b> the schools list already uses
+(<code class="inline">counts_by_school</code>), plus a few new ones (enrolled-per-school, distributed-per-school,
+signed-in-per-school, recent-activity-per-school) — each one grouped query, zipped by
+<code class="inline">school_id</code> in Python. No per-school loop.</p>
+
+<h2 id="login">The one new column</h2>
+<div class="callout a">
+  <b>Migration <code>0016</code> — <code>users.last_login_at</code> (nullable timestamp).</b> That's the whole
+  schema change. On a successful login we write <code class="inline">now()</code> to it (one line in the auth
+  flow — not on token refresh, which isn't an interactive sign-in). Everything else in BP14 is query-only.
+</div>
+<p class="mini"><b>Honest note:</b> existing users show <i>null</i> until their next login (no backfill — we
+never recorded past logins, so we can't invent them). The sign-in rate climbs from launch as people log in;
+it's a forward-looking signal, which is the honest thing it can be.</p>
+
+<h2 id="how">How it works (the whole build)</h2>
+<div class="diagram">
+  <div class="step"><div class="n">1</div><div class="b"><b>Migration 0016</b> adds
+    <code class="inline">users.last_login_at</code>; the login endpoint writes it on success
+    (<code class="inline">UserRepository.touch_last_login</code>). Verified up→down→up on a <b>throwaway</b> DB.</div></div>
+  <div class="step"><div class="n">2</div><div class="b"><b>New aggregates</b> on the existing repos — grouped,
+    tenant-scoped (and a few cross-tenant for the estate): by-term rollups, by-month upload/event counts,
+    distinct-seen students, signed-in counts, per-school enrolled/distributed/recent-activity. Pure SQL
+    <code class="inline">GROUP BY</code>, one scan each.</div></div>
+  <div class="step"><div class="n">3</div><div class="b"><b>A pure <code class="inline">AnalyticsService</code></b>
+    composes those into two value objects — <code class="inline">SchoolAnalytics</code> and
+    <code class="inline">EstateAnalytics</code> — computing the rates in Python. No new library; the layering
+    invariant holds (services stay import-pure).</div></div>
+  <div class="step"><div class="n">4</div><div class="b"><b>Two read endpoints</b> +
+    <b>two frontend pages</b> — a school Analytics page (rate cards + term table + a dependency-free CSS
+    bar/trend) and a platform Estate-health page (funnel table + stalled alerts), reusing
+    <code class="inline">StatCard</code>.</div></div>
+</div>
+
+<h2 id="files">Files &amp; endpoints</h2>
+<h3>New endpoints</h3>
+<table>
+  <tr><th>Endpoint</th><th>Perm</th><th>Does</th></tr>
+  <tr><td><code>GET /v1/analytics/school</code></td><td class="mini">dashboard:view<br>(admin + teacher)</td>
+    <td class="mini">delivery / sign-in / engagement rates + per-term rollups + monthly trend, tenant from token</td></tr>
+  <tr><td><code>GET /v1/analytics/estate</code></td><td class="mini">school:manage<br>(platform admin)</td>
+    <td class="mini">per-school adoption funnel + stalled flags + estate totals (cross-tenant)</td></tr>
+</table>
+<p class="mini">No new permission — reuses the two that already gate the dashboard and the schools estate.</p>
+
+<h3>Backend</h3>
+<div class="card">
+  <div class="filerow"><code>db/migrations/versions/0016_user_last_login.py</code><span class="k">+ users.last_login_at (nullable)</span></div>
+  <div class="filerow"><code>db/models.py + api/routers/auth.py (+ UserRepository.touch_last_login)</code><span class="k">write last_login on successful login</span></div>
+  <div class="filerow"><code>services/analytics_service.py</code><span class="k">new · composes rates/funnel (pure)</span></div>
+  <div class="filerow"><code>domain/models.py</code><span class="k">SchoolAnalytics / EstateAnalytics / TermRollup / MonthPoint / SchoolFunnel VOs</span></div>
+  <div class="filerow"><code>adapters/…/postgres_{events,students,media,users,notification_reads}.py + domain/ports.py</code><span class="k">the new grouped aggregates</span></div>
+  <div class="filerow"><code>api/routers/analytics.py + api/schemas/analytics.py</code><span class="k">the 2 routes + response schemas</span></div>
+  <div class="filerow"><code>tests/backend_fakes.py + tests/test_bp14_analytics.py + tests/adapters/test_postgres_repos.py</code><span class="k">unit + route + gated-PG aggregate tests</span></div>
+</div>
+
+<h3>Frontend</h3>
+<div class="card">
+  <div class="filerow"><code>app/(school)/analytics/page.tsx</code><span class="k">rate cards + term table + monthly trend</span></div>
+  <div class="filerow"><code>app/(platform)/analytics/page.tsx</code><span class="k">funnel table + stalled alerts</span></div>
+  <div class="filerow"><code>components/analytics/*.tsx</code><span class="k">dependency-free bar/funnel bits (accessible, table fallback)</span></div>
+  <div class="filerow"><code>lib/hooks/{use-school-analytics,use-estate-analytics}.ts + lib/api/{endpoints,types}.ts</code><span class="k">SWR hooks + types</span></div>
+  <div class="filerow"><code>nav + a link/badge</code><span class="k">an "Analytics" nav item (school) + "Estate health" (platform); optional stalled badge on the schools list</span></div>
+</div>
+
+<h2 id="notin">Deliberately NOT in scope</h2>
+<div class="grid cols-2">
+  <div class="card no">
+    <h4>✗ Historical snapshots / a rollup job</h4>
+    <p class="mini">You chose query-only. So "enrolled students on a past date" isn't a line — it's shown as
+    the current funnel. A snapshot table + scheduler is the documented scale-up.</p>
+  </div>
+  <div class="card no">
+    <h4>✗ Outbound email / SMS delivery stats</h4>
+    <p class="mini">There's no email channel yet (that's BP12). "Delivery" here = <i>in-app</i> announced +
+    seen, the signals BP4 already writes — not send/bounce/open of an email.</p>
+  </div>
+  <div class="card no">
+    <h4>✗ A charting library</h4>
+    <p class="mini">The trend/bar visuals are plain CSS/SVG (accessible, with a table fallback) — no new
+    frontend dependency.</p>
+  </div>
+  <div class="card no">
+    <h4>✗ Login backfill / refresh-as-signin</h4>
+    <p class="mini">Pre-existing users read null until their next login; token refresh doesn't count as a
+    sign-in. The rate is forward-looking from launch.</p>
+  </div>
+</div>
+
+<h2 id="verify">How we verify (before you see it)</h2>
+<div class="grid cols-2">
+  <div class="card">
+    <h4>Gates</h4>
+    <ul class="mini" style="margin:0">
+      <li>Backend: <code class="inline">ruff</code> + <code class="inline">mypy</code> + full
+        <code class="inline">pytest</code> + the layering grep (services stay import-pure)</li>
+      <li>Frontend: <code class="inline">lint</code> + <code class="inline">tsc --noEmit</code> +
+        <code class="inline">next build</code></li>
+      <li>Migration <code class="inline">0016</code> up→down→up on a <b>throwaway</b> Postgres (never the dev
+        <code class="inline">app</code> DB)</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h4>Tests</h4>
+    <ul class="mini" style="margin:0">
+      <li>school analytics: rates computed right, per-term + monthly grouping, <b>tenant-isolated</b></li>
+      <li>estate funnel: composition + the stalled heuristic; platform-only permission</li>
+      <li><code class="inline">last_login_at</code> written on login (not refresh); the new aggregates
+        round-trip on real Postgres</li>
+      <li>permission gates: school 403 for platform/student, estate 403 for non-platform; 401 no token</li>
+      <li>2× review→fix loop (R1 correctness/security/tenant/async · R2 edges/a11y/coverage), gate green after each</li>
+    </ul>
+  </div>
+</div>
+
+<hr/>
+<p class="muted" style="text-align:center">
+  This is the plan for your review — <b>no code written yet.</b> Say the word and I'll build it:
+  migration <code class="inline">0016</code> → backend aggregates + <code class="inline">AnalyticsService</code> + 2 endpoints →
+  2 frontend pages → gate green → 2× review → stop for your review. Nothing committed without you asking.
+</p>
+
+</div>
+</body>
+</html>

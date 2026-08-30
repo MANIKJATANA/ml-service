@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Student mobile numbers + per-school WhatsApp — exploration & plan</title>
+<style>
+  :root {
+    --wa:#25D366; --wa-dark:#128C7E; --wa-deep:#075E54;
+    --ink:#0b1f1a; --ink2:#40514c; --muted:#71827c;
+    --bg:#f6f8f7; --card:#ffffff; --line:#e2e8e4; --hair:#eef2f0;
+    --blue:#2563eb; --amber:#b45309; --amber-bg:#fef3c7; --red:#b91c1c; --red-bg:#fee2e2;
+    --green-bg:#dcfce7; --blue-bg:#dbeafe; --slate-bg:#eef2f6;
+    --radius:14px;
+  }
+  * { box-sizing:border-box; }
+  html { scroll-behavior:smooth; }
+  body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    color:var(--ink); background:var(--bg); line-height:1.6; font-size:16px; }
+  .wrap { max-width:1060px; margin:0 auto; padding:0 20px 96px; }
+  header.hero { background:linear-gradient(135deg,var(--wa-deep),var(--wa-dark) 60%,var(--wa)); color:#fff; padding:52px 20px 40px; }
+  header.hero .inner { max-width:1060px; margin:0 auto; }
+  header.hero h1 { margin:0 0 8px; font-size:32px; letter-spacing:-.5px; }
+  header.hero p { margin:6px 0 0; font-size:17px; opacity:.94; max-width:760px; }
+  .chips { margin-top:18px; display:flex; flex-wrap:wrap; gap:8px; }
+  .chip { background:rgba(255,255,255,.16); border:1px solid rgba(255,255,255,.28); color:#fff;
+    padding:5px 12px; border-radius:999px; font-size:13px; font-weight:600; }
+  h2 { font-size:24px; margin:52px 0 6px; letter-spacing:-.3px; padding-top:10px; }
+  h2 .num { color:var(--wa-dark); font-weight:800; }
+  h3 { font-size:18px; margin:28px 0 8px; }
+  h4 { font-size:15px; margin:18px 0 6px; text-transform:uppercase; letter-spacing:.4px; color:var(--muted); }
+  p, li { color:var(--ink2); }
+  .lead { font-size:17px; color:var(--ink); }
+  a { color:var(--wa-dark); }
+  code { background:var(--slate-bg); padding:1px 6px; border-radius:5px; font-family:"SF Mono",Menlo,Consolas,monospace; font-size:13px; color:#0b3d33; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:var(--radius); padding:22px 24px; margin:16px 0; }
+  .card.tight { padding:16px 20px; }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  .grid3 { display:grid; grid-template-columns:repeat(3,1fr); gap:14px; }
+  @media (max-width:820px){ .grid2,.grid3 { grid-template-columns:1fr; } }
+  .tl { border-left:4px solid var(--wa); background:linear-gradient(90deg,#f0fdf8,#fff 40%); }
+  .callout { border-radius:12px; padding:14px 18px; margin:14px 0; border:1px solid var(--line); }
+  .callout.warn { background:var(--amber-bg); border-color:#fcd34d; }
+  .callout.warn b { color:var(--amber); }
+  .callout.info { background:var(--blue-bg); border-color:#bfdbfe; }
+  .callout.good { background:var(--green-bg); border-color:#bbf7d0; }
+  .callout.bad { background:var(--red-bg); border-color:#fecaca; }
+  table { width:100%; border-collapse:collapse; margin:14px 0; font-size:14px; background:#fff; border-radius:10px; overflow:hidden; border:1px solid var(--line); }
+  th,td { text-align:left; padding:10px 12px; border-bottom:1px solid var(--hair); vertical-align:top; }
+  th { background:#f0f5f3; font-size:12px; text-transform:uppercase; letter-spacing:.4px; color:var(--ink2); }
+  tr:last-child td { border-bottom:none; }
+  .yes { color:var(--wa-dark); font-weight:700; }
+  .no { color:var(--red); font-weight:700; }
+  .maybe { color:var(--amber); font-weight:700; }
+  .rank { display:inline-flex; align-items:center; justify-content:center; width:26px; height:26px; border-radius:8px; font-weight:800; font-size:14px; color:#fff; margin-right:8px; }
+  .r1 { background:var(--wa-dark); } .r2 { background:var(--blue); } .r3 { background:#6b7280; } .r4 { background:#9ca3af; }
+  .pill { display:inline-block; font-size:11px; font-weight:700; padding:2px 9px; border-radius:999px; text-transform:uppercase; letter-spacing:.4px; }
+  .pill.v1 { background:var(--green-bg); color:var(--wa-deep); }
+  .pill.v2 { background:var(--blue-bg); color:#1e40af; }
+  .pill.dep { background:#f3e8ff; color:#7e22ce; }
+  .pill.avoid { background:var(--red-bg); color:var(--red); }
+  .flow { display:flex; flex-wrap:wrap; align-items:stretch; gap:10px; margin:16px 0; }
+  .step { flex:1; min-width:150px; background:#fff; border:1px solid var(--line); border-radius:12px; padding:12px 14px; position:relative; }
+  .step .n { font-size:11px; font-weight:800; color:var(--wa-dark); }
+  .step .t { font-weight:700; font-size:14px; margin:2px 0; color:var(--ink); }
+  .step .d { font-size:12.5px; color:var(--muted); }
+  .arrow { align-self:center; color:var(--wa); font-size:22px; font-weight:800; }
+  ul.tick { list-style:none; padding-left:0; }
+  ul.tick li { padding-left:26px; position:relative; margin:6px 0; }
+  ul.tick li::before { content:"✓"; position:absolute; left:0; color:var(--wa-dark); font-weight:800; }
+  ul.cross li::before { content:"✕"; color:var(--red); }
+  ul.dot li { margin:6px 0; }
+  .toc { columns:2; gap:24px; font-size:14px; }
+  @media (max-width:640px){ .toc { columns:1; } }
+  .toc a { display:block; padding:3px 0; text-decoration:none; }
+  .foot { margin-top:40px; font-size:13px; color:var(--muted); }
+  .srcs { font-size:12.5px; color:var(--muted); word-break:break-word; }
+  .srcs a { color:var(--muted); }
+  .kbd { font-size:12px; background:#fff; border:1px solid var(--line); border-bottom-width:2px; border-radius:6px; padding:1px 7px; font-family:monospace; }
+  .tag { font-size:11px; font-weight:700; color:var(--wa-dark); background:var(--green-bg); padding:1px 7px; border-radius:5px; }
+  .num-badge { background:var(--wa-dark); color:#fff; border-radius:8px; padding:1px 9px; font-size:13px; font-weight:800; }
+  hr { border:none; border-top:1px solid var(--line); margin:36px 0; }
+</style>
+</head>
+<body>
+<header class="hero">
+  <div class="inner">
+    <h1>📱 Student mobile numbers + per-school WhatsApp</h1>
+    <p>A code-grounded exploration of two owner asks: (1) store a <b>mobile number</b> for every student and show it where it matters, and (2) let <b>each school run its own WhatsApp</b> to send students their photos. Researched with 4 parallel agents — 2 mapping our codebase, 2 on the live WhatsApp landscape (2026).</p>
+    <div class="chips">
+      <span class="chip">Frontend + Backend</span>
+      <span class="chip">Multi-tenant (per-school)</span>
+      <span class="chip">v1 = zero-integration</span>
+      <span class="chip">v2 = real API</span>
+      <span class="chip">Design only — no code yet</span>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <div class="card tl" style="margin-top:26px;">
+    <h3 style="margin-top:0;">TL;DR — the recommended path</h3>
+    <div class="flow">
+      <div class="step"><div class="n">PHASE 0 · <span class="pill dep">Dependency</span></div><div class="t">Student mobile number</div><div class="d">One nullable column + form fields + CSV column. Small, safe, unblocks everything.</div></div>
+      <div class="arrow">→</div>
+      <div class="step"><div class="n">PHASE 1 · <span class="pill v1">Ship first</span></div><div class="t">wa.me "Send on WhatsApp"</div><div class="d">Zero integration. Each school uses its own phone. No secrets, no cost, no Meta approval. Staff attaches the downloaded photos.</div></div>
+      <div class="arrow">→</div>
+      <div class="step"><div class="n">PHASE 2 · <span class="pill v2">Later</span></div><div class="t">Real per-school API</div><div class="d">Meta Embedded Signup (Tech Provider) or a BSP. Automated sending — but a real project (approval, templates, opt-in, token security).</div></div>
+    </div>
+    <p style="margin-bottom:0;"><b>Why this order:</b> the mobile number is a hard dependency for both. The <b>wa.me v1</b> literally <i>is</i> "each school does their own WhatsApp" (their own phone), costs nothing, stores no secrets, and — importantly — sidesteps WhatsApp's rule that you <b>can't freely message students who haven't messaged you first</b>. The full API (v2) is worth it only once schools demand <i>automated</i> sending, and it's a genuine build, not a weekend.</p>
+  </div>
+
+  <div class="card tight">
+    <b>Contents</b>
+    <div class="toc" style="margin-top:8px;">
+      <a href="#a">A · Student mobile number — the plan</a>
+      <a href="#b">B · WhatsApp: the 4 ways to send</a>
+      <a href="#c">C · Per-school: 4 models, ranked</a>
+      <a href="#d">D · The catch: window + templates + opt-in</a>
+      <a href="#e">E · How it plugs into our system</a>
+      <a href="#f">F · Phased roadmap</a>
+      <a href="#g">G · Decisions for you</a>
+      <a href="#h">H · Sources</a>
+    </div>
+  </div>
+
+  <!-- ============ PART A ============ -->
+  <h2 id="a"><span class="num">A.</span> Student mobile number — the plan</h2>
+  <p class="lead">Add a nullable <code>mobile_number</code> to each student, threaded through every layer and shown where staff act on a student. It's the contact you'd message on WhatsApp, so it must land <b>first</b>.</p>
+
+  <div class="grid2">
+    <div class="card">
+      <h4>Backend (the model)</h4>
+      <ul class="dot">
+        <li><b>Migration <code>0021</code></b> (latest is <code>0020</code>): add <code>students.mobile_number</code> — nullable text, <b>no</b> index, <b>no</b> unique constraint, no backfill. Mirrors <code>reference_photo_path</code> exactly.</li>
+        <li><b>One read chokepoint:</b> add <code>mobile_number</code> to <code>_to_student()</code> in the postgres adapter and it flows out of <i>every</i> read at once (get / list / by-ids / by-emails).</li>
+        <li><code>Student</code> domain dataclass gains <code>mobile_number: str | None = None</code> (frozen — added last so every existing constructor still works).</li>
+        <li>DTOs: <code>CreateStudentRequest</code>, <code>StudentResponse</code> (→ <code>StudentListItem</code> free), <code>BulkStudentRow</code> each get the field (<code>max_length=32</code>).</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h4>Backend (the writes)</h4>
+      <ul class="dot">
+        <li><code>create_student</code> / <code>_provision_student</code> / <code>bulk_create_students</code> thread the number through.</li>
+        <li><b>Editing:</b> a new <code>PATCH /v1/students/{id}/mobile</code> → <code>set_mobile_number()</code> (tenant-scoped, 404-before-write) — mirrors the existing <code>set_status</code>. Cleaner than overloading the class-only PATCH.</li>
+        <li><b>Validation:</b> a small new <code>domain/phones.py</code> (like <code>domain/emails.py</code>) — pragmatic <code>^\+?[0-9]{7,15}$</code> after stripping separators. <b>No</b> country-code requirement (staff paste local 10-digit Indian numbers), <b>no</b> libphonenumber dependency.</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="card">
+    <h4>Frontend — where it's entered & shown</h4>
+    <div class="grid3">
+      <div><b>Enter</b><ul class="dot"><li>Create-student dialog (<code>tel</code> input)</li><li>Student detail — inline edit</li><li>Bulk CSV: header-detected <code>mobile</code>/<code>phone</code> column (back-compatible)</li></ul></div>
+      <div><b>Show</b><ul class="dot"><li>Student detail profile (primary)</li><li>Notify roster <span class="tag">WhatsApp-useful</span></li><li>Event gallery "By student" <span class="tag">WhatsApp-useful</span></li></ul></div>
+      <div><b>Defaults</b><ul class="dot"><li>Optional / nullable</li><li>Not unique, no index</li><li>Off the main list (detail-only)</li></ul></div>
+    </div>
+    <p style="margin-bottom:0;"><b>Effort:</b> small & self-contained — one migration + a field threaded through the layers you already know (it's the exact shape of <code>email</code> / <code>reference_photo_path</code>). No ML, no new dependency.</p>
+  </div>
+
+  <!-- ============ PART B ============ -->
+  <h2 id="b"><span class="num">B.</span> WhatsApp: the 4 ways to actually send photos</h2>
+  <p class="lead">There are only four real ways to get a photo into a student's WhatsApp. They split into two worlds: <b>a human presses send</b> (free, manual) vs <b>the server sends</b> (automated, but regulated + paid).</p>
+
+  <table>
+    <thead><tr><th>Approach</th><th>Send photos?</th><th>Template needed?</th><th>Opt-in / 24h rule</th><th>Cost</th><th>Setup</th><th>Ban risk</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><b>1. Meta Cloud API</b><br><span class="muted" style="font-size:12px;">first-party, official</span></td>
+        <td class="yes">Yes — 1 image/msg, ≤5 MB, no albums</td>
+        <td class="maybe">To initiate; free-form inside window</td>
+        <td>Required</td>
+        <td>Per-message (~₹0.125 utility, India)</td>
+        <td class="maybe">Medium–High</td>
+        <td class="yes">Lowest (official)</td>
+      </tr>
+      <tr>
+        <td><b>2. BSP</b><br><span class="muted" style="font-size:12px;">Gupshup, Wati, 360dialog, Twilio…</span></td>
+        <td class="yes">Yes (wraps Cloud API)</td>
+        <td class="maybe">Same rules</td>
+        <td>Same rules</td>
+        <td>Meta fee + markup / monthly</td>
+        <td class="yes">Lower (hosted)</td>
+        <td class="yes">Low</td>
+      </tr>
+      <tr style="background:#f0fdf8;">
+        <td><b>3. wa.me / share-sheet</b><br><span class="muted" style="font-size:12px;">no API — a human sends</span></td>
+        <td class="maybe">Text link only; <b>media via manual attach / OS share-sheet</b></td>
+        <td class="yes">None</td>
+        <td class="yes">None</td>
+        <td class="yes">Free</td>
+        <td class="yes">Trivial</td>
+        <td class="yes">None</td>
+      </tr>
+      <tr>
+        <td><b>4. Unofficial libs</b><br><span class="muted" style="font-size:12px;">whatsapp-web.js, Baileys</span></td>
+        <td class="yes">Yes</td>
+        <td class="yes">None</td>
+        <td class="yes">None</td>
+        <td class="maybe">"Free" + infra</td>
+        <td class="maybe">Medium</td>
+        <td class="no">HIGH — ToS breach, permanent ban</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="callout bad"><b>Rule out #4.</b> Unofficial automation (driving a real WhatsApp Web session) violates WhatsApp's ToS — the number can be <b>banned permanently and unpredictably</b>, taking down delivery for every school on it. Never for a production, multi-tenant product.</div>
+
+  <div class="grid2">
+    <div class="callout info"><b>What sending N photos really costs.</b> Cloud API sends <b>one image per message</b> — no albums. So a student's 30 photos = 30 messages. Pricing went <b>per-message</b> in Jul 2025. The lever: send one approved <b>template</b> to open, then push the rest as <b>free-form</b> images inside the 24-hour window (free today) — <b>but that window only opens when the student replies</b>. And from <b>Oct 1 2026</b> Meta begins charging in-window messages too. Budget realistically as N × the template rate.</div>
+    <div class="callout good"><b>Good news for our storage.</b> A WhatsApp image can be sent by <b>public link</b> — WhatsApp fetches it <i>at send time</i>. Our Supabase <b>signed download URLs</b> (valid ~1 hr, inline-served) work as that link, so buckets stay private and we mint a short-lived link per send. One catch: the <b>5 MB image cap</b> — high-res event photos may exceed it, so we'd send a compressed ~2000px variant (our BP17 thumbnail machinery already resizes).</div>
+  </div>
+
+  <!-- ============ PART C ============ -->
+  <h2 id="c"><span class="num">C.</span> "Each school does their own" — 4 models, ranked</h2>
+  <p class="lead">The owner's core requirement: WhatsApp is <b>per-school</b>. Here's how a SaaS lets each tenant connect its own WhatsApp, ranked for a small team + non-technical schools.</p>
+
+  <div class="card" style="border-left:4px solid var(--wa-dark);">
+    <h3 style="margin-top:0;"><span class="rank r1">1</span> wa.me / share-sheet <span class="pill v1">ship as v1</span></h3>
+    <p>Staff download the student's photos (we already built per-student "Download all"), then share them into WhatsApp via the phone's <b>share-sheet</b>, or tap a <code>wa.me/&lt;number&gt;</code> link that opens a chat with a prefilled caption — and attach the photos.</p>
+    <div class="grid3">
+      <div><b>School onboarding</b><br><span class="yes">None</span> — uses whatever WhatsApp is on staff phones.</div>
+      <div><b>Platform holds</b><br><span class="yes">No credentials.</span> Nothing in our DB.</div>
+      <div><b>Cost</b><br><span class="yes">Free</span> — regular WhatsApp, no API fee.</div>
+    </div>
+    <ul class="tick" style="margin-top:10px;">
+      <li>Literally satisfies "each school runs its own WhatsApp" — each uses its own number.</li>
+      <li>No secrets to protect, no Meta approval, no template/opt-in regime.</li>
+      <li>Only limit: <b>manual</b> (staff attaches the photos). <code>wa.me</code> can't pre-attach media — the share-sheet can push the actual files.</li>
+    </ul>
+  </div>
+
+  <div class="card" style="border-left:4px solid var(--blue);">
+    <h3 style="margin-top:0;"><span class="rank r2">2</span> Meta Tech Provider + Embedded Signup <span class="pill v2">the real v2</span></h3>
+    <p>We register once as a Meta <b>Tech Provider</b>. Each school clicks "Connect WhatsApp" → a Meta popup opens → they log in with their Facebook Business account, create/select their own <b>WhatsApp Business Account (WABA)</b> + phone number, verify it. We get back a <b>per-school token</b> scoped to that school, and send on their behalf.</p>
+    <div class="grid3">
+      <div><b>School onboarding</b><br><span class="maybe">Moderate</span> — guided popup, but needs an FB Business account + a fresh number + a payment method.</div>
+      <div><b>Platform holds</b><br>Per-school <code>waba_id</code> + <code>phone_number_id</code> + a scoped business-integration token.</div>
+      <div><b>Cost</b><br><span class="yes">School pays Meta directly</span> per conversation.</div>
+    </div>
+    <div class="callout warn" style="margin-top:12px;"><b>The real work:</b> a Meta Business app + <b>App Review</b> (<code>whatsapp_business_messaging/_management</code>) + <b>Business Verification</b> + <b>Tech Provider verification</b> (capped at ~10 schools/week until verified, then ~200), the Embedded-Signup JS + server code-exchange + webhooks, KMS-encrypted per-school token storage, and — the sleeper cost — building <b>template creation/approval + student opt-in</b>. This is a project, not a feature.</div>
+  </div>
+
+  <div class="grid2">
+    <div class="card" style="border-left:4px solid #6b7280;">
+      <h3 style="margin-top:0;"><span class="rank r3">3</span> BSP reseller <span class="pill v2">v2 shortcut</span></h3>
+      <p>A provider (360dialog, Twilio, Gupshup) wraps the Meta plumbing. Each school connects its WABA under our partner/sub-account; we hold a <b>scoped BSP channel key</b> (not raw Meta tokens — smaller blast radius).</p>
+      <ul class="dot">
+        <li><b>Build:</b> Medium — the BSP absorbs Meta App Review.</li>
+        <li><b>Cost:</b> per-channel monthly fees × N schools; we become the biller.</li>
+        <li>India-native BSPs (Gupshup/Wati/Interakt) fit the market; 360dialog for near-pass-through pricing.</li>
+      </ul>
+    </div>
+    <div class="card" style="border-left:4px solid #9ca3af;">
+      <h3 style="margin-top:0;"><span class="rank r4">4</span> BYO credentials <span class="pill avoid">avoid (for now)</span></h3>
+      <p>Each school does the <b>entire</b> Meta setup themselves and pastes a permanent token + phone-number-id into our settings.</p>
+      <ul class="cross" style="list-style:none;padding-left:0;">
+        <li style="padding-left:22px;position:relative;"><span style="position:absolute;left:0;color:var(--red);font-weight:800;">✕</span> Developer-grade setup — non-technical schools can't do it unaided.</li>
+        <li style="padding-left:22px;position:relative;"><span style="position:absolute;left:0;color:var(--red);font-weight:800;">✕</span> A <b>permanent, full-scope token</b> per school sitting in our DB — the worst credential to hold.</li>
+        <li style="padding-left:22px;position:relative;color:var(--wa-dark);"><span style="position:absolute;left:0;font-weight:800;">✓</span> Only merit: lowest platform build. Fine <i>only</i> if buyers are technical.</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ============ PART D ============ -->
+  <h2 id="d"><span class="num">D.</span> The catch that makes the API a real project</h2>
+  <div class="callout warn">
+    <p style="margin-top:0;"><b>You cannot freely message a student who hasn't messaged you first.</b> WhatsApp's rules for any API path (models 1–3):</p>
+    <ul class="dot" style="margin-bottom:0;">
+      <li><b>Opt-in</b> — the student must have opted in to hear from the school.</li>
+      <li><b>24-hour window</b> — free-form messages (the actual photos) are only allowed inside a 24h window that opens <b>when the student messages the school</b>.</li>
+      <li><b>Templates</b> — to <i>start</i> a conversation (outside a window), you must send a Meta-<b>pre-approved template</b>. A template header <i>can</i> carry one image, so the first photo can ride along; the rest go free-form once the window is open.</li>
+    </ul>
+  </div>
+  <p>This is why "store a token and POST a photo" understates the API path by a lot — it's really token management <b>+ opt-in capture + template design/approval + the 24h-window dance</b>. The <b>wa.me v1 has none of this</b> (a human on consumer WhatsApp isn't bound by the Business API rules), which is a second strong reason to ship it first.</p>
+
+  <!-- ============ PART E ============ -->
+  <h2 id="e"><span class="num">E.</span> How it plugs into our system</h2>
+  <p class="lead">Our codebase is greenfield for this — no wa.me/share/WhatsApp anywhere today. Here's the clean fit (from mapping the actual ports & flows).</p>
+
+  <div class="grid2">
+    <div class="card">
+      <h4>The send flow (v2, per-school API)</h4>
+      <div class="flow" style="flex-direction:column;gap:8px;">
+        <div class="step"><div class="t">1 · Staff picks a student</div><div class="d">Student detail "Appears in" (beside the BP26 Download-all) — the primary trigger. Event gallery "By student" is secondary.</div></div>
+        <div class="step"><div class="t">2 · System gathers</div><div class="d">the student's <code>mobile_number</code> + their effective photos → mints short-lived Supabase signed URLs (the existing download mint).</div></div>
+        <div class="step"><div class="t">3 · New WhatsAppSender port</div><div class="d">a <code>WhatsAppShareService</code> reads the <b>school's</b> WhatsApp config and sends via that channel. <b>Not</b> the BP4 <code>NotificationChannel</code> (that seam is PII-free / best-effort / fire-and-forget — a real send needs the number, media & delivery feedback).</div></div>
+      </div>
+    </div>
+    <div class="card">
+      <h4>Where per-school config lives</h4>
+      <ul class="dot">
+        <li>New <b><code>school_whatsapp_config</code></b> table — one row per school, the access token / BSP key in an <b>encrypted</b> column.</li>
+        <li>New <b><code>(school)/settings</code></b> route (we have none today) + a new <b>school-admin</b> permission — the existing <code>PATCH /schools</code> is platform-only.</li>
+        <li><b>Security bar if we hold tokens:</b> envelope encryption + KMS, per-tenant key isolation, never log the token, one-click revoke/reconnect. (The BSP model shrinks the blast radius; the wa.me v1 holds <i>nothing</i>.)</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="card good callout" style="border-left:4px solid var(--wa);">
+    <b>The v1 bridge is tiny.</b> A "Send on WhatsApp" button on the student detail that opens
+    <code>https://wa.me/&lt;mobile_number&gt;?text=&lt;prefilled caption&gt;</code> (or the share-sheet with the downloaded files) needs <b>only</b> <code>students.mobile_number</code> — <b>no</b> new table, <b>no</b> token, <b>no</b> permission, <b>no</b> backend send path, <b>no</b> Meta account. It's the honest first step and it's essentially Phase 0 + a button.
+  </div>
+
+  <!-- ============ PART F ============ -->
+  <h2 id="f"><span class="num">F.</span> Phased roadmap</h2>
+
+  <div class="card">
+    <h3 style="margin-top:0;"><span class="num-badge">0</span> &nbsp;Student mobile number <span class="pill dep">dependency</span></h3>
+    <p style="margin-bottom:6px;">Migration <code>0021</code> + the field threaded through model → DTOs → service → CSV → the create/detail/bulk forms, shown on detail + roster + by-student. Loose validation, optional, not unique.</p>
+    <span class="muted" style="font-size:13px;">Effort: <b>Small</b>. Backend + Frontend. No ML, no new dependency. Unblocks both v1 and v2.</span>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0;"><span class="num-badge" style="background:var(--wa);">1</span> &nbsp;wa.me "Send on WhatsApp" <span class="pill v1">ship first</span></h3>
+    <p style="margin-bottom:6px;">A per-student "Send on WhatsApp" affordance: opens <code>wa.me/&lt;number&gt;</code> with a prefilled caption, and/or the OS share-sheet pre-loaded with the just-downloaded photos. Staff sends from their own (school's) WhatsApp.</p>
+    <span class="muted" style="font-size:13px;">Effort: <b>Small (FE-mostly)</b>. No backend send path, no secrets, no cost, no Meta. Honest limit: manual attach; iOS share-sheet UX varies.</span>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0;"><span class="num-badge" style="background:var(--blue);">2</span> &nbsp;Real per-school API <span class="pill v2">when demanded</span></h3>
+    <p style="margin-bottom:6px;">Automated sending. Choose the connect model — <b>Embedded Signup (Tech Provider)</b> for the cleanest "school owns it + pays Meta", or a <b>BSP</b> to skip Meta App Review for a per-channel fee. Adds: <code>school_whatsapp_config</code> (encrypted), a <code>(school)/settings</code> connect flow, the <code>WhatsAppSender</code> port + service, template/opt-in handling, and a compressed ≤5 MB image variant.</p>
+    <span class="muted" style="font-size:13px;">Effort: <b>Large</b>. Backend-heavy + external approvals + ongoing token security. Gated on real demand for automation. Decide Embedded-Signup vs BSP at that time.</span>
+  </div>
+
+  <!-- ============ PART G ============ -->
+  <h2 id="g"><span class="num">G.</span> Decisions for you</h2>
+  <div class="card">
+    <table>
+      <thead><tr><th>Decision</th><th>Options</th><th>My default</th></tr></thead>
+      <tbody>
+        <tr><td>How far to go now</td><td>Just Phase 0+1 (mobile + wa.me) &nbsp;·&nbsp; or commit to Phase 2 API</td><td><b>Phase 0 + 1 now</b>; Phase 2 only when a school actually needs automated sending.</td></tr>
+        <tr><td>Mobile number: required?</td><td>Required &nbsp;·&nbsp; Optional</td><td><b>Optional / nullable</b> (bulk import + existing students).</td></tr>
+        <tr><td>Mobile: unique?</td><td>Unique &nbsp;·&nbsp; Not</td><td><b>Not unique</b> (siblings share a parent number).</td></tr>
+        <tr><td>If/when Phase 2 — connect model</td><td>Embedded Signup (Tech Provider) &nbsp;·&nbsp; BSP reseller &nbsp;·&nbsp; BYO token</td><td><b>Embedded Signup</b> (school pays Meta, scoped token) — or a <b>BSP</b> to move faster. <b>Not</b> BYO for non-technical schools.</td></tr>
+        <tr><td>Who sends in v1</td><td>Staff's own WhatsApp (their phone)</td><td><b>Yes</b> — that's the whole point of the zero-config v1; matches today's WhatsApp-share posture.</td></tr>
+      </tbody>
+    </table>
+    <p style="margin-bottom:0;"><b>Recommendation:</b> approve <b>Phase 0 (mobile number)</b> + <b>Phase 1 (wa.me send)</b> as one small build now — it delivers "message a student on WhatsApp, per-school" immediately with near-zero risk. Treat <b>Phase 2</b> as a separate, larger initiative to greenlight later, and I'll produce a focused build plan for whichever connect model you pick.</p>
+  </div>
+
+  <!-- ============ PART H ============ -->
+  <h2 id="h"><span class="num">H.</span> Sources (2026)</h2>
+  <div class="card srcs">
+    <b>Meta / official:</b>
+    <a href="https://developers.facebook.com/documentation/business-messaging/whatsapp/messages/image-messages">Image messages</a> ·
+    <a href="https://developers.facebook.com/docs/whatsapp/cloud-api/guides/send-messages/">Send messages</a> ·
+    <a href="https://developers.facebook.com/documentation/business-messaging/whatsapp/pricing">Pricing</a> ·
+    <a href="https://developers.facebook.com/documentation/business-messaging/whatsapp/embedded-signup/overview/">Embedded Signup</a> ·
+    <a href="https://developers.facebook.com/documentation/business-messaging/whatsapp/access-tokens/">Access tokens</a><br>
+    <b>Pricing / window:</b>
+    <a href="https://blueticks.co/blog/whatsapp-business-pricing-change-2026-per-message">Per-message change 2025/26</a> ·
+    <a href="https://www.twilio.com/en-us/whatsapp/pricing">Oct 2026 in-window charging</a> ·
+    <a href="https://help.activecampaign.com/hc/en-us/articles/20679458055964-Understanding-the-24-hour-conversation-window-in-WhatsApp-messaging">24-hour window</a> ·
+    <a href="https://ominiflow.com/blog/whatsapp-24-hour-session-window">Window rules</a><br>
+    <b>BSPs / multi-tenant:</b>
+    <a href="https://360dialog.com/partners">360dialog Partners</a> ·
+    <a href="https://docs.360dialog.com/partner/get-started/pricing">360dialog pricing</a> ·
+    <a href="https://www.twilio.com/docs/messaging/features/multi-tenancy">Twilio multi-tenancy</a> ·
+    <a href="https://www.twilio.com/docs/whatsapp/isv/register-senders">Twilio ISV senders</a> ·
+    <a href="https://m.aisensy.com/blog/whatsapp-api-providers/">India BSPs</a> ·
+    <a href="https://developers.telnyx.com/docs/messaging/whatsapp/embedded-signup/tech-provider">Tech Provider (Telnyx)</a><br>
+    <b>wa.me / share-sheet:</b>
+    <a href="https://quadlayers.com/how-to-create-a-whatsapp-link-wa-me-with-a-pre-filled-message/">wa.me prefilled text</a> ·
+    <a href="https://www.webdevelopmentscripts.com/80-whatsapp-share-link-with-image-in-websites">wa.me can't attach media</a> ·
+    <a href="https://developer.mozilla.org/en-US/docs/Web/API/Web_Share_API">Web Share API (MDN)</a><br>
+    <b>ToS risk & security:</b>
+    <a href="https://whatsapp.checkleaked.cc/blog/baileys-vs-whatsapp-web-js">Unofficial-lib ban risk</a> ·
+    <a href="https://workos.com/blog/envelope-encryption-explained">Envelope encryption</a> ·
+    <a href="https://www.cloudthat.com/resources/blog/simplifying-multi-tenant-encryption-with-a-cost-conscious-aws-kms-key-strategy">Per-tenant KMS</a>
+  </div>
+
+  <div class="callout warn" style="margin-top:18px;"><b>Flagged uncertainties (confirm before building Phase 2):</b> exact per-school token longevity (the "60-day vs never" choice at code-exchange), current Tech-Provider customer caps, the Tech-Provider-vs-Solution-Partner billing split, and the exact Supabase-signed-URL-as-<code>link</code> behaviour + 5 MB image handling — all worth a live test/re-check at implementation time.</div>
+
+  <div class="foot">
+    Exploration by 4 parallel agents (2 codebase-mapping, 2 web-research), synthesized 2026-08-30. Design/decision doc only — no code changed. Companion follow-on to BP26 (staff download) and the parked BP12 (outbound distribution).
+  </div>
+
+</div>
+</body>
+</html>

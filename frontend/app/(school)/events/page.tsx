@@ -392,6 +392,7 @@ function EventsContent() {
   function onCreated() {
     void mutate();
     void globalMutate("event-terms"); // a new term becomes filterable
+    void globalMutate("dashboard"); // advance the setup checklist without waiting on the poll
   }
 
   return (
@@ -634,9 +635,24 @@ function EventsContent() {
                               </div>
                             </TableCell>
                             <TableCell>
-                              <StatusPill tone={PROCESSING_TONE[pill]}>
-                                {PROCESSING_LABEL[pill]}
-                              </StatusPill>
+                              {/* F02: when there's matching work to do (photos to match, or a
+                                  failed run), link the pill to the event detail where Process
+                                  lives — mirrors the review-pill deep-link pattern. */}
+                              {pill === "not_started" || pill === "failed" ? (
+                                <Link
+                                  href={`/events/${event.id}`}
+                                  aria-label={`${PROCESSING_LABEL[pill]} — open ${event.name} to match photos`}
+                                  className="rounded transition-opacity hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                >
+                                  <StatusPill tone={PROCESSING_TONE[pill]}>
+                                    {PROCESSING_LABEL[pill]}
+                                  </StatusPill>
+                                </Link>
+                              ) : (
+                                <StatusPill tone={PROCESSING_TONE[pill]}>
+                                  {PROCESSING_LABEL[pill]}
+                                </StatusPill>
+                              )}
                             </TableCell>
                           </TableRow>
                           );

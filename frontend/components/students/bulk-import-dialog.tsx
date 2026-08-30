@@ -40,6 +40,16 @@ const RESULT_LABEL: Record<BulkStudentResult["status"], string> = {
   error: "Error",
 };
 
+/** A09: a human reason for a non-created row. The backend populates `error` only for `invalid`
+ *  rows; `duplicate` and generic `error` rows come back with `error === null`, so fall back to a
+ *  static explanation. A `created` row shows no reason line. */
+function resultReason(r: BulkStudentResult): string | null {
+  if (r.status === "created") return null;
+  if (r.error) return r.error;
+  if (r.status === "duplicate") return "Already has an account — may exist at another school.";
+  return "Couldn't be created — try again.";
+}
+
 type RowFlag = "ok" | "duplicate" | "invalid";
 
 /** BP24: pre-flag the parsed rows before submit — an in-file duplicate email (case-insensitive)
@@ -299,9 +309,19 @@ export function BulkImportDialog({ onImported }: { onImported: () => void }) {
                       <TableRow key={i}>
                         <TableCell>{r.email || "—"}</TableCell>
                         <TableCell>
-                          <StatusPill tone={RESULT_TONE[r.status]}>
-                            {RESULT_LABEL[r.status]}
-                          </StatusPill>
+                          <div className="flex flex-col gap-1">
+                            <StatusPill tone={RESULT_TONE[r.status]}>
+                              {RESULT_LABEL[r.status]}
+                            </StatusPill>
+                            {/* A09: explain WHY a row didn't import — the backend populates
+                                `error` only for `invalid` rows; duplicate/error get a static
+                                fallback. `created` rows show no reason line. */}
+                            {resultReason(r) ? (
+                              <span className="text-body-sm text-ink-secondary">
+                                {resultReason(r)}
+                              </span>
+                            ) : null}
+                          </div>
                         </TableCell>
                       </TableRow>
                     ))}

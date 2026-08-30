@@ -267,6 +267,7 @@ function DistributionCard({
       );
       refresh(); // notified_at changed
       void rosterMutate();
+      void globalMutate("dashboard"); // A01: announcing flips has_distributed → retire the checklist
     } catch (err) {
       // 400 if archived / not finished; 502 if a channel is unreachable.
       toast(isApiError(err) ? err.message : "Something went wrong", "error");
@@ -642,9 +643,26 @@ export default function EventDetailPage() {
           <Card className="flex flex-col gap-4 p-6">
             <div className="flex items-center justify-between gap-3">
               <h2 className="text-headline text-ink">Photos</h2>
-              <StatusPill tone={PROCESSING_TONE[pillStatus]}>
-                {PROCESSING_LABEL[pillStatus]}
-              </StatusPill>
+              <div className="flex items-center gap-2">
+                {/* A18: a live "Matching…" cue that mounts exactly while the status poll runs
+                    (inFlight — queued/processing), so it disappears when polling stops. Gated on
+                    inFlight, NOT pillStatus (which can read "Completed" with a second batch
+                    pending). Decorative (no role="status") — the "Matching since…" aria-live region
+                    below is the authoritative announcement. The pulse dot is covered by the global
+                    reduced-motion guard. */}
+                {inFlight ? (
+                  <span
+                    className="inline-flex items-center gap-1.5 rounded-full bg-info-soft px-2.5 py-0.5 text-body-sm font-medium text-info-strong"
+                    aria-hidden="true"
+                  >
+                    <span className="size-1.5 rounded-full bg-info-strong animate-pulse" aria-hidden="true" />
+                    Matching…
+                  </span>
+                ) : null}
+                <StatusPill tone={PROCESSING_TONE[pillStatus]}>
+                  {PROCESSING_LABEL[pillStatus]}
+                </StatusPill>
+              </div>
             </div>
 
             {statusLoading && !status ? (

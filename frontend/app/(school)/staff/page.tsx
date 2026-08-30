@@ -240,11 +240,24 @@ function EditClassesDialog({
   const [open, setOpen] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState(false);
+  // A14: filter only what's RENDERED — `selected` (and thus onSave) is untouched, so a
+  // checked-but-filtered-out class still saves on PUT.
+  const [search, setSearch] = useState("");
 
   function handleOpenChange(next: boolean) {
     setOpen(next);
-    if (next) setSelected(new Set(assigned.map((c) => c.id)));
+    if (next) {
+      setSelected(new Set(assigned.map((c) => c.id)));
+      setSearch("");
+    }
   }
+
+  const q = search.trim().toLowerCase();
+  const shownClasses = q
+    ? classes.filter((c) =>
+        [c.name, c.grade, c.section].filter(Boolean).join(" ").toLowerCase().includes(q),
+      )
+    : classes;
 
   function toggle(id: string) {
     setSelected((cur) => {
@@ -288,26 +301,37 @@ function EditClassesDialog({
               No classes yet. Create classes first, then assign them here.
             </p>
           ) : (
-            <ul className="max-h-64 divide-y divide-hairline overflow-y-auto overscroll-contain rounded-button border border-hairline">
-              {classes.map((c) => (
-                <li key={c.id}>
-                  <label className="flex cursor-pointer items-center gap-2 px-3 py-2 hover:bg-surface">
-                    <input
-                      type="checkbox"
-                      checked={selected.has(c.id)}
-                      onChange={() => toggle(c.id)}
-                      className="size-4 rounded border-hairline text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    />
-                    <span className="min-w-0 flex-1 truncate text-body-sm text-ink">{c.name}</span>
-                    {(c.grade || c.section) && (
-                      <span className="shrink-0 text-body-sm text-ink-secondary">
-                        {[c.grade, c.section].filter(Boolean).join(" · ")}
-                      </span>
-                    )}
-                  </label>
-                </li>
-              ))}
-            </ul>
+            <>
+              {/* A14: search filters the rendered list only — checked classes filtered out of
+                  view stay selected and still save. */}
+              <SearchInput value={search} onChange={setSearch} placeholder="Search classes…" />
+              {shownClasses.length === 0 ? (
+                <p className="text-body-sm text-ink-secondary" role="status">
+                  No classes match “{search.trim()}”.
+                </p>
+              ) : (
+                <ul className="max-h-64 divide-y divide-hairline overflow-y-auto overscroll-contain rounded-button border border-hairline">
+                  {shownClasses.map((c) => (
+                    <li key={c.id}>
+                      <label className="flex cursor-pointer items-center gap-2 px-3 py-2 hover:bg-surface">
+                        <input
+                          type="checkbox"
+                          checked={selected.has(c.id)}
+                          onChange={() => toggle(c.id)}
+                          className="size-4 rounded border-hairline text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        />
+                        <span className="min-w-0 flex-1 truncate text-body-sm text-ink">{c.name}</span>
+                        {(c.grade || c.section) && (
+                          <span className="shrink-0 text-body-sm text-ink-secondary">
+                            {[c.grade, c.section].filter(Boolean).join(" · ")}
+                          </span>
+                        )}
+                      </label>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </>
           )}
           <div className="mt-1 flex justify-end gap-2">
             <DialogClose asChild>

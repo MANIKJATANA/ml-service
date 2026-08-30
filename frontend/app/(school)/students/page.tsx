@@ -176,6 +176,7 @@ function CreateStudentDialog({
               onChange={(e) => setEmail(e.target.value)}
             />
           </Field>
+          {/* A08: say what the reference photo is FOR — it enrolls the student's face. */}
           <FileDropzone
             file={file}
             onFileChange={(next) => {
@@ -183,7 +184,7 @@ function CreateStudentDialog({
               setUploadedPath(null); // a new file must be re-uploaded
             }}
             disabled={submitting}
-            hint="An image up to 30 MB."
+            hint="This photo enrolls the student's face for matching — a clear, front-facing photo works best (up to 30 MB)."
           />
           {progress !== null ? (
             <div className="flex flex-col gap-1.5">
@@ -631,7 +632,13 @@ function StudentsContent() {
                 void mutateDashboard();
               }}
             />
-            <CreateStudentDialog onCreated={() => mutate()} onInvited={setInvite} />
+            <CreateStudentDialog
+              onCreated={() => {
+                mutate();
+                void mutateDashboard(); // advance the setup checklist without waiting on the poll
+              }}
+              onInvited={setInvite}
+            />
           </div>
         }
       />
@@ -664,7 +671,13 @@ function StudentsContent() {
           description="Add a student and upload their reference photo, or import a whole class from CSV."
           action={
             <div className="flex flex-wrap justify-center gap-2">
-              <CreateStudentDialog onCreated={() => mutate()} onInvited={setInvite} />
+              <CreateStudentDialog
+                onCreated={() => {
+                  mutate();
+                  void mutateDashboard(); // advance the setup checklist without waiting on the poll
+                }}
+                onInvited={setInvite}
+              />
               <BulkImportDialog onImported={() => mutate()} />
             </div>
           }

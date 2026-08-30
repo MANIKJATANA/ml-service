@@ -278,21 +278,32 @@ function SetupChecklistCard({
   const doneCore = core.filter((s) => s.done).length;
   // Primary CTA highlights the first incomplete core step (never the optional one).
   const nextKey = core.find((s) => !s.done)?.key;
+  // A01: the card only renders while has_distributed is false, so "all core done" is
+  // unreachable here — the reachable near-complete moment is "only announce left".
+  const oneStepLeft = nextKey === "has_distributed";
 
   return (
     <Card className="flex flex-col gap-4 p-6">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <Sparkles className="size-5 text-accent-hover" aria-hidden="true" />
-          <h2 className="text-headline text-ink">Finish setting up your school</h2>
+          {/* A02: warm the first-run heading. */}
+          <h2 className="text-headline text-ink">Welcome — let&apos;s get your school set up</h2>
         </div>
         <span className="text-body-sm tabular-nums text-ink-secondary">
           {doneCore} of {core.length}
         </span>
       </div>
       <p className="text-body-sm text-ink-secondary">
-        A few steps to get photos flowing to your students automatically.
+        A few quick steps to start getting photos to your students — you&apos;ve got this.
       </p>
+      {/* A01: a tasteful "almost there" cue when only the announce step remains (the card
+          retires on the next poll once has_distributed flips). No persistent state. */}
+      {oneStepLeft ? (
+        <p className="text-body-sm font-medium text-success-strong" role="status">
+          Almost there — announce to reach your students.
+        </p>
+      ) : null}
       <ol className="flex flex-col">
         {steps.map((s) => (
           <li

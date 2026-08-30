@@ -52,6 +52,8 @@ export default function EventUploadPage() {
     // Refresh the event's photo status/roster so the detail page shows the new counts.
     void globalMutate(`events/${eventId}/status`);
     void globalMutate(`events/${eventId}/media`);
+    // A01: advance the setup checklist's "upload photos" step without waiting on the 60s poll.
+    void globalMutate("dashboard");
     router.push(`/events/${eventId}`);
   }
 

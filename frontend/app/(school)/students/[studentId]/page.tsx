@@ -152,6 +152,7 @@ function ReferencePhotoDialog({
         description="Uploads the photo and enrolls the student's face. A clear, front-facing photo works best."
       >
         <form onSubmit={onSubmit} className="flex flex-col gap-4">
+          {/* A08: say what the reference photo is FOR — it enrolls the student's face. */}
           <FileDropzone
             file={file}
             onFileChange={(next) => {
@@ -159,7 +160,7 @@ function ReferencePhotoDialog({
               setUploadedPath(null); // a new file must be re-uploaded
             }}
             disabled={submitting}
-            hint="An image up to 30 MB."
+            hint="This photo enrolls the student's face for matching — a clear, front-facing photo works best (up to 30 MB)."
           />
           {progress !== null ? (
             <div className="flex flex-col gap-1.5">
@@ -666,7 +667,26 @@ export default function StudentDetailPage() {
             </div>
           </Card>
           {student.enrollment_status === "failed" ? (
-            <EnrollmentFailureNote reason={student.enrollment_failure_reason} />
+            <div className="flex flex-col gap-3">
+              <EnrollmentFailureNote reason={student.enrollment_failure_reason} />
+              {/* F01: the fix action right beside the note. A transient ML outage just needs a
+                  re-run of the stored photo; a bad/absent photo needs a new one — the same
+                  ReferencePhotoDialog whose label auto-flips Add/Replace. */}
+              <div>
+                {student.enrollment_failure_reason === "ml_unavailable" ? (
+                  <Button variant="secondary" onClick={onReenroll} loading={reenrolling} disabled={deleting || sending}>
+                    <RefreshCw className="size-4" aria-hidden="true" />
+                    Re-enroll
+                  </Button>
+                ) : (
+                  <ReferencePhotoDialog
+                    studentId={studentId}
+                    hasPhoto={student.reference_photo_path !== null}
+                    onUpdated={onPhotoUpdated}
+                  />
+                )}
+              </div>
+            </div>
           ) : null}
           <EngagementCard studentId={studentId} />
           <AppearsInSection studentId={studentId} studentName={student.name} />

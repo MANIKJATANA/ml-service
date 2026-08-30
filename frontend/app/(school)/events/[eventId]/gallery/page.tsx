@@ -1,9 +1,9 @@
 "use client";
 
-import { Images } from "lucide-react";
+import { Download, Images } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { mutate as globalMutate } from "swr";
 
 import { FilterChips } from "@/components/gallery/filter-chips";
@@ -21,6 +21,7 @@ import { useToast } from "@/components/ui/toast";
 import { batchReview, undoCorrection } from "@/lib/api/endpoints";
 import { isApiError } from "@/lib/api/errors";
 import type { MediaType } from "@/lib/api/types";
+import { toISODate } from "@/lib/events/calendar";
 import { useDownloadAll } from "@/lib/hooks/use-download-all";
 import { useEvent } from "@/lib/hooks/use-events";
 import {
@@ -29,7 +30,7 @@ import {
   useEventStudentMedia,
   useEventStudents,
 } from "@/lib/hooks/use-galleries";
-import { cn } from "@/lib/utils";
+import { cn, sanitizeFilename } from "@/lib/utils";
 
 function AllPhotos({ eventId }: { eventId: string }) {
   const { items, total, isLoading, isLoadingMore, error, reachedEnd, loadMore, mutate } =
@@ -149,8 +150,67 @@ function AllPhotos({ eventId }: { eventId: string }) {
   );
 }
 
-function EventStudentPhotos({ eventId, studentId }: { eventId: string; studentId: string }) {
+/** The picked student's photos in THIS event, plus a per-student "Download all" (the BP26
+ *  follow-on, decisions/0081): the same effective set the tab already shows, zipped as one file.
+ *  Reuses the download entitlement (both staff roles hold `gallery:view_all`) + the streaming
+ *  `useDownloadAll` mint — no backend change, no widening. `useEvent` is SWR-deduped with the
+ *  page's own call. Hooks run before the early returns (Rules of Hooks). */
+function EventStudentPhotos({
+  eventId,
+  studentId,
+  studentName,
+}: {
+  eventId: string;
+  studentId: string;
+  studentName: string;
+}) {
   const { media, isLoading, error } = useEventStudentMedia(eventId, studentId);
+  const { event } = useEvent(eventId);
+  const { toast } = useToast();
+
+  const mediaIds = useMemo(() => (media ? media.map((m) => m.media_id) : []), [media]);
+  // `new Date()` in a lazy initializer runs once at mount, not on every render.
+  const [zipStamp] = useState(() => toISODate(new Date()));
+  const datePart = event?.event_date ?? "photo";
+  const entryBase = useCallback(
+    (i: number) => `${datePart}-${String(i + 1).padStart(3, "0")}`,
+    [datePart],
+  );
+  const eventPart = event ? sanitizeFilename(event.name) : "";
+  const zipName = `${sanitizeFilename(studentName) || "student"}${
+    eventPart ? `-${eventPart}` : ""
+  }-photos-${zipStamp}.zip`;
+  const { busy, done, total, cap, onDownloadAll } = useDownloadAll(mediaIds, {
+    entryBase,
+    zipName,
+  });
+
+  async function handleDownloadAll() {
+    try {
+      const { saved, capped, cancelled } = await onDownloadAll();
+      if (cancelled) return; // dismissed the save dialog — silent, not an error
+      // Copy mirrors the sibling staff surfaces (student detail + the event-gallery download).
+      if (saved === 0) {
+        toast("Couldn't download the photos. Please try again.", "error");
+      } else if (capped) {
+        toast(
+          `Saved the first ${cap} of ${total} photos. To get the rest, open this page in desktop Chrome or Edge.`,
+          "info",
+          { sticky: true },
+        );
+      } else if (saved < total) {
+        toast(
+          `Saved ${saved} of ${total} photos — ${total - saved} couldn't be saved right now. Try again.`,
+          "info",
+          { sticky: true },
+        );
+      } else {
+        toast(`Downloaded ${total} ${total === 1 ? "photo" : "photos"}.`, "success");
+      }
+    } catch {
+      toast("Couldn't prepare the download. Please try again.", "error");
+    }
+  }
 
   if (isLoading) return <GridSkeleton />;
   if (error) return <p className="text-body-sm text-ink-secondary">Couldn&apos;t load photos.</p>;
@@ -158,14 +218,32 @@ function EventStudentPhotos({ eventId, studentId }: { eventId: string; studentId
     return <p className="text-body-sm text-ink-secondary">No photos for this student.</p>;
   }
   return (
-    <PhotoGrid
-      items={media.map((m) => ({
-        id: m.media_id,
-        mediaType: m.media_type,
-        hasThumbnail: m.has_thumbnail,
-      }))}
-      canManageAppearances
-    />
+    <div className="flex flex-col gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-body-sm text-ink-secondary">
+          {total} {total === 1 ? "photo" : "photos"} in this event
+        </p>
+        <div className="flex items-center gap-3">
+          <Button variant="secondary" size="sm" onClick={handleDownloadAll} loading={busy} disabled={busy}>
+            <Download className="size-4" aria-hidden="true" />
+            {busy ? `Preparing ${done}/${total}…` : `Download all ${total}`}
+          </Button>
+          {busy ? (
+            <span className="sr-only" aria-live="polite">
+              Preparing {done} of {total} photos
+            </span>
+          ) : null}
+        </div>
+      </div>
+      <PhotoGrid
+        items={media.map((m) => ({
+          id: m.media_id,
+          mediaType: m.media_type,
+          hasThumbnail: m.has_thumbnail,
+        }))}
+        canManageAppearances
+      />
+    </div>
   );
 }
 
@@ -198,6 +276,7 @@ function ByStudent({ eventId }: { eventId: string }) {
   }
 
   const activeId = picked ?? students[0].student_id;
+  const activeStudent = students.find((s) => s.student_id === activeId);
   return (
     <div className="flex flex-col gap-6">
       <FilterChips
@@ -206,7 +285,11 @@ function ByStudent({ eventId }: { eventId: string }) {
         activeId={activeId}
         onSelect={setPicked}
       />
-      <EventStudentPhotos eventId={eventId} studentId={activeId} />
+      <EventStudentPhotos
+        eventId={eventId}
+        studentId={activeId}
+        studentName={activeStudent?.name ?? "student"}
+      />
     </div>
   );
 }

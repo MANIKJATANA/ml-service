@@ -1,14 +1,16 @@
-"""HTTP ``WhatsAppSender`` over Gupshup (W1).
+"""HTTP ``WhatsAppSender`` over Gupshup (W1; wired into the send path in W2).
 
 The real provider adapter, selected by ``BE_WHATSAPP_SENDER_IMPL=gupshup``. Mirrors
 ``ml_client/http_enrollment.py``'s httpx pattern: a fresh ``httpx.AsyncClient`` per call,
 ``raise_for_status()``, and ``httpx.HTTPError`` wrapped in ``UpstreamError`` (→502).
 
-IMPORTANT: the exact Gupshup endpoint / headers / template-message payload are PROVIDER-DOC-
-DEPENDENT and UNTESTABLE until a live Gupshup account exists. Every such line below is a
-best-effort template-message POST written from the public Gupshup shape and is flagged
-"CONFIRM against Gupshup live docs at integration time." — do not treat it as verified. The
-``api_key`` is NEVER logged.
+The endpoint / ``apikey`` auth / form fields / template+image payload / response shape below were
+CONFIRMED against Gupshup's current public docs (docs.gupshup.io/docs/template-messages +
+/reference/msg) — the **self-serve** WhatsApp API (``apikey`` header), NOT the Partner API
+(``partner.gupshup.io`` + a ``token`` header). The one value that MUST be a Gupshup template
+**UUID** (not a display name) is ``template_name`` — the school's configured "Template ID".
+Still untested end-to-end until a live account exists — the live smoke verifies real delivery +
+that the approved template's UUID/params line up. The ``api_key`` is NEVER logged.
 """
 
 from __future__ import annotations
@@ -47,24 +49,30 @@ class GupshupWhatsAppSender:
         sender_number: str,
         caption: str | None = None,
     ) -> WhatsAppReceipt:
-        # CONFIRM against Gupshup live docs at integration time: the template-message endpoint.
+        # Self-serve template-message endpoint (docs-confirmed). Media (image) templates use the
+        # SAME endpoint as text templates; the image differs only by the added `message` field.
         url = f"{self._base_url}/wa/api/v1/template/msg"
-        # CONFIRM against Gupshup live docs at integration time: the auth header carries the
-        # api key. Never logged.
+        # Auth: the account API key in a lowercase `apikey` header (docs-confirmed, not Bearer).
+        # Never logged.
         headers = {
             "apikey": self._api_key,
             "Content-Type": "application/x-www-form-urlencoded",
         }
-        # CONFIRM against Gupshup live docs at integration time: the template payload shape.
-        # A template message with an image header component; the caption (if any) is a body
-        # parameter. Gupshup expects JSON-encoded fields inside a form body.
+        # `template.id` MUST be the approved template's UUID (the school's configured "Template
+        # ID"), NOT its display name (docs example: {"id":"c6aecef6-...","params":[...]}).
+        # `params` are the ordered body-variable values — [] for a static-body template (the
+        # recommended one); a caption is threaded here ONLY if the template has a {{1}} variable.
         template: dict[str, Any] = {"id": template_name, "params": []}
         if caption is not None:
             template["params"] = [caption]
+        # The image header carries the photo as a fetch-at-send-time `link` (docs-confirmed;
+        # present only for a Media-Image template).
         message = {
             "type": "image",
             "image": {"link": image_url},
         }
+        # Fields match Gupshup's confirmed /template/msg curl exactly. (That curl omits `channel`;
+        # if a send is ever rejected for a missing channel, add `"channel": "whatsapp"`.)
         form = {
             "source": sender_number,
             "destination": to,
@@ -83,6 +91,10 @@ class GupshupWhatsAppSender:
             raise UpstreamError(
                 f"WhatsApp send failed for {_redact(to)}: {exc}"
             ) from exc
+        # Defense-in-depth: Gupshup normally returns a non-2xx on failure (caught above), but a
+        # 2xx body with an explicit error status is treated as a failure too (PII-free message).
+        if isinstance(payload, dict) and payload.get("status") == "error":
+            raise UpstreamError(f"WhatsApp send rejected for {_redact(to)}")
         return _to_receipt(payload, to=to)
 
 
@@ -94,11 +106,9 @@ def _redact(number: str) -> str:
 
 
 def _to_receipt(payload: Any, *, to: str) -> WhatsAppReceipt:
-    # CONFIRM against Gupshup live docs at integration time: the success body carries a
-    # message id (commonly ``messageId``). Fall back to empty if the shape differs; a non-2xx
-    # would already have raised above.
+    # Docs-confirmed success body: {"status":"submitted","messageId":"<uuid>"}. `messageId` is
+    # Gupshup's only id field (camelCase); a non-dict / missing id → "" (a non-2xx already raised).
     message_id = ""
     if isinstance(payload, dict):
-        raw = payload.get("messageId") or payload.get("message_id") or ""
-        message_id = str(raw)
+        message_id = str(payload.get("messageId") or "")
     return WhatsAppReceipt(provider_message_id=message_id, to=to)

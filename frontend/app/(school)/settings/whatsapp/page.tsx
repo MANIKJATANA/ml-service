@@ -94,13 +94,14 @@ function WhatsAppForm({
         </Field>
 
         <Field
-          label="Template name"
+          label="Template ID"
           htmlFor="wa-template"
-          hint="Must match a WhatsApp message template you've had approved in your provider account — photos won't send with an unapproved or misspelled name."
+          hint="The approved template's ID — a UUID from your Gupshup dashboard (e.g. c6aecef6-bcb0-4fb1-8100-28c094e3bc6b), NOT its display name. Photos won't send without the exact ID of an approved template."
         >
           <Input
             id="wa-template"
             maxLength={200}
+            placeholder="c6aecef6-bcb0-4fb1-8100-28c094e3bc6b"
             value={templateName}
             onChange={(e) => setTemplateName(e.target.value)}
           />

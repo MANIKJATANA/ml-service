@@ -53,8 +53,10 @@ async def test_fake_sender_distinct_message_ids_and_optional_caption() -> None:
 @pytest.mark.parametrize(
     ("payload", "expected_id"),
     [
-        ({"messageId": "wamid.ABC"}, "wamid.ABC"),  # the common Gupshup field
-        ({"message_id": "snake_123"}, "snake_123"),  # the snake_case fallback
+        ({"messageId": "wamid.ABC"}, "wamid.ABC"),  # Gupshup's only id field (camelCase)
+        # The docs-confirmed success shape: {"status":"submitted","messageId":"<uuid>"}.
+        ({"status": "submitted", "messageId": "ee4a68a0-1203"}, "ee4a68a0-1203"),
+        ({"message_id": "snake_123"}, ""),  # snake_case is NOT a real Gupshup field -> empty
         ({"status": "submitted"}, ""),  # a dict with no id field -> empty
         (["not", "a", "dict"], ""),  # a non-dict body -> empty, no crash
         ("plain string", ""),  # a non-dict body -> empty

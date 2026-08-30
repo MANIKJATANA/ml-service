@@ -34,6 +34,7 @@ import { ProgressBar } from "@/components/ui/progress-bar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatusPill } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
+import { SendPhotosButton } from "@/components/whatsapp/send-photos-button";
 import {
   deleteStudent,
   enrollStudent,
@@ -507,9 +508,26 @@ function StudentDownloadAll({
 }
 
 /** Events the student appears in → their photos in the selected one, plus a staff "Download all"
- *  (BP26 v1). Hidden until the student has been matched into at least one photo (decisions/0035). */
-function AppearsInSection({ studentId, studentName }: { studentId: string; studentName: string }) {
+ *  + a "Send on WhatsApp" (W2). Hidden until the student has been matched into at least one photo
+ *  (decisions/0035). `optedIn`/`hasNumber` gate the WhatsApp send (disabled with a reason hint). */
+function AppearsInSection({
+  studentId,
+  studentName,
+  optedIn,
+  hasNumber,
+}: {
+  studentId: string;
+  studentName: string;
+  optedIn: boolean;
+  hasNumber: boolean;
+}) {
   const { events, isLoading, error } = useStudentEvents(studentId);
+  // The student's whole EFFECTIVE media set — the WhatsApp send count (server sends this set).
+  const { media: allMedia } = useAllStudentMedia(studentId);
+  const allMediaIds = useMemo(
+    () => (allMedia ? allMedia.map((m) => m.media_id) : []),
+    [allMedia],
+  );
   const [picked, setPicked] = useState<string | null>(null);
 
   if (isLoading) {
@@ -527,7 +545,20 @@ function AppearsInSection({ studentId, studentName }: { studentId: string; stude
     <Card className="flex flex-col gap-4 p-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-headline text-ink">Appears in</h2>
-        <StudentDownloadAll studentId={studentId} studentName={studentName} events={events} />
+        <div className="flex flex-wrap items-center gap-3">
+          {/* Render the send button only once the effective media has loaded, so it never
+              flashes "Send 0" during the brief media fetch. */}
+          {allMedia !== undefined ? (
+            <SendPhotosButton
+              studentId={studentId}
+              studentName={studentName}
+              mediaIds={allMediaIds}
+              optedIn={optedIn}
+              hasNumber={hasNumber}
+            />
+          ) : null}
+          <StudentDownloadAll studentId={studentId} studentName={studentName} events={events} />
+        </div>
       </div>
       <FilterChips
         ariaLabel="Events"
@@ -829,7 +860,12 @@ export default function StudentDetailPage() {
             </div>
           ) : null}
           <EngagementCard studentId={studentId} />
-          <AppearsInSection studentId={studentId} studentName={student.name} />
+          <AppearsInSection
+            studentId={studentId}
+            studentName={student.name}
+            optedIn={student.whatsapp_opt_in}
+            hasNumber={student.mobile_number != null}
+          />
         </>
       )}
 

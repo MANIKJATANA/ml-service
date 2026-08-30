@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, datetime
 from enum import Enum, StrEnum
+from typing import Literal
 
 
 class UnsetType(Enum):
@@ -630,3 +631,50 @@ class AdminActionAuditEntry:
     target_id: str | None
     target_label: str | None
     created_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class WhatsAppSendLogEntry:
+    """One recorded WhatsApp send attempt — the spend/delivery audit (W2, migration 0023).
+
+    Append-only, backend-owned: the ``WhatsAppShareService`` writes a row for every media it
+    attempts (``sent``/``failed``/``skipped``). ``actor_role`` is denormalized at write time so
+    the trail survives the account (``actor_user_id`` → NULL via FK SET NULL); ``student_id``/
+    ``media_id`` are SET NULL too so the spend fact outlives an erased student/media. The
+    recipient phone number is DELIBERATELY NOT a field — PII-free (only ``student_id``/
+    ``media_id`` identify the row); ``error`` is a short PII-free reason. ``status='sent'`` rows
+    since the UTC month start feed the monthly budget cap."""
+
+    id: str
+    school_id: str
+    student_id: str | None
+    media_id: str | None
+    actor_user_id: str | None
+    actor_role: str
+    sender_number: str
+    status: str
+    provider_message_id: str | None
+    error: str | None
+    created_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class WhatsAppSendItemResult:
+    """One media's outcome from a student-centric WhatsApp send (W2). ``sent`` = the provider
+    accepted it; ``failed`` = the send raised or the ≤5 MB variant couldn't be produced;
+    ``skipped`` = it wasn't attempted (not effectively appearing / over the monthly budget)."""
+
+    media_id: str
+    status: Literal["sent", "failed", "skipped"]
+    reason: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class WhatsAppSendSummary:
+    """The per-media outcomes of one ``send_student_photos`` call (W2) + the rolled-up counts.
+    The route projects this to the API response; the FE surfaces an honest toast."""
+
+    results: list[WhatsAppSendItemResult]
+    sent: int
+    failed: int
+    skipped: int

@@ -30,6 +30,7 @@ class Permission(StrEnum):
     AUDIT_VIEW = "audit:view"  # school_admin: read the download/access audit
     CLASS_MANAGE = "class:manage"  # school_admin: create/edit/delete classes (BP11a)
     WHATSAPP_MANAGE = "whatsapp:manage"  # school_admin: configure WhatsApp sending (W1)
+    WHATSAPP_SEND = "whatsapp:send"  # admin + teacher: send a student their photos (W2)
 
 
 # Hardcoded v1 policy. A later DbPermissionResolver overlays per-school overrides
@@ -56,6 +57,9 @@ ROLE_PERMISSIONS: dict[Role, frozenset[Permission]] = {
             # W1: WhatsApp config is admin-only (like audit:view / class:manage). Granting it
             # to teachers later is a one-line addition to the TEACHER set below.
             Permission.WHATSAPP_MANAGE,
+            # W2: sending a student their photos over WhatsApp is granted to BOTH school_admin
+            # and teacher (mirrors notification:send — both roles distribute photos).
+            Permission.WHATSAPP_SEND,
         }
     ),
     Role.TEACHER: frozenset(
@@ -68,6 +72,8 @@ ROLE_PERMISSIONS: dict[Role, frozenset[Permission]] = {
             Permission.DASHBOARD_VIEW,
             Permission.NOTIFICATION_SEND,
             Permission.MATCH_REVIEW,
+            # W2: teachers send a student their photos over WhatsApp too (like notification:send).
+            Permission.WHATSAPP_SEND,
         }
     ),
     Role.STUDENT: frozenset({Permission.GALLERY_VIEW_OWN}),

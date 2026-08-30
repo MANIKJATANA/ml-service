@@ -753,3 +753,73 @@ class AdminActionAudit(Base):
             name="ck_admin_action_audit_target_type",
         ),
     )
+
+
+class WhatsAppSendLog(Base):
+    """An append-only record of one WhatsApp send attempt (migration 0023, W2).
+
+    Backend-owned spend/delivery audit: the ``WhatsAppShareService`` writes a row for every
+    media it attempts (``sent``/``failed``/``skipped``). Mirrors ``download_audit``/
+    ``admin_action_audit``: ``actor_role`` is denormalized so the trail survives the account
+    (``actor_user_id`` → SET NULL on delete). ``student_id``/``media_id`` are SET NULL too so
+    the spend fact outlives an erased student/media (the audit outlives its subject). The
+    recipient phone number is DELIBERATELY NOT a column — PII-free (the row is identified by
+    ``student_id``/``media_id``, never the number); ``error`` is a short PII-free reason. Rows
+    are immutable. The composite indexes serve the monthly budget count (``sent`` rows since the
+    UTC month start) + a per-student send history."""
+
+    __tablename__ = "whatsapp_send_log"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    school_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("schools.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    # SET NULL so the spend/audit fact outlives an erased student (BP8e) / deleted media.
+    student_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("students.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    media_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("media.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    # SET NULL so the audit row outlives the account that performed the send.
+    actor_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    actor_role: Mapped[str] = mapped_column(String, nullable=False)
+    # The approved sender number the send went from (a config/platform value, not PII).
+    sender_number: Mapped[str] = mapped_column(String, nullable=False)
+    status: Mapped[str] = mapped_column(String, nullable=False)
+    provider_message_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    # A short PII-free failure reason (never the recipient phone number).
+    error: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        # The budget count (sent rows since the UTC month start) + the newest-first history.
+        Index("ix_whatsapp_send_log_school", "school_id", "created_at"),
+        # A per-student send history.
+        Index(
+            "ix_whatsapp_send_log_student", "school_id", "student_id", "created_at"
+        ),
+        CheckConstraint(
+            "status IN ('sent', 'failed', 'skipped')",
+            name="ck_whatsapp_send_log_status",
+        ),
+        # Lockstep with the Role domain enum.
+        CheckConstraint(
+            "actor_role IN ('platform_admin', 'school_admin', 'teacher', 'student')",
+            name="ck_whatsapp_send_log_actor_role",
+        ),
+    )

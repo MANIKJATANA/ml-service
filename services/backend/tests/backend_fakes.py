@@ -11,6 +11,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 
+from backend.adapters.whatsapp.fake_sender import FakeWhatsAppSender
 from backend.domain.emails import normalize_email
 from backend.domain.errors import ConflictError, NotFoundError, UpstreamError
 from backend.domain.models import (
@@ -50,6 +51,7 @@ from backend.domain.models import (
     User,
     UserSort,
     UserStatus,
+    WhatsAppSendLogEntry,
 )
 from backend.domain.ports import (
     AdminActionAuditRepository,
@@ -71,6 +73,8 @@ from backend.domain.ports import (
     Thumbnailer,
     UserRepository,
     WhatsAppConfigRepository,
+    WhatsAppSender,
+    WhatsAppSendLogRepository,
 )
 from backend.domain.tokens import TokenClaims, TokenPair, TokenType
 from backend.settings import Settings
@@ -2378,6 +2382,74 @@ class FakeWhatsAppConfigRepo:
         return config
 
 
+class FakeWhatsAppSendLogRepo:
+    """WhatsAppSendLogRepository double (W2): an in-memory append-only list. Filters by
+    ``school_id`` like the real adapter; ``created_at`` increments per record so a newest-first
+    read is deterministic. ``count_sent_since`` counts ``sent`` rows since a boundary (the
+    budget cap). The recipient phone number is never recorded (PII-free)."""
+
+    def __init__(self, entries: list[WhatsAppSendLogEntry] | None = None) -> None:
+        self._rows: list[WhatsAppSendLogEntry] = list(entries or [])
+        self._seq = len(self._rows)
+
+    async def record(
+        self,
+        *,
+        school_id: str,
+        student_id: str | None,
+        media_id: str | None,
+        actor_user_id: str | None,
+        actor_role: str,
+        sender_number: str,
+        status: str,
+        provider_message_id: str | None,
+        error: str | None,
+    ) -> None:
+        self._seq += 1
+        self._rows.append(
+            WhatsAppSendLogEntry(
+                id=f"wa-send-{self._seq}",
+                school_id=school_id,
+                student_id=student_id,
+                media_id=media_id,
+                actor_user_id=actor_user_id,
+                actor_role=actor_role,
+                sender_number=sender_number,
+                status=status,
+                provider_message_id=provider_message_id,
+                error=error,
+                # Real "now" (not the fixed _NOW) so a seeded budget row + service-recorded rows
+                # land in the SAME UTC calendar month the service's count_sent_since window uses.
+                created_at=datetime.now(UTC) + timedelta(seconds=self._seq),
+            )
+        )
+
+    async def count_sent_since(self, school_id: str, *, since: datetime) -> int:
+        return sum(
+            1
+            for r in self._rows
+            if r.school_id == school_id
+            and r.status == "sent"
+            and r.created_at >= since
+        )
+
+    async def list_for_student(
+        self, school_id: str, student_id: str, *, limit: int
+    ) -> list[WhatsAppSendLogEntry]:
+        rows = [
+            r
+            for r in self._rows
+            if r.school_id == school_id and r.student_id == student_id
+        ]
+        rows.sort(key=lambda r: r.created_at, reverse=True)
+        return rows[:limit]
+
+    @property
+    def rows(self) -> list[WhatsAppSendLogEntry]:
+        """Test accessor: every recorded row, in insertion order."""
+        return list(self._rows)
+
+
 class FakeNotificationReadRepo:
     """NotificationReadRepository double: (student_id, event_id) -> seen_at.
 
@@ -2493,6 +2565,8 @@ class SeededContainer(Container):
         notification_reads: NotificationReadRepository | None = None,
         notifier: NotificationChannel | None = None,
         whatsapp_config: WhatsAppConfigRepository | None = None,
+        whatsapp_sender: WhatsAppSender | None = None,
+        whatsapp_send_log: WhatsAppSendLogRepository | None = None,
         jwt_secret: str = _TEST_JWT_SECRET,
     ) -> None:
         super().__init__(Settings(jwt_secret=SecretStr(jwt_secret)))
@@ -2534,6 +2608,14 @@ class SeededContainer(Container):
         self._seed_notifier: NotificationChannel = notifier or FakeNotificationChannel()
         self._seed_whatsapp_config: WhatsAppConfigRepository = (
             whatsapp_config or FakeWhatsAppConfigRepo()
+        )
+        # W2: the send path. FakeWhatsAppSender is a real deterministic adapter (records .sent);
+        # the send log is the in-memory fake. Route tests keep handles to assert on both.
+        self._seed_whatsapp_sender: WhatsAppSender = (
+            whatsapp_sender or FakeWhatsAppSender()
+        )
+        self._seed_whatsapp_send_log: WhatsAppSendLogRepository = (
+            whatsapp_send_log or FakeWhatsAppSendLogRepo()
         )
         # Wire the FK-cascade simulation so delete-student removes the profile too.
         if isinstance(self._seed_users, FakeUserRepo) and isinstance(
@@ -2642,3 +2724,9 @@ class SeededContainer(Container):
 
     def whatsapp_config_repo(self) -> WhatsAppConfigRepository:
         return self._seed_whatsapp_config
+
+    def whatsapp_sender(self) -> WhatsAppSender:
+        return self._seed_whatsapp_sender
+
+    def whatsapp_send_log_repo(self) -> WhatsAppSendLogRepository:
+        return self._seed_whatsapp_send_log

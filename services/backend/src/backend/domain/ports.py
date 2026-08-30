@@ -51,6 +51,7 @@ from backend.domain.models import (
     UserSort,
     UserStatus,
     WhatsAppReceipt,
+    WhatsAppSendLogEntry,
 )
 from backend.domain.permissions import Permission
 from backend.domain.tokens import TokenClaims, TokenPair, TokenType
@@ -913,6 +914,39 @@ class WhatsAppConfigRepository(Protocol):
         template_name: str | None,
         business_name: str | None,
     ) -> SchoolWhatsAppConfig: ...
+
+
+class WhatsAppSendLogRepository(Protocol):
+    """Append-only audit of WhatsApp send attempts (W2, migration 0023).
+
+    ``record`` inserts one immutable row per media attempted (``sent``/``failed``/``skipped``)
+    best-effort — a failed audit must never abort a send batch. ``count_sent_since`` counts the
+    ``sent`` rows since a boundary (the UTC month start) — the monthly budget cap. The recipient
+    phone number is NEVER passed here (PII-free); ``error`` is a short PII-free reason.
+    Tenant-scoped by ``school_id`` like every other repo; rows are immutable (no update/delete)."""
+
+    async def record(
+        self,
+        *,
+        school_id: str,
+        student_id: str | None,
+        media_id: str | None,
+        actor_user_id: str | None,
+        actor_role: str,
+        sender_number: str,
+        status: str,
+        provider_message_id: str | None,
+        error: str | None,
+    ) -> None: ...
+    async def count_sent_since(self, school_id: str, *, since: datetime) -> int:
+        """Count ``status='sent'`` rows created at/after ``since`` for a school — the monthly
+        budget count (``since`` = the UTC month start). Tenant-scoped."""
+        ...
+    async def list_for_student(
+        self, school_id: str, student_id: str, *, limit: int
+    ) -> list[WhatsAppSendLogEntry]:
+        """A student's recent send history, newest-first (bounded by ``limit``). Tenant-scoped."""
+        ...
 
 
 class RateLimiter(Protocol):

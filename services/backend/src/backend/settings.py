@@ -87,6 +87,17 @@ class Settings(BaseSettings):
     # The ≤5 MB WhatsApp image variant bounds (the sender resizes before send in W2).
     whatsapp_image_max_edge: int = 2000
     whatsapp_image_quality: int = 80
+    # W2: the ENFORCED byte ceiling for the WhatsApp variant — under WhatsApp's 5 MB image
+    # limit with headroom. If the first re-encode exceeds this, make_whatsapp_variant steps
+    # quality down (to the floor), then edge down, until it fits — else the media is skipped.
+    whatsapp_image_max_bytes: int = 4_800_000
+    whatsapp_image_quality_floor: int = 40
+    # The per-school monthly send cap (counted from status='sent' rows since the UTC month
+    # start). ~1 message per photo; 12000/school/month covers a full whole-school event.
+    whatsapp_monthly_send_cap: int = 12000
+    # Object-key prefix for the ≤5 MB WhatsApp send variants (distinct from originals). Each is
+    # a deterministic per-media key (overwritten on re-send); v1 does not reap these objects.
+    whatsapp_variant_prefix: str = "whatsapp-variants"
 
     # --- galleries / download (decisions/0028) ---------------------------
     # TTL of the short-lived signed download URLs the galleries mint on demand.

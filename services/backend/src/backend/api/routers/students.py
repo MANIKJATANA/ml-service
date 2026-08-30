@@ -48,6 +48,7 @@ from backend.api.schemas.students import (
     UploadUrlResponse,
 )
 from backend.api.schemas.users import UpdateUserStatusRequest
+from backend.api.schemas.whatsapp import WhatsAppSendRequest, WhatsAppSendResponse
 from backend.domain.models import (
     ActivityFilter,
     EnrollmentStatus,
@@ -62,6 +63,11 @@ router = APIRouter(prefix="/v1/students", tags=["students"])
 
 # Resolves the caller AND enforces the permission in one dependency.
 StudentManager = Annotated[User, Depends(require_permissions(Permission.STUDENT_MANAGE))]
+# W2: sending a student their photos over WhatsApp needs the distinct whatsapp:send perm
+# (school_admin + teacher, like notification:send).
+WhatsAppSendManager = Annotated[
+    User, Depends(require_permissions(Permission.WHATSAPP_SEND))
+]
 
 
 @router.post("/upload-url", response_model=UploadUrlResponse)
@@ -399,6 +405,29 @@ async def set_student_mobile(
         whatsapp_opt_in=body.whatsapp_opt_in,
     )
     return StudentResponse.from_student(student)
+
+
+@router.post("/{student_id}/whatsapp-send", response_model=WhatsAppSendResponse)
+async def send_student_whatsapp(
+    student_id: str,
+    body: WhatsAppSendRequest,
+    container: ContainerDep,
+    actor: WhatsAppSendManager,
+) -> WhatsAppSendResponse:
+    """Send a student ALL (``media_ids=null``) or a SELECTED subset of THEIR effective photos
+    over WhatsApp (W2). The endpoint loops server-side, best-effort per media, under ONE
+    monthly budget check. Requires ``whatsapp:send`` (school_admin or teacher). Tenant from the
+    token (a foreign student → 404 before any send); sends only to an opted-in student with a
+    number on file (else 400), and never a ``rejected`` appearance (the BP5 overlay is reused).
+    The response never carries the recipient phone number (PII-free)."""
+    summary = await container.whatsapp_share_service().send_student_photos(
+        school_id=tenant_of(actor),
+        student_id=student_id,
+        media_ids=body.media_ids,
+        actor_user_id=actor.id,
+        actor_role=actor.role.value,
+    )
+    return WhatsAppSendResponse.from_summary(summary)
 
 
 @router.put("/{student_id}/reference-photo", response_model=StudentResponse)

@@ -78,11 +78,19 @@ class GupshupWhatsAppSender:
                 resp.raise_for_status()
                 payload: Any = resp.json()
         except httpx.HTTPError as exc:
-            # Do NOT include headers/api_key in the message — only the recipient + error.
+            # W2 lit up the send path: REDACT the recipient number (all but the last 4 digits)
+            # so it never lands in a log/error string. The api_key is likewise never included.
             raise UpstreamError(
-                f"WhatsApp send failed for {to}: {exc}"
+                f"WhatsApp send failed for {_redact(to)}: {exc}"
             ) from exc
         return _to_receipt(payload, to=to)
+
+
+def _redact(number: str) -> str:
+    """Mask a recipient number for logging — keep only the last 4 digits (PII-free)."""
+    if len(number) <= 4:
+        return "*" * len(number)
+    return "*" * (len(number) - 4) + number[-4:]
 
 
 def _to_receipt(payload: Any, *, to: str) -> WhatsAppReceipt:

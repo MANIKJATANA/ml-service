@@ -18,6 +18,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/components/ui/toast";
+import { SendPhotosButton } from "@/components/whatsapp/send-photos-button";
 import { batchReview, undoCorrection } from "@/lib/api/endpoints";
 import { isApiError } from "@/lib/api/errors";
 import type { MediaType } from "@/lib/api/types";
@@ -30,6 +31,7 @@ import {
   useEventStudentMedia,
   useEventStudents,
 } from "@/lib/hooks/use-galleries";
+import { useStudent } from "@/lib/hooks/use-students";
 import { cn, sanitizeFilename } from "@/lib/utils";
 
 function AllPhotos({ eventId }: { eventId: string }) {
@@ -167,6 +169,8 @@ function EventStudentPhotos({
   const { media, isLoading, error } = useEventStudentMedia(eventId, studentId);
   const { event } = useEvent(eventId);
   const { toast } = useToast();
+  // W2: the picked student's opt-in/number for the WhatsApp send (not on the roster row).
+  const { student } = useStudent(studentId);
 
   const mediaIds = useMemo(() => (media ? media.map((m) => m.media_id) : []), [media]);
   // `new Date()` in a lazy initializer runs once at mount, not on every render.
@@ -223,7 +227,15 @@ function EventStudentPhotos({
         <p className="text-body-sm text-ink-secondary">
           {total} {total === 1 ? "photo" : "photos"} in this event
         </p>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <SendPhotosButton
+            studentId={studentId}
+            studentName={studentName}
+            mediaIds={mediaIds}
+            optedIn={student?.whatsapp_opt_in ?? false}
+            hasNumber={student?.mobile_number != null}
+            size="sm"
+          />
           <Button variant="secondary" size="sm" onClick={handleDownloadAll} loading={busy} disabled={busy}>
             <Download className="size-4" aria-hidden="true" />
             {busy ? `Preparing ${done}/${total}…` : `Download all ${total}`}

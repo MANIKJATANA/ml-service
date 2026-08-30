@@ -49,6 +49,7 @@ import type {
   UserResponse,
   UserStatus,
   WhatsAppConfigResponse,
+  WhatsAppSendResponse,
 } from "./types";
 
 /**
@@ -361,6 +362,19 @@ export function setStudentStatus(
   return bffFetch<StudentResponse>(
     `/api/v1/students/${encodeURIComponent(studentId)}/status`,
     { method: "PATCH", body: JSON.stringify({ status }) },
+  );
+}
+
+/** Send a student ALL (`mediaIds=null`) or a SELECTED subset of THEIR photos over WhatsApp
+ *  (W2). The server loops best-effort per media under one monthly budget — NOT a browser pool.
+ *  Returns the per-media results + counts; the phone number is never in the response (PII-free). */
+export function sendWhatsApp(
+  studentId: string,
+  mediaIds: string[] | null,
+): Promise<WhatsAppSendResponse> {
+  return bffFetch<WhatsAppSendResponse>(
+    `/api/v1/students/${encodeURIComponent(studentId)}/whatsapp-send`,
+    { method: "POST", body: JSON.stringify({ media_ids: mediaIds }) },
   );
 }
 

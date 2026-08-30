@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 from backend.adapters.whatsapp.fake_sender import FakeWhatsAppSender
-from backend.adapters.whatsapp.gupshup_sender import _to_receipt
+from backend.adapters.whatsapp.gupshup_sender import _redact, _to_receipt
 from backend.domain.models import WhatsAppReceipt
 
 
@@ -65,3 +65,22 @@ def test_gupshup_to_receipt_parses_message_id(payload: object, expected_id: str)
     assert isinstance(receipt, WhatsAppReceipt)
     assert receipt.provider_message_id == expected_id
     assert receipt.to == "15551230000"
+
+
+# W2: the send path is live, so a failed send must not leak the recipient number into the
+# UpstreamError. _redact keeps only the last 4 digits.
+@pytest.mark.parametrize(
+    ("number", "expected"),
+    [
+        ("15551234567", "*******4567"),  # a full number → all but last 4 masked
+        ("1234", "****"),  # exactly 4 → fully masked (never expose < 4-digit tail)
+        ("99", "**"),  # short → fully masked
+        ("", ""),
+    ],
+)
+def test_redact_masks_all_but_last_four(number: str, expected: str) -> None:
+    out = _redact(number)
+    assert out == expected
+    # The full number never appears in its own redaction (unless it's ≤4 digits, fully masked).
+    if len(number) > 4:
+        assert number not in out

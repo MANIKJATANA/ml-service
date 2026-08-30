@@ -51,6 +51,10 @@ async def test_container_builds_and_memoizes_student_stack() -> None:
     assert isinstance(container.whatsapp_sender(), FakeWhatsAppSender)
     assert container.whatsapp_sender() is container.whatsapp_sender()
     assert container.whatsapp_config_service() is container.whatsapp_config_service()
+    # W2: the send-log repo (postgres, lazy — no connect) + the share service memoize; the share
+    # service is the FIRST place the sender is wired into a service.
+    assert container.whatsapp_send_log_repo() is container.whatsapp_send_log_repo()
+    assert container.whatsapp_share_service() is container.whatsapp_share_service()
     await container.aclose()
 
 

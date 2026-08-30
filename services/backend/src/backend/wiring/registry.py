@@ -121,6 +121,14 @@ WHATSAPP_CONFIG_REPO_REGISTRY: dict[str, str] = {
     ),
 }
 
+# WhatsApp send audit (W2). The append-only spend/delivery log the share service writes to.
+WHATSAPP_SEND_LOG_REPO_REGISTRY: dict[str, str] = {
+    "postgres": (
+        "backend.adapters.repositories.postgres_whatsapp_send_log"
+        ":PostgresWhatsAppSendLogRepository"
+    ),
+}
+
 # Notification channels (BP4). Unlike the single-selector ports above, the container
 # resolves a LIST of these from the comma-separated ``BE_NOTIFICATION_CHANNELS`` and wraps
 # them in a CompositeNotifier — so channels run together or one at a time. email/whatsapp

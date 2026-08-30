@@ -46,6 +46,9 @@ from backend.adapters.repositories.postgres_users import PostgresUserRepository
 from backend.adapters.repositories.postgres_whatsapp_config import (
     PostgresWhatsAppConfigRepository,
 )
+from backend.adapters.repositories.postgres_whatsapp_send_log import (
+    PostgresWhatsAppSendLogRepository,
+)
 from backend.db.base import Base
 from backend.db.session import make_engine, make_sessionmaker
 from backend.domain.errors import ConflictError, NotFoundError
@@ -1042,6 +1045,82 @@ async def test_whatsapp_config_upsert_round_trip(
     # Tenant-safe: a malformed/foreign school never leaks a row.
     assert await config.get("not-a-uuid") is None
     assert await config.get(_MISSING_UUID) is None
+
+
+async def test_whatsapp_send_log_record_count_and_check(
+    sm: async_sessionmaker[AsyncSession],
+) -> None:
+    # W2: record a sent + a failed row, count only `sent` since a boundary, list a student's
+    # history, verify the CHECK rejects a bad status + the student FK SET NULL keeps the row.
+    schools = PostgresSchoolRepository(sm)
+    users = PostgresUserRepository(sm)
+    students = PostgresStudentRepository(sm)
+    events = PostgresEventRepository(sm)
+    media = PostgresMediaRepository(sm)
+    log = PostgresWhatsAppSendLogRepository(sm)
+    a = await schools.create(name="A", max_teachers=5)
+    login = await users.create(
+        school_id=a.id, email="s@x.io", password_hash="h", role=Role.STUDENT
+    )
+    student = await students.create(
+        school_id=a.id, user_id=login.id, name="N", reference_photo_path="p"
+    )
+    staff = await users.create(
+        school_id=a.id, email="t@x.io", password_hash="h", role=Role.SCHOOL_ADMIN
+    )
+    ev = await events.create(
+        school_id=a.id, name="E", description=None, event_date=None, created_by=None
+    )
+    m1 = await media.create(
+        school_id=a.id, event_id=ev.id, storage_path="p1.jpg", media_type=MediaType.IMAGE
+    )
+    m2 = await media.create(
+        school_id=a.id, event_id=ev.id, storage_path="p2.jpg", media_type=MediaType.IMAGE
+    )
+
+    before = datetime.now(UTC) - timedelta(seconds=1)
+    await log.record(
+        school_id=a.id, student_id=student.id, media_id=m1.id, actor_user_id=staff.id,
+        actor_role="school_admin", sender_number="15551234567", status="sent",
+        provider_message_id="pm-1", error=None,
+    )
+    await log.record(
+        school_id=a.id, student_id=student.id, media_id=m2.id, actor_user_id=staff.id,
+        actor_role="school_admin", sender_number="15551234567", status="failed",
+        provider_message_id=None, error="send_failed",
+    )
+    after = datetime.now(UTC) + timedelta(seconds=1)
+
+    # count_sent_since counts ONLY the `sent` row (not the failed one), inside the window.
+    assert await log.count_sent_since(a.id, since=before) == 1
+    # A window entirely after both rows counts nothing.
+    assert await log.count_sent_since(a.id, since=after) == 0
+
+    # Per-student history newest-first (2 rows).
+    hist = await log.list_for_student(a.id, student.id, limit=10)
+    assert len(hist) == 2
+    assert {r.status for r in hist} == {"sent", "failed"}
+    assert hist[0].created_at >= hist[1].created_at  # newest-first (real ORDER BY)
+
+    # The status CHECK rejects a bad value.
+    with pytest.raises(IntegrityError):
+        await log.record(
+            school_id=a.id, student_id=student.id, media_id=m1.id, actor_user_id=staff.id,
+            actor_role="school_admin", sender_number="15551234567", status="bogus",
+            provider_message_id=None, error=None,
+        )
+
+    # Delete the student's login → the students row cascades away, and the send-log row's
+    # student_id FK SET NULLs (the spend fact outlives the erased student).
+    await users.delete(login.id)
+    surviving = await log.list_for_student(a.id, student.id, limit=10)
+    assert surviving == []  # no rows still name the deleted student
+    # But count_sent_since is student-agnostic → the sent row still counts (it's anonymized).
+    assert await log.count_sent_since(a.id, since=before) == 1
+
+    # Tenant-safe: a malformed/foreign school never leaks.
+    assert await log.count_sent_since("not-a-uuid", since=before) == 0
+    assert await log.list_for_student(_MISSING_UUID, student.id, limit=10) == []
 
 
 async def test_admin_action_audit_record_list_scope_and_set_null(

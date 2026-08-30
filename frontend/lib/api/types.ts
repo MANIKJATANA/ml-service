@@ -109,6 +109,23 @@ export interface WhatsAppConfigResponse {
   updated_at: string;
 }
 
+/** One media's outcome from a student-centric WhatsApp send (W2). `sent` = the provider
+ *  accepted it; `failed` = the send couldn't be made; `skipped` = not attempted (not
+ *  effectively appearing / over the monthly budget). */
+export interface WhatsAppSendItemResult {
+  media_id: string;
+  status: "sent" | "failed" | "skipped";
+  reason: string | null;
+}
+
+/** The per-media outcomes of one WhatsApp send (W2) + the rolled-up counts. */
+export interface WhatsAppSendResponse {
+  results: WhatsAppSendItemResult[];
+  sent: number;
+  failed: number;
+  skipped: number;
+}
+
 /** A newly created student + its ONE-TIME server-generated temp password (BP7d). */
 export interface ProvisionedStudentResponse {
   student: StudentResponse;

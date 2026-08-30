@@ -13,6 +13,7 @@ import {
   LogOut,
   type LucideIcon,
   Menu,
+  MessageCircle,
   ScrollText,
   Users,
   X,
@@ -87,6 +88,7 @@ const NAV_BY_ROLE: Record<Role, NavItem[]> = {
     { href: "/classes", label: "Classes", icon: BookOpen },
     { href: "/events", label: "Events", icon: CalendarDays },
     { href: "/audit", label: "Activity log", icon: ScrollText },
+    { href: "/settings/whatsapp", label: "WhatsApp", icon: MessageCircle },
   ],
   teacher: [
     { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },

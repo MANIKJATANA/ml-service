@@ -40,6 +40,7 @@ from backend.domain.models import (
     School,
     SchoolSort,
     SchoolStatus,
+    SchoolWhatsAppConfig,
     SignedUpload,
     Student,
     StudentAppearanceCounts,
@@ -49,6 +50,7 @@ from backend.domain.models import (
     User,
     UserSort,
     UserStatus,
+    WhatsAppReceipt,
 )
 from backend.domain.permissions import Permission
 from backend.domain.tokens import TokenClaims, TokenPair, TokenType
@@ -619,9 +621,16 @@ class Thumbnailer(Protocol):
     bytes are decoded in the backend — kept behind this port so ``domain``/``services`` stay
     free of image libraries (the concrete Pillow adapter is the only importer)."""
 
-    async def make_thumbnail(self, data: bytes) -> bytes | None:
+    async def make_thumbnail(
+        self, data: bytes, *, max_edge: int | None = None, quality: int | None = None
+    ) -> bytes | None:
         """Return a small JPEG of ``data``, or ``None`` if it can't be produced (a non-image,
-        a decode/encode error) — best-effort, so a bad image never fails the upload."""
+        a decode/encode error) — best-effort, so a bad image never fails the upload.
+
+        W1: ``max_edge``/``quality`` optionally override the instance config for one call (the
+        WhatsApp send variant targets a larger size/quality than the BP17 tile thumbnail — a
+        smaller re-encode, NOT a hard byte cap); when omitted the instance values apply, so
+        every existing caller is unchanged."""
         ...
 
 
@@ -862,6 +871,48 @@ class NotificationChannel(Protocol):
     so email/WhatsApp are future drop-ins with no service change."""
 
     async def notify(self, event: NotificationEvent) -> None: ...
+
+
+class WhatsAppSender(Protocol):
+    """Send one WhatsApp image message to a specific recipient (W1).
+
+    Deliberately DISTINCT from :class:`NotificationChannel` (BP4). That port is the in-app,
+    PII-free, best-effort, fire-and-forget announce fan-out — it takes a ``NotificationEvent``
+    and returns nothing. This one is the outbound *WhatsApp* transport: it carries the
+    recipient's phone number + the photo + the approved template/sender, and it RETURNS a
+    receipt (the provider message id) or RAISES — a delivery attempt whose success matters.
+
+    Provider-agnostic: no ``apikey``/``app_id`` concepts leak into the port (those are the
+    Gupshup adapter's constructor concern). ``UpstreamError`` (→502) signals a transport
+    failure / non-2xx; ``ValidationError`` (→400) a rejected recipient/template. W1 builds
+    the sender but wires it into no service (there is no send endpoint yet — that is W2)."""
+
+    async def send_image(
+        self,
+        *,
+        to: str,
+        image_url: str,
+        template_name: str,
+        sender_number: str,
+        caption: str | None = None,
+    ) -> WhatsAppReceipt: ...
+
+
+class WhatsAppConfigRepository(Protocol):
+    """Backend-owned, per-school NON-SECRET WhatsApp config (W1). Keyed on ``school_id`` (PK);
+    reads are by that key, so tenant isolation is inherent. The one provider secret lives in
+    settings, never in a column here."""
+
+    async def get(self, school_id: str) -> SchoolWhatsAppConfig | None: ...
+    async def upsert(
+        self,
+        *,
+        school_id: str,
+        enabled: bool,
+        sender_number: str | None,
+        template_name: str | None,
+        business_name: str | None,
+    ) -> SchoolWhatsAppConfig: ...
 
 
 class RateLimiter(Protocol):

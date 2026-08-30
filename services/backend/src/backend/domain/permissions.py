@@ -29,6 +29,7 @@ class Permission(StrEnum):
     MATCH_REVIEW = "match:review"  # admin + teacher: confirm/reject/add face matches
     AUDIT_VIEW = "audit:view"  # school_admin: read the download/access audit
     CLASS_MANAGE = "class:manage"  # school_admin: create/edit/delete classes (BP11a)
+    WHATSAPP_MANAGE = "whatsapp:manage"  # school_admin: configure WhatsApp sending (W1)
 
 
 # Hardcoded v1 policy. A later DbPermissionResolver overlays per-school overrides
@@ -52,6 +53,9 @@ ROLE_PERMISSIONS: dict[Role, frozenset[Permission]] = {
             # BP11a: class (student-group) lifecycle is admin-only, like audit:view. The
             # day-to-day student↔class assignment rides on student:manage (both roles).
             Permission.CLASS_MANAGE,
+            # W1: WhatsApp config is admin-only (like audit:view / class:manage). Granting it
+            # to teachers later is a one-line addition to the TEACHER set below.
+            Permission.WHATSAPP_MANAGE,
         }
     ),
     Role.TEACHER: frozenset(

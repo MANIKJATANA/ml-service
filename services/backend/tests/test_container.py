@@ -44,6 +44,13 @@ async def test_container_builds_and_memoizes_student_stack() -> None:
         container.admin_action_audit_service()
         is container.admin_action_audit_service()
     )
+    # W1: the WhatsApp sender builds the fake under the default impl + memoizes; the config
+    # service builds (repo lazy — no connect). None is wired into any service (no send yet).
+    from backend.adapters.whatsapp.fake_sender import FakeWhatsAppSender
+
+    assert isinstance(container.whatsapp_sender(), FakeWhatsAppSender)
+    assert container.whatsapp_sender() is container.whatsapp_sender()
+    assert container.whatsapp_config_service() is container.whatsapp_config_service()
     await container.aclose()
 
 

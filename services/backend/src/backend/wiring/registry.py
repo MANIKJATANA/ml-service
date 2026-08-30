@@ -106,6 +106,21 @@ THUMBNAILER_REGISTRY: dict[str, str] = {
     "pillow": "backend.adapters.imaging.pillow_thumbnailer:PillowThumbnailer",
 }
 
+# WhatsApp sender (W1). fake = credential-free default (real deterministic adapter);
+# gupshup = the real provider behind BE_WHATSAPP_SENDER_IMPL=gupshup. Wati is a future
+# one-line addition here + a construction branch in the container.
+WHATSAPP_SENDER_REGISTRY: dict[str, str] = {
+    "fake": "backend.adapters.whatsapp.fake_sender:FakeWhatsAppSender",
+    "gupshup": "backend.adapters.whatsapp.gupshup_sender:GupshupWhatsAppSender",
+}
+
+WHATSAPP_CONFIG_REPO_REGISTRY: dict[str, str] = {
+    "postgres": (
+        "backend.adapters.repositories.postgres_whatsapp_config"
+        ":PostgresWhatsAppConfigRepository"
+    ),
+}
+
 # Notification channels (BP4). Unlike the single-selector ports above, the container
 # resolves a LIST of these from the comma-separated ``BE_NOTIFICATION_CHANNELS`` and wraps
 # them in a CompositeNotifier — so channels run together or one at a time. email/whatsapp

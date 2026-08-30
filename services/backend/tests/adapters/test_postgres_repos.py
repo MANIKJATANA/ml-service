@@ -43,6 +43,9 @@ from backend.adapters.repositories.postgres_teacher_classes import (
     PostgresTeacherClassRepository,
 )
 from backend.adapters.repositories.postgres_users import PostgresUserRepository
+from backend.adapters.repositories.postgres_whatsapp_config import (
+    PostgresWhatsAppConfigRepository,
+)
 from backend.db.base import Base
 from backend.db.session import make_engine, make_sessionmaker
 from backend.domain.errors import ConflictError, NotFoundError
@@ -994,6 +997,51 @@ async def test_download_audit_record_list_and_scope(
     assert await audit.list_for_media("not-a-uuid", m.id, limit=10) == []
     assert await audit.list_recent(_MISSING_UUID, limit=10, offset=0) == []
     assert await audit.count_for_media(_MISSING_UUID, m.id) == 0
+
+
+async def test_whatsapp_config_upsert_round_trip(
+    sm: async_sessionmaker[AsyncSession],
+) -> None:
+    # W1: a school's WhatsApp config — get None before any save, insert on first upsert, then a
+    # second upsert UPDATES the row (same created_at) and bumps updated_at.
+    schools = PostgresSchoolRepository(sm)
+    config = PostgresWhatsAppConfigRepository(sm)
+    a = await schools.create(name="A", max_teachers=5)
+
+    assert await config.get(a.id) is None  # never saved
+
+    first = await config.upsert(
+        school_id=a.id,
+        enabled=False,
+        sender_number=None,
+        template_name=None,
+        business_name=None,
+    )
+    assert first.school_id == a.id
+    assert first.enabled is False
+    assert first.sender_number is None
+
+    got = await config.get(a.id)
+    assert got is not None and got.enabled is False
+
+    # Second upsert updates in place (PK conflict → UPDATE), bumping updated_at.
+    second = await config.upsert(
+        school_id=a.id,
+        enabled=True,
+        sender_number="15551234567",
+        template_name="photo_notice",
+        business_name="A School",
+    )
+    assert second.enabled is True
+    assert second.sender_number == "15551234567"
+    assert second.template_name == "photo_notice"
+    assert second.business_name == "A School"
+    assert second.created_at == first.created_at  # create time unchanged on update
+    assert second.updated_at >= first.updated_at  # bumped (func.now())
+
+    # Tenant-safe: a malformed/foreign school never leaks a row.
+    assert await config.get("not-a-uuid") is None
+    assert await config.get(_MISSING_UUID) is None
 
 
 async def test_admin_action_audit_record_list_scope_and_set_null(

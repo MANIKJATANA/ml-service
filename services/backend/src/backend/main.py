@@ -31,6 +31,7 @@ from backend.api.routers import (
     schools,
     staff,
     students,
+    whatsapp,
 )
 from backend.deps import get_container
 from backend.domain.errors import (
@@ -276,6 +277,10 @@ def create_app(rate_limiter: RateLimiter | None = None) -> FastAPI:
     app = FastAPI(title="Backend", version=__version__, lifespan=lifespan)
     app.include_router(health.router)
     app.include_router(auth.router)
+    # The WhatsApp config router uses the literal path /v1/schools/whatsapp-config, which would
+    # otherwise be captured by the schools router's GET/PATCH /v1/schools/{school_id}
+    # (SCHOOL_MANAGE, platform-only). Register it FIRST so the literal wins the match.
+    app.include_router(whatsapp.router)
     app.include_router(schools.router)
     app.include_router(staff.router)
     app.include_router(students.router)

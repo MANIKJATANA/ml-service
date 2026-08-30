@@ -48,6 +48,7 @@ import type {
   UserListPageResponse,
   UserResponse,
   UserStatus,
+  WhatsAppConfigResponse,
 } from "./types";
 
 /**
@@ -504,6 +505,28 @@ export function updateClass(
 export function deleteClass(classId: string): Promise<void> {
   return bffFetch<void>(`/api/v1/classes/${encodeURIComponent(classId)}`, {
     method: "DELETE",
+  });
+}
+
+// --- WhatsApp config (W1) ---
+
+/** The school's WhatsApp config (whatsapp:manage — school_admin only). A disabled default if
+ *  never saved. */
+export function getWhatsAppConfig(): Promise<WhatsAppConfigResponse> {
+  return bffFetch<WhatsAppConfigResponse>("/api/v1/schools/whatsapp-config");
+}
+
+/** Create/replace the school's WhatsApp config (whatsapp:manage). Saving does not send
+ *  anything — that arrives in a later phase. */
+export function updateWhatsAppConfig(body: {
+  enabled: boolean;
+  sender_number: string | null;
+  template_name: string | null;
+  business_name: string | null;
+}): Promise<WhatsAppConfigResponse> {
+  return bffFetch<WhatsAppConfigResponse>("/api/v1/schools/whatsapp-config", {
+    method: "PUT",
+    body: JSON.stringify(body),
   });
 }
 

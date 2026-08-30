@@ -20,12 +20,17 @@ class PillowThumbnailer:
         self._max_edge = max_edge
         self._quality = quality
 
-    async def make_thumbnail(self, data: bytes) -> bytes | None:
+    async def make_thumbnail(
+        self, data: bytes, *, max_edge: int | None = None, quality: int | None = None
+    ) -> bytes | None:
         # Pillow is CPU-bound and synchronous — offload so the event loop isn't blocked
-        # (mirrors SupabaseObjectStore's anyio.to_thread pattern).
-        return await anyio.to_thread.run_sync(self._make_sync, data)
+        # (mirrors SupabaseObjectStore's anyio.to_thread pattern). W1: an optional per-call
+        # size/quality override (else the instance config) for the WhatsApp variant.
+        edge = max_edge if max_edge is not None else self._max_edge
+        qual = quality if quality is not None else self._quality
+        return await anyio.to_thread.run_sync(self._make_sync, data, edge, qual)
 
-    def _make_sync(self, data: bytes) -> bytes | None:
+    def _make_sync(self, data: bytes, max_edge: int, quality: int) -> bytes | None:
         from PIL import Image, ImageOps
 
         try:
@@ -35,9 +40,9 @@ class PillowThumbnailer:
                 oriented = ImageOps.exif_transpose(opened) or opened
                 rgb = oriented if oriented.mode == "RGB" else oriented.convert("RGB")
                 # thumbnail() preserves aspect ratio and never upscales (mutates in place).
-                rgb.thumbnail((self._max_edge, self._max_edge))
+                rgb.thumbnail((max_edge, max_edge))
                 out = io.BytesIO()
-                rgb.save(out, format="JPEG", quality=self._quality)
+                rgb.save(out, format="JPEG", quality=quality)
                 return out.getvalue()
         except Exception:  # noqa: BLE001 — best-effort; a bad image must never fail the upload
             return None

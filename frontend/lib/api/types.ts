@@ -94,6 +94,21 @@ export interface ClassRefListResponse {
   items: ClassResponse[];
 }
 
+/** A school's per-school, NON-SECRET WhatsApp config (W1). `effective_sender_number` is the
+ *  number the school actually sends from (its own, or the shared platform number);
+ *  `using_shared_number` is true when it hasn't set its own. The provider secret is never here. */
+export interface WhatsAppConfigResponse {
+  school_id: string;
+  enabled: boolean;
+  sender_number: string | null;
+  effective_sender_number: string | null;
+  template_name: string | null;
+  business_name: string | null;
+  using_shared_number: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
 /** A newly created student + its ONE-TIME server-generated temp password (BP7d). */
 export interface ProvisionedStudentResponse {
   student: StudentResponse;

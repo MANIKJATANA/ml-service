@@ -289,6 +289,33 @@ class SignedUpload:
 
 
 @dataclass(frozen=True, slots=True)
+class WhatsAppReceipt:
+    """The result of one WhatsApp send (W1). A provider-agnostic acknowledgement — the
+    provider's message id + the recipient it went to. Mirrors ``SignedUpload``: a small,
+    frozen value the adapter returns and the caller records (W2 will persist it)."""
+
+    provider_message_id: str
+    to: str
+
+
+@dataclass(frozen=True, slots=True)
+class SchoolWhatsAppConfig:
+    """A school's per-school, NON-SECRET WhatsApp settings (W1). The one platform provider
+    secret (the Gupshup API key) is a process env var, never stored here. ``sender_number``
+    is the school's own approved sender (null → the shared platform number is used at send
+    time); ``template_name`` names the approved message template; ``business_name`` is a
+    display label. ``enabled`` gates whether this school sends at all."""
+
+    school_id: str
+    enabled: bool
+    sender_number: str | None
+    template_name: str | None
+    business_name: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
 class SignedDownload:
     """A short-lived signed URL to fetch a stored object (decisions/0028).
 

@@ -71,6 +71,23 @@ class Settings(BaseSettings):
     # POST /v1/students/match-photos 422s an over-size batch via the request schema.
     bulk_photo_max_files: int = 50
 
+    # --- WhatsApp (W1) ---------------------------------------------------
+    # Outbound WhatsApp provider. fake = credential-free default (a real, deterministic
+    # adapter); gupshup = the real provider. The platform owns ONE provider account = ONE
+    # secret (whatsapp_api_key); per-school config (sender_number/template_name/...) is
+    # NON-SECRET and lives in the school_whatsapp_config table. W1 builds the sender but
+    # wires it into NO service (there is no send endpoint yet — that is W2).
+    whatsapp_sender_impl: str = "fake"
+    whatsapp_api_key: SecretStr = SecretStr("")  # SECRET: the ONE Gupshup provider key
+    whatsapp_base_url: str = "https://api.gupshup.io"
+    whatsapp_app_name: str = ""  # the registered Gupshup app source name
+    whatsapp_http_timeout_s: float = 30.0
+    # The shared platform sender number a school falls back to when it sets none of its own.
+    whatsapp_default_sender_number: str = ""
+    # The ≤5 MB WhatsApp image variant bounds (the sender resizes before send in W2).
+    whatsapp_image_max_edge: int = 2000
+    whatsapp_image_quality: int = 80
+
     # --- galleries / download (decisions/0028) ---------------------------
     # TTL of the short-lived signed download URLs the galleries mint on demand.
     download_url_ttl_s: int = 3600  # 1 hour

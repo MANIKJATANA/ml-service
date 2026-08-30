@@ -29,6 +29,8 @@ ALL_TARGETS = [
         registry.EVENT_JOB_PRODUCER_REGISTRY,
         registry.OBJECT_STORE_REGISTRY,
         registry.ML_ENROLLMENT_CLIENT_REGISTRY,
+        registry.WHATSAPP_SENDER_REGISTRY,
+        registry.WHATSAPP_CONFIG_REPO_REGISTRY,
     )
     for impl in table
 ]

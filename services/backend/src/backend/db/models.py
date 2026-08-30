@@ -408,6 +408,39 @@ class EventCategory(Base):
     )
 
 
+class SchoolWhatsAppConfig(Base):
+    """A school's per-school, NON-SECRET WhatsApp settings (W1, migration 0022).
+
+    One row per school (``school_id`` is the PK + a CASCADE FK). ``enabled`` gates sending;
+    ``sender_number`` is the school's own approved sender (NULL → the shared platform number
+    at send time); ``template_name`` names the approved template; ``business_name`` is a
+    display label. The one platform provider secret (the Gupshup API key) is a settings env
+    var — never a column here. Read by PK, so no extra index."""
+
+    __tablename__ = "school_whatsapp_config"
+
+    school_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("schools.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
+    )
+    sender_number: Mapped[str | None] = mapped_column(String, nullable=True)
+    template_name: Mapped[str | None] = mapped_column(String, nullable=True)
+    business_name: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+
 class Media(Base):
     """One uploaded event photo + its per-photo processing state (decisions/0027).
     ``id`` (as a string) is the ML ``media_id``; ``storage_path`` is the ML ``media_uri``.

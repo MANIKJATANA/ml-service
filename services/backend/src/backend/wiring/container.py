@@ -43,6 +43,8 @@ from backend.domain.ports import (
     Thumbnailer,
     TokenService,
     UserRepository,
+    WhatsAppConfigRepository,
+    WhatsAppSender,
 )
 from backend.services.admin_action_audit_service import AdminActionAuditService
 from backend.services.analytics_service import AnalyticsService
@@ -61,6 +63,7 @@ from backend.services.notification_service import NotificationService
 from backend.services.onboarding_service import OnboardingService
 from backend.services.review_service import ReviewService
 from backend.services.student_service import StudentService
+from backend.services.whatsapp_config_service import WhatsAppConfigService
 from backend.settings import Settings
 from backend.wiring import registry
 
@@ -93,6 +96,9 @@ class Container:
         self._object_store: ObjectStore | None = None
         self._thumbnailer: Thumbnailer | None = None
         self._ml_enrollment_client: MlEnrollmentClient | None = None
+        self._whatsapp_sender: WhatsAppSender | None = None
+        self._whatsapp_config_repo: WhatsAppConfigRepository | None = None
+        self._whatsapp_config_service: WhatsAppConfigService | None = None
         self._password_hasher: PasswordHasher | None = None
         self._token_service: TokenService | None = None
         self._permission_resolver: PermissionResolver | None = None
@@ -355,6 +361,51 @@ class Container:
                     else:  # fake (offline dev)
                         self._ml_enrollment_client = cls()
         return self._ml_enrollment_client
+
+    # ---- WhatsApp (W1) -------------------------------------------------
+
+    def whatsapp_sender(self) -> WhatsAppSender:
+        # W1 builds the sender (registry-resolvable + config-selected) but wires it into NO
+        # service — there is no send endpoint yet (that is W2). fake = credential-free default;
+        # gupshup = the real provider (the ONE platform api key from settings, never logged).
+        if self._whatsapp_sender is None:
+            with self._lock:
+                if self._whatsapp_sender is None:
+                    cls = registry.resolve(
+                        registry.WHATSAPP_SENDER_REGISTRY,
+                        self._s.whatsapp_sender_impl,
+                    )
+                    if self._s.whatsapp_sender_impl == "fake":
+                        self._whatsapp_sender = cls()
+                    else:  # gupshup (the real provider)
+                        self._whatsapp_sender = cls(
+                            api_key=self._s.whatsapp_api_key.get_secret_value(),
+                            base_url=self._s.whatsapp_base_url,
+                            app_name=self._s.whatsapp_app_name,
+                            timeout_s=self._s.whatsapp_http_timeout_s,
+                        )
+        return self._whatsapp_sender
+
+    def whatsapp_config_repo(self) -> WhatsAppConfigRepository:
+        if self._whatsapp_config_repo is None:
+            with self._lock:
+                if self._whatsapp_config_repo is None:
+                    cls = registry.resolve(
+                        registry.WHATSAPP_CONFIG_REPO_REGISTRY,
+                        self._s.repository_impl,
+                    )
+                    self._whatsapp_config_repo = cls(self.sessionmaker())
+        return self._whatsapp_config_repo
+
+    def whatsapp_config_service(self) -> WhatsAppConfigService:
+        if self._whatsapp_config_service is None:
+            with self._lock:
+                if self._whatsapp_config_service is None:
+                    self._whatsapp_config_service = WhatsAppConfigService(
+                        self.whatsapp_config_repo(),
+                        default_sender_number=self._s.whatsapp_default_sender_number,
+                    )
+        return self._whatsapp_config_service
 
     # ---- auth (decisions/0024) -----------------------------------------
 

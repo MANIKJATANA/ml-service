@@ -40,6 +40,7 @@ from backend.domain.models import (
     School,
     SchoolSort,
     SchoolStatus,
+    SchoolWhatsAppConfig,
     SignedUpload,
     Student,
     StudentAppearanceCounts,
@@ -69,6 +70,7 @@ from backend.domain.ports import (
     TeacherClassRepository,
     Thumbnailer,
     UserRepository,
+    WhatsAppConfigRepository,
 )
 from backend.domain.tokens import TokenClaims, TokenPair, TokenType
 from backend.settings import Settings
@@ -1177,9 +1179,15 @@ class FakeThumbnailer:
     def __init__(self, *, produces: bool = True) -> None:
         self._produces = produces
         self.calls = 0
+        # W1: the last per-call size/quality override seen — tests assert the WhatsApp
+        # variant passes its own (max_edge, quality), distinct from the BP17 defaults.
+        self.last_override: tuple[int | None, int | None] | None = None
 
-    async def make_thumbnail(self, data: bytes) -> bytes | None:
+    async def make_thumbnail(
+        self, data: bytes, *, max_edge: int | None = None, quality: int | None = None
+    ) -> bytes | None:
         self.calls += 1
+        self.last_override = (max_edge, quality)
         return b"thumb-bytes" if self._produces else None
 
 
@@ -2331,6 +2339,45 @@ class FakeAdminActionAuditRepo:
         return list(self._rows)
 
 
+class FakeWhatsAppConfigRepo:
+    """WhatsAppConfigRepository double (W1): a dict keyed on school_id. ``get`` returns the row
+    or None; ``upsert`` creates/replaces it, keeping ``created_at`` stable and bumping
+    ``updated_at`` (a monotonic tick so a re-save is observably newer)."""
+
+    def __init__(self, configs: list[SchoolWhatsAppConfig] | None = None) -> None:
+        self._by_school: dict[str, SchoolWhatsAppConfig] = {
+            c.school_id: c for c in (configs or [])
+        }
+        self._tick = 0
+
+    async def get(self, school_id: str) -> SchoolWhatsAppConfig | None:
+        return self._by_school.get(school_id)
+
+    async def upsert(
+        self,
+        *,
+        school_id: str,
+        enabled: bool,
+        sender_number: str | None,
+        template_name: str | None,
+        business_name: str | None,
+    ) -> SchoolWhatsAppConfig:
+        self._tick += 1
+        existing = self._by_school.get(school_id)
+        created_at = existing.created_at if existing is not None else _NOW
+        config = SchoolWhatsAppConfig(
+            school_id=school_id,
+            enabled=enabled,
+            sender_number=sender_number,
+            template_name=template_name,
+            business_name=business_name,
+            created_at=created_at,
+            updated_at=_NOW + timedelta(seconds=self._tick),
+        )
+        self._by_school[school_id] = config
+        return config
+
+
 class FakeNotificationReadRepo:
     """NotificationReadRepository double: (student_id, event_id) -> seen_at.
 
@@ -2445,6 +2492,7 @@ class SeededContainer(Container):
         admin_action_audit: AdminActionAuditRepository | None = None,
         notification_reads: NotificationReadRepository | None = None,
         notifier: NotificationChannel | None = None,
+        whatsapp_config: WhatsAppConfigRepository | None = None,
         jwt_secret: str = _TEST_JWT_SECRET,
     ) -> None:
         super().__init__(Settings(jwt_secret=SecretStr(jwt_secret)))
@@ -2484,6 +2532,9 @@ class SeededContainer(Container):
             notification_reads or FakeNotificationReadRepo()
         )
         self._seed_notifier: NotificationChannel = notifier or FakeNotificationChannel()
+        self._seed_whatsapp_config: WhatsAppConfigRepository = (
+            whatsapp_config or FakeWhatsAppConfigRepo()
+        )
         # Wire the FK-cascade simulation so delete-student removes the profile too.
         if isinstance(self._seed_users, FakeUserRepo) and isinstance(
             self._seed_students, FakeStudentRepo
@@ -2588,3 +2639,6 @@ class SeededContainer(Container):
 
     def notifier(self) -> NotificationChannel:
         return self._seed_notifier
+
+    def whatsapp_config_repo(self) -> WhatsAppConfigRepository:
+        return self._seed_whatsapp_config

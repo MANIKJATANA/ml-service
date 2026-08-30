@@ -2,7 +2,7 @@
 
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { ChevronLeft, ChevronRight, Download, UserX, X } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { AppearanceEditor } from "@/components/gallery/appearance-editor";
 import { AppearanceList } from "@/components/gallery/appearance-list";
@@ -34,6 +34,11 @@ interface LightboxProps {
   /** When set (the student surface, BP5), shows a "This isn't me" action for the current
    *  photo. The caller rejects the match + refreshes; the viewer closes after. */
   onNotMe?: (mediaId: string) => Promise<void>;
+  /** BP30: when the viewer reaches the last loaded item and more pages exist, fetch the next
+   *  page and advance into it. Passed through from a server-paginated PhotoGrid. */
+  hasMore?: boolean;
+  loadingMore?: boolean;
+  onLoadMore?: () => void;
 }
 
 /** Full-screen photo viewer: image + ←/→/Esc navigation, download, and who appears. */
@@ -47,6 +52,9 @@ export function Lightbox({
   showAppearances = true,
   canManageAppearances = false,
   onNotMe,
+  hasMore = false,
+  loadingMore = false,
+  onLoadMore,
 }: LightboxProps) {
   const mediaId = mediaIds[index];
   const mediaType = mediaTypes?.[index] ?? "image";
@@ -57,6 +65,9 @@ export function Lightbox({
   const { downloading, onDownload } = useDownloadToDisk(mediaId, download, caption);
   const contentRef = useRef<HTMLDivElement>(null);
   const [notMeBusy, setNotMeBusy] = useState(false);
+  // BP30: set when "next" is pressed at the last loaded item with more pages — advance into
+  // the newly-loaded item once mediaIds grows (guards a double-fetch + an out-of-range index).
+  const wantNext = useRef(false);
 
   async function handleNotMe() {
     if (!onNotMe) return;
@@ -70,7 +81,28 @@ export function Lightbox({
   }
 
   const canPrev = index > 0;
-  const canNext = index < mediaIds.length - 1;
+  const atLastLoaded = index >= mediaIds.length - 1;
+  // BP30: "next" is available past the loaded set when more pages exist.
+  const canNext = !atLastLoaded || hasMore;
+
+  // BP30: advance forward — within the loaded set, step; at the end with more pages, request
+  // the next page (once — gated on !loadingMore) and remember to advance once it arrives.
+  const goNext = useCallback(() => {
+    if (!atLastLoaded) {
+      onIndexChange(index + 1);
+    } else if (hasMore) {
+      wantNext.current = true;
+      if (!loadingMore) onLoadMore?.();
+    }
+  }, [atLastLoaded, hasMore, loadingMore, onLoadMore, index, onIndexChange]);
+
+  // Once a requested page lands (mediaIds grew) while we were waiting, step into the next item.
+  useEffect(() => {
+    if (wantNext.current && index < mediaIds.length - 1) {
+      wantNext.current = false;
+      onIndexChange(index + 1);
+    }
+  }, [mediaIds.length, index, onIndexChange]);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -78,11 +110,11 @@ export function Lightbox({
       // gallery (the BP6/0043 double-action). The <video controls> is the focused element then.
       if (document.activeElement?.tagName === "VIDEO") return;
       if (e.key === "ArrowLeft" && canPrev) onIndexChange(index - 1);
-      else if (e.key === "ArrowRight" && canNext) onIndexChange(index + 1);
+      else if (e.key === "ArrowRight" && canNext) goNext();
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [index, canPrev, canNext, onIndexChange]);
+  }, [index, canPrev, canNext, onIndexChange, goNext]);
 
   return (
     <DialogPrimitive.Root
@@ -137,7 +169,7 @@ export function Lightbox({
             {canNext ? (
               <button
                 type="button"
-                onClick={() => onIndexChange(index + 1)}
+                onClick={goNext}
                 aria-label="Next photo"
                 className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full bg-canvas/90 p-2 text-ink shadow-md transition-colors hover:bg-canvas focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >

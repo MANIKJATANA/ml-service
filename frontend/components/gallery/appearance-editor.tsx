@@ -24,9 +24,10 @@ import { cn } from "@/lib/utils";
  *  decisions/0042). The caller owns the appearances fetch and passes `onChanged` (its SWR
  *  `mutate`) to refresh after each write. Every write is gated by `match:review` server-side.
  *
- *  Rejected matches are hidden here (they're "removed"); re-adding one via the dropdown
- *  brings it back. So the shown rows are the photo's EFFECTIVE students, and their ids are
- *  what the Add dropdown treats as already-present. */
+ *  Rejected matches are hidden from the main list (they're "removed"); the "Show removed"
+ *  disclosure re-lists them with a direct Re-add (the Add dropdown also brings one back). So
+ *  the shown rows are the photo's EFFECTIVE students, and their ids are what the Add dropdown
+ *  treats as already-present. */
 export function AppearanceEditor({
   mediaId,
   appearances,
@@ -42,8 +43,13 @@ export function AppearanceEditor({
     () => (appearances ?? []).filter((a) => a.verdict !== "rejected"),
     [appearances],
   );
+  const removed = useMemo(
+    () => (appearances ?? []).filter((a) => a.verdict === "rejected"),
+    [appearances],
+  );
   const presentIds = useMemo(() => visible.map((a) => a.student_id), [visible]);
   const hasConfidence = useMemo(() => visible.some((a) => a.confidence !== null), [visible]);
+  const [showRemoved, setShowRemoved] = useState(false);
 
   return (
     <div className="flex flex-col gap-3">
@@ -58,6 +64,27 @@ export function AppearanceEditor({
           ))}
         </ul>
       )}
+      {/* BP30: removed (rejected) students are hidden by default — disclose them so a mistaken
+          removal is one click to bring back (Re-add → undo the rejection). */}
+      {!isLoading && removed.length > 0 ? (
+        <div className="flex flex-col gap-1">
+          <button
+            type="button"
+            onClick={() => setShowRemoved((v) => !v)}
+            aria-expanded={showRemoved}
+            className="self-start rounded text-body-sm text-ink-secondary underline hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            {showRemoved ? "Hide removed" : `Show removed (${removed.length})`}
+          </button>
+          {showRemoved ? (
+            <ul className="flex flex-col">
+              {removed.map((a) => (
+                <RemovedRow key={a.student_id} mediaId={mediaId} appearance={a} onChanged={onChanged} />
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      ) : null}
       <AddStudents mediaId={mediaId} present={presentIds} onChanged={onChanged} />
       {/* BP21 (R3-S5-03): explain the % staff are asked to correct, and link the full explainer. */}
       <p className="text-body-sm text-ink-secondary">
@@ -128,6 +155,57 @@ function AppearanceRow({
   );
 }
 
+/** One removed (rejected) student: name + reference face + confidence (if any) + a "Re-add"
+ *  action that undoes the rejection so they reappear as an effective match (BP30). */
+function RemovedRow({
+  mediaId,
+  appearance,
+  onChanged,
+}: {
+  mediaId: string;
+  appearance: MediaAppearanceResponse;
+  onChanged: () => Promise<unknown>;
+}) {
+  const { toast } = useToast();
+  const [busy, setBusy] = useState(false);
+  const a = appearance;
+
+  async function reAdd() {
+    setBusy(true);
+    try {
+      await undoCorrection(mediaId, a.student_id);
+      await onChanged();
+    } catch (err) {
+      toast(isApiError(err) ? err.message : "Something went wrong", "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <li className="flex items-center gap-2 border-b border-hairline py-2 last:border-b-0">
+      <StudentRefAvatar studentId={a.student_id} name={a.name} className="size-8 opacity-60" />
+      <span className="min-w-0 flex-1 truncate text-body-sm text-ink-secondary line-through">
+        {a.name}
+      </span>
+      {a.confidence !== null ? (
+        <span className="tabular-nums text-body-sm text-ink-secondary">
+          {Math.round(a.confidence * 100)}%
+        </span>
+      ) : null}
+      <button
+        type="button"
+        onClick={reAdd}
+        disabled={busy}
+        aria-label={`Re-add ${a.name} to this photo`}
+        className="shrink-0 rounded px-2 py-1 text-body-sm font-medium text-accent-hover transition-colors hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+      >
+        Re-add
+      </button>
+    </li>
+  );
+}
+
 /** "Add students" → a dismissible dropdown (Esc / click-away) with a searchable checklist of
  *  the roster minus who's already in the photo. Tick any number → "Add (N)". Always shown —
  *  even when everyone's added the dropdown just reads "Everyone's already in this photo." */
@@ -149,11 +227,16 @@ function AddStudents({
   // Server-searched (BP9): the roster no longer loads in full — typing queries the students
   // list endpoint. We exclude whoever's already in the photo from the returned page.
   const debouncedQuery = useDebouncedValue(query.trim(), 250);
-  const { items } = useStudents({ q: debouncedQuery || undefined });
+  const { items, total, isLoading } = useStudents({ q: debouncedQuery || undefined });
   const options = useMemo(() => {
     const presentSet = new Set(present);
     return items.filter((s) => !presentSet.has(s.id));
   }, [items, present]);
+  // BP30: a "showing first X" cue when the search matched more than one page (so staff know to
+  // refine rather than scroll for a name that isn't rendered). X = the pickable (post-present)
+  // count; suppressed while loading, with no query, or when nothing's pickable.
+  const showPagingCue =
+    !isLoading && debouncedQuery.length > 0 && options.length > 0 && total > items.length;
 
   function toggle(id: string) {
     setSelected((prev) => {
@@ -244,6 +327,11 @@ function AddStudents({
               ))
             )}
           </ul>
+          {showPagingCue ? (
+            <p className="text-body-sm text-ink-secondary">
+              Showing first {options.length} — type to refine
+            </p>
+          ) : null}
           <Button
             size="sm"
             className="self-start"

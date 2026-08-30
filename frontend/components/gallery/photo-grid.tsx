@@ -141,6 +141,9 @@ export function PhotoGrid({
           showAppearances={showAppearances}
           canManageAppearances={canManageAppearances}
           onNotMe={onNotMe}
+          hasMore={hasMore}
+          loadingMore={loadingMore}
+          onLoadMore={onLoadMore}
         />
       ) : null}
     </>

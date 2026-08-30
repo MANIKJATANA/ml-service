@@ -18,7 +18,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/components/ui/toast";
-import { batchReview } from "@/lib/api/endpoints";
+import { batchReview, undoCorrection } from "@/lib/api/endpoints";
 import { isApiError } from "@/lib/api/errors";
 import type { MediaType } from "@/lib/api/types";
 import { useDownloadAll } from "@/lib/hooks/use-download-all";
@@ -230,6 +230,12 @@ function NeedsReview({ eventId }: { eventId: string }) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
   const [rejectAllOpen, setRejectAllOpen] = useState(false);
+  const [view, setView] = useState<"grid" | "table">("grid");
+  // BP30: the last reject batch, for a discoverable inline Undo (not a toast — it hosts an
+  // async button). Captured BEFORE the lane refetches so the pair ids survive the mutate.
+  const [lastRejected, setLastRejected] = useState<ReviewPair[]>([]);
+  const [undoing, setUndoing] = useState(false);
+  const [thresholdInput, setThresholdInput] = useState("");
 
   // Flatten photos → per-candidate pairs, highest confidence first (the obvious ones on top).
   const pairs = useMemo<ReviewPair[]>(() => {
@@ -255,15 +261,22 @@ function NeedsReview({ eventId }: { eventId: string }) {
     setBusy(true);
     try {
       const byKey = new Map(pairs.map((p) => [p.key, p]));
-      const verdicts = keys
+      const resolved = keys
         .map((k) => byKey.get(k))
-        .filter((p): p is ReviewPair => p !== undefined)
-        .map((p) => ({ media_id: p.mediaId, student_id: p.studentId, verdict }));
+        .filter((p): p is ReviewPair => p !== undefined);
+      const verdicts = resolved.map((p) => ({
+        media_id: p.mediaId,
+        student_id: p.studentId,
+        verdict,
+      }));
       const { applied } = await batchReview(eventId, verdicts);
       toast(
         `${verdict === "confirmed" ? "Confirmed" : "Rejected"} ${applied} ${applied === 1 ? "match" : "matches"}.`,
         "success",
       );
+      // BP30: stash the rejected pairs (captured before the lane refetches) so we can offer a
+      // one-click Undo. A confirm/new-reject batch replaces this — see below.
+      setLastRejected(verdict === "rejected" ? resolved : []);
       setSelected(new Set());
       await mutate();
       void globalMutate("dashboard"); // the "N to review" badge drops
@@ -271,6 +284,23 @@ function NeedsReview({ eventId }: { eventId: string }) {
       toast(isApiError(err) ? err.message : "Something went wrong", "error");
     } finally {
       setBusy(false);
+    }
+  }
+
+  // BP30: revert the just-rejected pairs to raw-ML needs_review pending — they reappear in the
+  // lane. allSettled so a pair a colleague already re-decided fails harmlessly.
+  async function undoLast() {
+    if (lastRejected.length === 0) return;
+    setUndoing(true);
+    try {
+      await Promise.allSettled(
+        lastRejected.map((p) => undoCorrection(p.mediaId, p.studentId)),
+      );
+      await mutate();
+      void globalMutate("dashboard");
+      setLastRejected([]);
+    } finally {
+      setUndoing(false);
     }
   }
 
@@ -309,6 +339,23 @@ function NeedsReview({ eventId }: { eventId: string }) {
       else next.add(key);
       return next;
     });
+  }
+
+  // BP30: select every pair below a confidence threshold (%). REPLACES the selection — nothing
+  // auto-applies; the human still clicks Confirm/Reject to commit (no auto-confirm invariant).
+  function selectBelow(pct: number) {
+    setSelected(
+      new Set(
+        pairs
+          .filter((p) => p.confidence != null && Math.round(p.confidence * 100) < pct)
+          .map((p) => p.key),
+      ),
+    );
+  }
+  function applyFreeThreshold() {
+    const n = Number(thresholdInput);
+    if (!Number.isFinite(n) || thresholdInput.trim() === "") return;
+    selectBelow(Math.min(100, Math.max(0, n)));
   }
 
   return (
@@ -350,59 +397,178 @@ function NeedsReview({ eventId }: { eventId: string }) {
         </div>
       </div>
 
-      <ul className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
-        {pairs.map((p) => {
-          const isSel = selected.has(p.key);
-          return (
-            <li key={p.key}>
-              <div
+      {/* BP30: quick-select the low-confidence matches (only stages a selection) + a view toggle. */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-body-sm text-ink-secondary">
+        <span className="text-ink">Select below</span>
+        {[60, 70, 80].map((n) => (
+          <Button key={n} size="sm" variant="secondary" onClick={() => selectBelow(n)}>
+            &lt; {n}%
+          </Button>
+        ))}
+        <span className="flex items-center gap-1.5">
+          <input
+            type="number"
+            min={0}
+            max={100}
+            inputMode="numeric"
+            value={thresholdInput}
+            onChange={(e) => setThresholdInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                applyFreeThreshold();
+              }
+            }}
+            aria-label="Confidence threshold percent"
+            placeholder="%"
+            className="w-16 rounded-button border border-hairline bg-canvas px-2 py-1 text-ink tabular-nums focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          />
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={applyFreeThreshold}
+            disabled={thresholdInput.trim() === ""}
+          >
+            Apply
+          </Button>
+        </span>
+        <div className="ml-auto flex items-center gap-2">
+          <span className="text-ink">View</span>
+          <Button
+            size="sm"
+            variant={view === "grid" ? "primary" : "secondary"}
+            onClick={() => setView("grid")}
+            aria-pressed={view === "grid"}
+          >
+            Grid
+          </Button>
+          <Button
+            size="sm"
+            variant={view === "table" ? "primary" : "secondary"}
+            onClick={() => setView("table")}
+            aria-pressed={view === "table"}
+          >
+            Table
+          </Button>
+        </div>
+      </div>
+
+      {/* BP30: discoverable batch-undo — inline (not a toast, it hosts an async button). */}
+      {lastRejected.length > 0 ? (
+        <div
+          role="status"
+          className="flex flex-wrap items-center gap-3 rounded-card border border-hairline bg-surface-2 px-3 py-2 text-body-sm text-ink"
+        >
+          <span>
+            Rejected {lastRejected.length} {lastRejected.length === 1 ? "match" : "matches"}.
+          </span>
+          <Button size="sm" variant="secondary" onClick={undoLast} loading={undoing}>
+            Undo
+          </Button>
+        </div>
+      ) : null}
+
+      {view === "grid" ? (
+        <ul className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+          {pairs.map((p) => {
+            const isSel = selected.has(p.key);
+            return (
+              <li key={p.key}>
+                <div
+                  className={cn(
+                    "overflow-hidden rounded-card border transition-colors",
+                    isSel ? "border-accent-hover ring-2 ring-ring" : "border-hairline",
+                  )}
+                >
+                  <label className="relative block cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={isSel}
+                      onChange={() => toggle(p.key)}
+                      aria-label={`Select match for ${p.name}`}
+                      className="absolute left-2 top-2 z-10 size-5 rounded border-hairline bg-canvas text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    />
+                    <SignedImage
+                      mediaId={p.mediaId}
+                      kind={p.mediaType}
+                      size="thumb"
+                      alt=""
+                      loading="square"
+                      className="aspect-square w-full"
+                      imgClassName="block w-full align-top"
+                      fallbackText="Unavailable"
+                    />
+                  </label>
+                  <div className="flex flex-col gap-1 p-3">
+                    <div className="flex items-center gap-2">
+                      {/* BP22: the candidate's reference face — decide by looking, not guessing. */}
+                      <StudentRefAvatar studentId={p.studentId} name={p.name} className="size-7" />
+                      <p className="min-w-0 flex-1 truncate text-body-sm text-ink" title={p.name}>
+                        {p.name}
+                      </p>
+                      <span className="shrink-0 tabular-nums text-body-sm text-ink-secondary">
+                        {Math.round(p.confidence * 100)}%
+                      </span>
+                    </div>
+                    <Link
+                      href={`/photos/${p.mediaId}`}
+                      className="rounded text-body-sm font-medium text-accent-hover hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      Open photo →
+                    </Link>
+                  </div>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      ) : (
+        <ul className="flex flex-col divide-y divide-hairline rounded-card border border-hairline">
+          {pairs.map((p) => {
+            const isSel = selected.has(p.key);
+            return (
+              <li
+                key={p.key}
                 className={cn(
-                  "overflow-hidden rounded-card border transition-colors",
-                  isSel ? "border-accent-hover ring-2 ring-ring" : "border-hairline",
+                  "flex items-center gap-3 px-3 py-2 transition-colors",
+                  isSel ? "bg-surface-2" : null,
                 )}
               >
-                <label className="relative block cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={isSel}
-                    onChange={() => toggle(p.key)}
-                    aria-label={`Select match for ${p.name}`}
-                    className="absolute left-2 top-2 z-10 size-5 rounded border-hairline bg-canvas text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  />
-                  <SignedImage
-                    mediaId={p.mediaId}
-                    kind={p.mediaType}
-                    size="thumb"
-                    alt=""
-                    loading="square"
-                    className="aspect-square w-full"
-                    imgClassName="block w-full align-top"
-                    fallbackText="Unavailable"
-                  />
-                </label>
-                <div className="flex flex-col gap-1 p-3">
-                  <div className="flex items-center gap-2">
-                    {/* BP22: the candidate's reference face — decide by looking, not guessing. */}
-                    <StudentRefAvatar studentId={p.studentId} name={p.name} className="size-7" />
-                    <p className="min-w-0 flex-1 truncate text-body-sm text-ink" title={p.name}>
-                      {p.name}
-                    </p>
-                    <span className="shrink-0 tabular-nums text-body-sm text-ink-secondary">
-                      {Math.round(p.confidence * 100)}%
-                    </span>
-                  </div>
-                  <Link
-                    href={`/photos/${p.mediaId}`}
-                    className="rounded text-body-sm font-medium text-accent-hover hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  >
-                    Open photo →
-                  </Link>
-                </div>
-              </div>
-            </li>
-          );
-        })}
-      </ul>
+                <input
+                  type="checkbox"
+                  checked={isSel}
+                  onChange={() => toggle(p.key)}
+                  aria-label={`Select match for ${p.name}`}
+                  className="size-4 shrink-0 rounded border-hairline text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                />
+                <SignedImage
+                  mediaId={p.mediaId}
+                  kind={p.mediaType}
+                  size="thumb"
+                  alt=""
+                  loading="square"
+                  className="size-11 shrink-0 overflow-hidden rounded-button"
+                  imgClassName="block size-full object-cover align-top"
+                  fallbackText=""
+                />
+                <StudentRefAvatar studentId={p.studentId} name={p.name} className="size-8 shrink-0" />
+                <span className="min-w-0 flex-1 truncate text-body-sm text-ink" title={p.name}>
+                  {p.name}
+                </span>
+                <span className="shrink-0 tabular-nums text-body-sm text-ink-secondary">
+                  {Math.round(p.confidence * 100)}%
+                </span>
+                <Link
+                  href={`/photos/${p.mediaId}`}
+                  className="shrink-0 rounded text-body-sm font-medium text-accent-hover hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  Open photo →
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+      )}
 
       <ConfirmDialog
         open={rejectAllOpen}

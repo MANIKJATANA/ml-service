@@ -73,11 +73,11 @@ class Settings(BaseSettings):
 
     # --- WhatsApp (W1) ---------------------------------------------------
     # Outbound WhatsApp provider. fake = credential-free default (a real, deterministic
-    # adapter); gupshup = the real provider. The platform owns ONE provider account = ONE
-    # secret (whatsapp_api_key); per-school config (sender_number/template_name/...) is
-    # NON-SECRET and lives in the school_whatsapp_config table. W1 builds the sender but
-    # wires it into NO service (there is no send endpoint yet — that is W2).
-    whatsapp_sender_impl: str = "fake"
+    # adapter); gupshup = the Gupshup BSP; meta = the direct Meta WhatsApp Cloud API (Meta creds
+    # in their own block below). The platform owns ONE provider account = ONE secret per provider;
+    # per-school config (sender_number/template_name/...) is NON-SECRET and lives in the
+    # school_whatsapp_config table.
+    whatsapp_sender_impl: str = "fake"  # fake | gupshup | meta
     whatsapp_api_key: SecretStr = SecretStr("")  # SECRET: the ONE Gupshup provider key
     whatsapp_base_url: str = "https://api.gupshup.io"
     whatsapp_app_name: str = ""  # the registered Gupshup app source name
@@ -104,6 +104,18 @@ class Settings(BaseSettings):
     # send, since the key is deterministic). Run this on a cron / one-shot; the default is
     # generous (24h) to never race a fresh send.
     whatsapp_variant_retention_hours: int = 24
+
+    # --- WhatsApp: Meta Cloud API (alt provider, BE_WHATSAPP_SENDER_IMPL=meta) ---
+    # Sends directly through the platform's own Meta WhatsApp Business account (the Graph API)
+    # instead of the Gupshup BSP. The sender is the phone_number_id (in the URL); Meta matches a
+    # template by NAME (paste it in the settings screen). Use a PERMANENT/system-user access
+    # token (a short-lived one expires) and keep the API version current (Meta deprecates old
+    # Graph versions). The secret is read only in the container, never logged.
+    whatsapp_meta_access_token: SecretStr = SecretStr("")  # SECRET: permanent access token
+    whatsapp_meta_phone_number_id: str = ""  # the sending WhatsApp phone-number ID
+    whatsapp_meta_api_version: str = "v21.0"  # Graph API version — bump to current at go-live
+    whatsapp_meta_base_url: str = "https://graph.facebook.com"
+    whatsapp_meta_template_lang: str = "en_US"  # the approved template's language code
 
     # --- galleries / download (decisions/0028) ---------------------------
     # TTL of the short-lived signed download URLs the galleries mint on demand.

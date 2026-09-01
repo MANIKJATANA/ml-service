@@ -35,7 +35,9 @@ async def get_whatsapp_config(
     service = container.whatsapp_config_service()
     config = await service.get_config(school_id=tenant_of(actor))
     return WhatsAppConfigResponse.from_config(
-        config, default_sender_number=service.default_sender_number
+        config,
+        default_sender_number=service.default_sender_number,
+        provider=service.provider,
     )
 
 
@@ -56,5 +58,7 @@ async def update_whatsapp_config(
         business_name=body.business_name,
     )
     return WhatsAppConfigResponse.from_config(
-        config, default_sender_number=service.default_sender_number
+        config,
+        default_sender_number=service.default_sender_number,
+        provider=service.provider,
     )

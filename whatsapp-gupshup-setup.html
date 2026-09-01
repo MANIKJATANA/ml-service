@@ -279,11 +279,47 @@ BE_WHATSAPP_IMAGE_MAX_BYTES=4800000    <span class="cmt"># keep each photo under
     </ul>
   </div>
 
+  <h2>Alternative: Meta WhatsApp Cloud API (instead of Gupshup)</h2>
+  <div class="step">
+    <p>You can send <strong>directly through Meta's WhatsApp Cloud API</strong> — your own WhatsApp
+      Business account, no BSP in the middle — by switching one env var. Everything else (settings
+      screen, Send button, opt-in, budget cap) is identical; only the credentials + the template
+      field differ.</p>
+    <p><strong>Set up once:</strong></p>
+    <ol>
+      <li>Create a <strong>Meta WhatsApp Business</strong> account
+        (<a href="https://business.facebook.com">business.facebook.com</a> /
+        <a href="https://developers.facebook.com">developers.facebook.com</a>).</li>
+      <li>Add/register a <strong>phone number</strong> → note its <strong class="k">Phone number
+        ID</strong> (this is your sender).</li>
+      <li>Generate a <strong>permanent / system-user access token</strong> (a short-lived dev token
+        expires — don't use it in production).</li>
+      <li>Create + get approved a template with an <strong>Image header</strong> + a minimal body →
+        note its <strong class="k">name</strong>.</li>
+    </ol>
+    <p><strong>Configure <code>.env</code>:</strong></p>
+<pre><code>BE_WHATSAPP_SENDER_IMPL=meta
+BE_WHATSAPP_META_ACCESS_TOKEN=&lt;permanent-access-token&gt;   <span class="cmt"># SECRET</span>
+BE_WHATSAPP_META_PHONE_NUMBER_ID=&lt;your-phone-number-id&gt; <span class="cmt"># the sender</span>
+BE_WHATSAPP_META_API_VERSION=v21.0                     <span class="cmt"># keep current</span>
+BE_WHATSAPP_META_TEMPLATE_LANG=en_US</code></pre>
+    <p>Restart the backend. In <code>/settings/whatsapp</code> the field now reads
+      <strong>"Template name"</strong> (Meta matches by name, not a UUID) — paste the approved
+      template's <strong>name</strong>, and it shows <em>Provider: Meta</em>.</p>
+    <div class="callout tip">
+      <span class="tag">Differences vs Gupshup</span>
+      <p>Meta matches a template by its <strong>name</strong> (Gupshup uses the UUID) — the settings
+        field relabels automatically. The per-school <strong>"Sender number" is ignored</strong> for
+        Meta (the sender is the <code>PHONE_NUMBER_ID</code>). Keep the <strong>API version</strong>
+        current — Meta deprecates old Graph versions.</p>
+    </div>
+  </div>
+
   <div class="foot-cta">
-    <strong>When you're ready</strong> — get through Steps 1–3 (account + number + an approved
-    template), then ping me with your <strong>API key set in <code>.env</code></strong> and the
-    <strong>Template ID (UUID)</strong>. I'll confirm the adapter against the live API, patch it if
-    needed, and walk the smoke test with you. That's the last mile to real delivery.
+    <strong>When you're ready</strong> — get through the setup (account + number + an approved
+    template), then ping me with your <strong>credentials set in <code>.env</code></strong> and the
+    <strong>template ID (Gupshup) or name (Meta)</strong>. I'll confirm the adapter against the live
+    API, patch it if needed, and walk the smoke test with you. That's the last mile to real delivery.
   </div>
 
   <footer>Photos · WhatsApp delivery setup · generated for the owner</footer>

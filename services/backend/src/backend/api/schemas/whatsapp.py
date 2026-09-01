@@ -46,12 +46,19 @@ class WhatsAppConfigResponse(BaseModel):
     template_name: str | None
     business_name: str | None
     using_shared_number: bool
+    # The active send provider (fake/gupshup/meta) — the FE labels the template field by it
+    # (Gupshup: the template UUID; Meta: the template name).
+    provider: str
     created_at: datetime
     updated_at: datetime
 
     @classmethod
     def from_config(
-        cls, config: SchoolWhatsAppConfig, *, default_sender_number: str
+        cls,
+        config: SchoolWhatsAppConfig,
+        *,
+        default_sender_number: str,
+        provider: str,
     ) -> WhatsAppConfigResponse:
         return cls(
             school_id=config.school_id,
@@ -65,6 +72,7 @@ class WhatsAppConfigResponse(BaseModel):
             template_name=config.template_name,
             business_name=config.business_name,
             using_shared_number=config.sender_number is None,
+            provider=provider,
             created_at=config.created_at,
             updated_at=config.updated_at,
         )

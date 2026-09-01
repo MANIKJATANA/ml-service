@@ -149,7 +149,7 @@ def _build(
         [config] if config is not None else [_config(enabled=True)]
     )
     config_service = WhatsAppConfigService(
-        config_repo, default_sender_number=default_sender
+        config_repo, default_sender_number=default_sender, provider="gupshup"
     )
     fake_sender = sender or _RecordingSender()
     log = send_log or FakeWhatsAppSendLogRepo()

@@ -14,9 +14,11 @@ from backend.services.whatsapp_config_service import WhatsAppConfigService
 from backend_fakes import FakeWhatsAppConfigRepo
 
 
-def _svc(*, default_sender: str = "15550000000") -> WhatsAppConfigService:
+def _svc(
+    *, default_sender: str = "15550000000", provider: str = "gupshup"
+) -> WhatsAppConfigService:
     return WhatsAppConfigService(
-        FakeWhatsAppConfigRepo(), default_sender_number=default_sender
+        FakeWhatsAppConfigRepo(), default_sender_number=default_sender, provider=provider
     )
 
 
@@ -94,7 +96,7 @@ async def test_response_uses_own_number_when_set() -> None:
         template_name=None, business_name=None,
     )
     resp = WhatsAppConfigResponse.from_config(
-        config, default_sender_number="15550000000"
+        config, default_sender_number="15550000000", provider="gupshup"
     )
     assert resp.using_shared_number is False
     assert resp.effective_sender_number == "15551234567"
@@ -103,7 +105,7 @@ async def test_response_uses_own_number_when_set() -> None:
 async def test_response_falls_back_to_shared_number_when_unset() -> None:
     config = await _svc().get_config(school_id="s1")  # sender_number is None
     resp = WhatsAppConfigResponse.from_config(
-        config, default_sender_number="15550000000"
+        config, default_sender_number="15550000000", provider="gupshup"
     )
     assert resp.using_shared_number is True
     assert resp.effective_sender_number == "15550000000"
@@ -111,6 +113,20 @@ async def test_response_falls_back_to_shared_number_when_unset() -> None:
 
 async def test_response_effective_none_when_no_own_and_no_shared() -> None:
     config = await _svc(default_sender="").get_config(school_id="s1")
-    resp = WhatsAppConfigResponse.from_config(config, default_sender_number="")
+    resp = WhatsAppConfigResponse.from_config(
+        config, default_sender_number="", provider="gupshup"
+    )
     assert resp.using_shared_number is True  # not set its own
     assert resp.effective_sender_number is None  # and no shared platform number
+
+
+async def test_response_carries_the_active_provider() -> None:
+    # The active provider (fake/gupshup/meta) rides the response so the FE labels the template
+    # field (Gupshup = UUID, Meta = name). It comes from settings via the config service.
+    svc = _svc(provider="meta")
+    assert svc.provider == "meta"
+    config = await svc.get_config(school_id="s1")
+    resp = WhatsAppConfigResponse.from_config(
+        config, default_sender_number="", provider=svc.provider
+    )
+    assert resp.provider == "meta"

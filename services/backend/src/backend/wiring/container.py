@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from backend.adapters.notification.composite import CompositeNotifier
 from backend.db.session import make_engine, make_sessionmaker
+from backend.domain.errors import ConfigurationError
 from backend.domain.ports import (
     AdminActionAuditRepository,
     DownloadAuditRepository,
@@ -369,24 +370,35 @@ class Container:
     # ---- WhatsApp (W1) -------------------------------------------------
 
     def whatsapp_sender(self) -> WhatsAppSender:
-        # W1 builds the sender (registry-resolvable + config-selected) but wires it into NO
-        # service — there is no send endpoint yet (that is W2). fake = credential-free default;
-        # gupshup = the real provider (the ONE platform api key from settings, never logged).
+        # Config-selected (BE_WHATSAPP_SENDER_IMPL) sender. fake = credential-free default;
+        # gupshup = the Gupshup BSP; meta = the direct Meta WhatsApp Cloud API. Each real
+        # provider's ONE platform secret is read from settings HERE and never logged.
         if self._whatsapp_sender is None:
             with self._lock:
                 if self._whatsapp_sender is None:
-                    cls = registry.resolve(
-                        registry.WHATSAPP_SENDER_REGISTRY,
-                        self._s.whatsapp_sender_impl,
-                    )
-                    if self._s.whatsapp_sender_impl == "fake":
+                    impl = self._s.whatsapp_sender_impl
+                    cls = registry.resolve(registry.WHATSAPP_SENDER_REGISTRY, impl)
+                    if impl == "fake":
                         self._whatsapp_sender = cls()
-                    else:  # gupshup (the real provider)
+                    elif impl == "gupshup":
                         self._whatsapp_sender = cls(
                             api_key=self._s.whatsapp_api_key.get_secret_value(),
                             base_url=self._s.whatsapp_base_url,
                             app_name=self._s.whatsapp_app_name,
                             timeout_s=self._s.whatsapp_http_timeout_s,
+                        )
+                    elif impl == "meta":
+                        self._whatsapp_sender = cls(
+                            access_token=self._s.whatsapp_meta_access_token.get_secret_value(),
+                            phone_number_id=self._s.whatsapp_meta_phone_number_id,
+                            api_version=self._s.whatsapp_meta_api_version,
+                            base_url=self._s.whatsapp_meta_base_url,
+                            template_lang=self._s.whatsapp_meta_template_lang,
+                            timeout_s=self._s.whatsapp_http_timeout_s,
+                        )
+                    else:  # a registry entry with no construction branch (shouldn't happen)
+                        raise ConfigurationError(
+                            f"unsupported whatsapp_sender_impl: {impl!r}"
                         )
         return self._whatsapp_sender
 
@@ -408,6 +420,7 @@ class Container:
                     self._whatsapp_config_service = WhatsAppConfigService(
                         self.whatsapp_config_repo(),
                         default_sender_number=self._s.whatsapp_default_sender_number,
+                        provider=self._s.whatsapp_sender_impl,
                     )
         return self._whatsapp_config_service
 

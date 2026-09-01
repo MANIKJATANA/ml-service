@@ -105,6 +105,8 @@ export interface WhatsAppConfigResponse {
   template_name: string | null;
   business_name: string | null;
   using_shared_number: boolean;
+  /** The active send provider (fake/gupshup/meta) — labels the template field. */
+  provider: string;
   created_at: string;
   updated_at: string;
 }

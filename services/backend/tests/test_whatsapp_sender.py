@@ -10,6 +10,7 @@ from __future__ import annotations
 import pytest
 from backend.adapters.whatsapp.fake_sender import FakeWhatsAppSender
 from backend.adapters.whatsapp.gupshup_sender import _redact, _to_receipt
+from backend.adapters.whatsapp.meta_sender import _meta_to_receipt
 from backend.domain.models import WhatsAppReceipt
 
 
@@ -86,3 +87,28 @@ def test_redact_masks_all_but_last_four(number: str, expected: str) -> None:
     # The full number never appears in its own redaction (unless it's ≤4 digits, fully masked).
     if len(number) > 4:
         assert number not in out
+
+
+# The one Meta line testable without a live account: parsing the Cloud API success body into a
+# receipt. Success shape: {..., "messages": [{"id": "wamid..."}]}.
+@pytest.mark.parametrize(
+    ("payload", "expected_id"),
+    [
+        ({"messages": [{"id": "wamid.X"}]}, "wamid.X"),  # the Cloud API success shape
+        (
+            {"messaging_product": "whatsapp", "messages": [{"id": "wamid.Y"}]},
+            "wamid.Y",
+        ),
+        ({"messages": []}, ""),  # empty messages -> empty
+        ({"messages": ["x"]}, ""),  # a non-dict first element -> empty, no crash
+        ({"messages": [{}]}, ""),  # a message with no id -> empty
+        ({}, ""),  # no messages key -> empty
+        (["not", "a", "dict"], ""),  # a non-dict body -> empty, no crash
+        ("plain string", ""),
+    ],
+)
+def test_meta_to_receipt_parses_message_id(payload: object, expected_id: str) -> None:
+    receipt = _meta_to_receipt(payload, to="15551230000")
+    assert isinstance(receipt, WhatsAppReceipt)
+    assert receipt.provider_message_id == expected_id
+    assert receipt.to == "15551230000"

@@ -58,6 +58,35 @@ async def test_container_builds_and_memoizes_student_stack() -> None:
     await container.aclose()
 
 
+async def test_container_builds_meta_whatsapp_sender() -> None:
+    # Selecting BE_WHATSAPP_SENDER_IMPL=meta builds the Meta Cloud API adapter (creds from
+    # settings, the token read only here); fake/gupshup branches are unchanged.
+    from backend.adapters.whatsapp.meta_sender import MetaWhatsAppSender
+
+    container = Container(
+        Settings(
+            jwt_secret=SecretStr("x" * 32),
+            whatsapp_sender_impl="meta",
+            whatsapp_meta_access_token=SecretStr("test-token"),
+            whatsapp_meta_phone_number_id="1234567890",
+        )
+    )
+    sender = container.whatsapp_sender()
+    assert isinstance(sender, MetaWhatsAppSender)
+    assert container.whatsapp_sender() is sender  # memoized
+    await container.aclose()
+
+
+async def test_container_unknown_whatsapp_impl_raises() -> None:
+    # An impl not in the registry fails loud (registry.resolve) — never a silent no-op sender.
+    container = Container(
+        Settings(jwt_secret=SecretStr("x" * 32), whatsapp_sender_impl="bogus")
+    )
+    with pytest.raises(ConfigurationError):
+        container.whatsapp_sender()
+    await container.aclose()
+
+
 async def test_container_builds_and_memoizes_event_media_stack() -> None:
     # inproc event-job producer + postgres repos build without Redis; local_fs object
     # store so media_service() builds without Supabase creds (0027).

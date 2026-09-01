@@ -187,9 +187,47 @@ The app **only** sends to a student who is **opted in** *and* has a **mobile num
 
 ---
 
+## Alternative: Meta WhatsApp Cloud API (instead of Gupshup)
+
+You can send **directly through Meta's WhatsApp Cloud API** — your own WhatsApp Business account,
+no BSP in the middle — by switching one env var. Everything else in the app (the settings screen,
+the Send button, opt-in, budget cap) is identical; only the credentials + template field differ.
+
+**Set up (once):**
+1. Create a **Meta WhatsApp Business** account at [business.facebook.com](https://business.facebook.com)
+   / add the WhatsApp product in [developers.facebook.com](https://developers.facebook.com).
+2. Add/register a **phone number** → note its **Phone number ID** (this is your sender).
+3. Generate a **permanent / system-user access token** (a short-lived dev token expires — don't use
+   it for production).
+4. Create + get approved a template with an **Image header** + a minimal body → note its **name**.
+
+**Configure (`.env`):**
+```bash
+BE_WHATSAPP_SENDER_IMPL=meta
+BE_WHATSAPP_META_ACCESS_TOKEN=<your-permanent-access-token>   # SECRET
+BE_WHATSAPP_META_PHONE_NUMBER_ID=<your-phone-number-id>       # the sender
+BE_WHATSAPP_META_API_VERSION=v21.0                            # keep current
+BE_WHATSAPP_META_TEMPLATE_LANG=en_US                          # the template's language
+```
+Restart the backend, then in **`/settings/whatsapp`** the template field now reads **"Template
+name"** (Meta matches by name, not a UUID) — paste the approved template's **name**. Enable it,
+and send a test to your own opted-in number.
+
+**Differences vs Gupshup:**
+- Meta matches a template by its **name** (Gupshup uses the template UUID) — the settings field
+  relabels automatically to "Template name" when Meta is active, and shows "Provider: Meta".
+- For Meta the per-school **"Sender number" is ignored** — the sender is the `PHONE_NUMBER_ID`
+  env var (per-school Meta numbers = multiple phone-number IDs = a future add).
+- Keep `BE_WHATSAPP_META_API_VERSION` current — Meta deprecates old Graph API versions.
+
+The same reality-check applies: the Meta adapter is written to Meta's Cloud API docs but the real
+delivery is untested until your account is live — **ping me at go-live and I'll walk the smoke.**
+
+---
+
 ### When you're ready
 
-Get through **Steps 1–3** (account + number + an approved template), then ping me with your
-**API key set in `.env`** and the **template name** — I'll **confirm the Gupshup adapter against
-the live docs, patch it if needed, and walk the smoke test with you**. That's the last mile to
-real delivery.
+Get through the setup (account + number + an approved template), then ping me with your
+**credentials set in `.env`** and the **template ID (Gupshup) or name (Meta)** — I'll **confirm the
+adapter against the live API, patch it if needed, and walk the smoke test with you**. That's the
+last mile to real delivery.

@@ -27,16 +27,28 @@ def _clean(value: str | None) -> str | None:
 
 class WhatsAppConfigService:
     def __init__(
-        self, repo: WhatsAppConfigRepository, *, default_sender_number: str
+        self,
+        repo: WhatsAppConfigRepository,
+        *,
+        default_sender_number: str,
+        provider: str,
     ) -> None:
         self._repo = repo
         self._default_sender_number = default_sender_number
+        self._provider = provider
 
     @property
     def default_sender_number(self) -> str:
         """The shared platform sender a school falls back to (from settings). The route reads
         it to build the response's ``effective_sender_number``."""
         return self._default_sender_number
+
+    @property
+    def provider(self) -> str:
+        """The active sender provider (``whatsapp_sender_impl``: fake/gupshup/meta), from
+        settings. Surfaced on the response so the FE labels the template field correctly
+        (Gupshup wants the template UUID; Meta wants the template name)."""
+        return self._provider
 
     async def get_config(self, *, school_id: str) -> SchoolWhatsAppConfig:
         """The school's config, or a synthesized "not configured" default (disabled, all None)

@@ -107,11 +107,12 @@ THUMBNAILER_REGISTRY: dict[str, str] = {
 }
 
 # WhatsApp sender (W1). fake = credential-free default (real deterministic adapter);
-# gupshup = the real provider behind BE_WHATSAPP_SENDER_IMPL=gupshup. Wati is a future
-# one-line addition here + a construction branch in the container.
+# gupshup = the Gupshup BSP; meta = the direct Meta WhatsApp Cloud API. Selected by
+# BE_WHATSAPP_SENDER_IMPL; each real provider has a construction branch in the container.
 WHATSAPP_SENDER_REGISTRY: dict[str, str] = {
     "fake": "backend.adapters.whatsapp.fake_sender:FakeWhatsAppSender",
     "gupshup": "backend.adapters.whatsapp.gupshup_sender:GupshupWhatsAppSender",
+    "meta": "backend.adapters.whatsapp.meta_sender:MetaWhatsAppSender",
 }
 
 WHATSAPP_CONFIG_REPO_REGISTRY: dict[str, str] = {

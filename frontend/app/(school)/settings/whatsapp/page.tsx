@@ -35,11 +35,31 @@ function WhatsAppForm({
 
   // Truthful in all three states: using the shared number (with/without a configured default),
   // or this school has its own number set.
-  const sharedHint = config.using_shared_number
-    ? config.effective_sender_number
-      ? `Leave blank to use the shared app number (${config.effective_sender_number}).`
-      : "No shared app number is configured yet — enter your school's approved WhatsApp sender number."
-    : "Clear this to fall back to the shared app number.";
+  // The active provider drives two fields. Gupshup matches a template by UUID and uses the
+  // per-school sender number; Meta matches by the template NAME and takes the sender from the
+  // platform's phone-number ID (env) — so under Meta the "Sender number" field is not used.
+  const isMeta = config.provider === "meta";
+
+  const sharedHint = isMeta
+    ? "Not used with Meta — the sender is the platform's Meta phone number (set via BE_WHATSAPP_META_PHONE_NUMBER_ID)."
+    : config.using_shared_number
+      ? config.effective_sender_number
+        ? `Leave blank to use the shared app number (${config.effective_sender_number}).`
+        : "No shared app number is configured yet — enter your school's approved WhatsApp sender number."
+      : "Clear this to fall back to the shared app number.";
+  const templateLabel = isMeta ? "Template name" : "Template ID";
+  const templateHint = isMeta
+    ? "The approved template's NAME from your Meta WhatsApp Manager (Meta matches by name, not an ID). Photos won't send without an approved template."
+    : "The approved template's ID — a UUID from your Gupshup dashboard (e.g. c6aecef6-bcb0-4fb1-8100-28c094e3bc6b), NOT its display name. Photos won't send without the exact ID of an approved template.";
+  const templatePlaceholder = isMeta
+    ? "event_photos"
+    : "c6aecef6-bcb0-4fb1-8100-28c094e3bc6b";
+  const providerLabel =
+    config.provider === "meta"
+      ? "Meta WhatsApp Cloud API"
+      : config.provider === "gupshup"
+        ? "Gupshup"
+        : "Test sender (no messages are sent)";
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -63,6 +83,9 @@ function WhatsAppForm({
   return (
     <Card className="p-6">
       <form onSubmit={onSubmit} className="flex max-w-xl flex-col gap-5">
+        <p className="text-body-sm text-ink-secondary">
+          Provider: <span className="font-medium text-ink">{providerLabel}</span>
+        </p>
         {/* Enable toggle */}
         <label className="flex items-start gap-3">
           <input
@@ -93,15 +116,11 @@ function WhatsAppForm({
           />
         </Field>
 
-        <Field
-          label="Template ID"
-          htmlFor="wa-template"
-          hint="The approved template's ID — a UUID from your Gupshup dashboard (e.g. c6aecef6-bcb0-4fb1-8100-28c094e3bc6b), NOT its display name. Photos won't send without the exact ID of an approved template."
-        >
+        <Field label={templateLabel} htmlFor="wa-template" hint={templateHint}>
           <Input
             id="wa-template"
             maxLength={200}
-            placeholder="c6aecef6-bcb0-4fb1-8100-28c094e3bc6b"
+            placeholder={templatePlaceholder}
             value={templateName}
             onChange={(e) => setTemplateName(e.target.value)}
           />

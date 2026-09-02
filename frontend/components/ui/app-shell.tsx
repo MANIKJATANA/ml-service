@@ -80,6 +80,7 @@ const NAV_BY_ROLE: Record<Role, NavItem[]> = {
   platform_admin: [
     { href: "/schools", label: "Schools", icon: Building2 },
     { href: "/estate", label: "Estate health", icon: LineChart },
+    { href: "/whatsapp", label: "WhatsApp", icon: MessageCircle },
   ],
   school_admin: [
     { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },

@@ -223,6 +223,14 @@ and send a test to your own opted-in number.
 The same reality-check applies: the Meta adapter is written to Meta's Cloud API docs but the real
 delivery is untested until your account is live — **ping me at go-live and I'll walk the smoke.**
 
+**Rotating the token (no restart) + the interim test mode.** Meta's temporary token expires ~daily.
+Instead of editing `.env` + restarting, sign in as the **platform admin → WhatsApp** and paste a
+fresh token — it's stored in the DB, **overrides `.env`**, and takes effect on the next send. That
+same page has an **"Interim test mode"**: when ON, "Send on WhatsApp" sends a text + the real photos
+to a configured **test number** (not the student), for pre-template smoke testing. It only delivers
+inside WhatsApp's 24-hour window (the test number must have messaged your business in the last 24h),
+and it diverts *all* sends while ON — **turn it OFF for normal delivery.**
+
 ---
 
 ### When you're ready

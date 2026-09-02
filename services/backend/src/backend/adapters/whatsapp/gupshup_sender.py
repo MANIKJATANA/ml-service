@@ -97,6 +97,64 @@ class GupshupWhatsAppSender:
             raise UpstreamError(f"WhatsApp send rejected for {_redact(to)}")
         return _to_receipt(payload, to=to)
 
+    async def send_text(
+        self, *, to: str, body: str, sender_number: str
+    ) -> WhatsAppReceipt:
+        # FREE-FORM text via the session-message endpoint /wa/api/v1/msg (NOT /template/msg) —
+        # deliverable only inside an open 24h session window (interim testing). CONFIRM against
+        # Gupshup docs (docs.gupshup.io/reference/msg).
+        message = {"type": "text", "text": body}
+        return await self._send_freeform(to=to, message=message, sender_number=sender_number)
+
+    async def send_image_link(
+        self,
+        *,
+        to: str,
+        image_url: str,
+        caption: str | None,
+        sender_number: str,
+    ) -> WhatsAppReceipt:
+        # FREE-FORM image via /wa/api/v1/msg. The image is a fetch-at-send-time URL
+        # (originalUrl/previewUrl); `caption` is omitted when None. CONFIRM against Gupshup docs.
+        message: dict[str, Any] = {
+            "type": "image",
+            "originalUrl": image_url,
+            "previewUrl": image_url,
+        }
+        if caption is not None:
+            message["caption"] = caption
+        return await self._send_freeform(to=to, message=message, sender_number=sender_number)
+
+    async def _send_freeform(
+        self, *, to: str, message: dict[str, Any], sender_number: str
+    ) -> WhatsAppReceipt:
+        """POST a free-form (session) message to /wa/api/v1/msg. Shares the apikey auth + the
+        redacted-error + the receipt parse with the template path."""
+        url = f"{self._base_url}/wa/api/v1/msg"
+        headers = {
+            "apikey": self._api_key,
+            "Content-Type": "application/x-www-form-urlencoded",
+        }
+        form = {
+            "channel": "whatsapp",
+            "source": sender_number,
+            "destination": to,
+            "src.name": self._app_name,
+            "message": json.dumps(message),
+        }
+        try:
+            async with httpx.AsyncClient(timeout=self._timeout) as client:
+                resp = await client.post(url, headers=headers, data=form)
+                resp.raise_for_status()
+                payload: Any = resp.json()
+        except httpx.HTTPError as exc:
+            raise UpstreamError(
+                f"WhatsApp send failed for {_redact(to)}: {exc}"
+            ) from exc
+        if isinstance(payload, dict) and payload.get("status") == "error":
+            raise UpstreamError(f"WhatsApp send rejected for {_redact(to)}")
+        return _to_receipt(payload, to=to)
+
 
 def _redact(number: str) -> str:
     """Mask a recipient number for logging — keep only the last 4 digits (PII-free)."""

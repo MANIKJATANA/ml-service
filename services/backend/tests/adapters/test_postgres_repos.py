@@ -34,6 +34,9 @@ from backend.adapters.repositories.postgres_media import PostgresMediaRepository
 from backend.adapters.repositories.postgres_notification_reads import (
     PostgresNotificationReadRepository,
 )
+from backend.adapters.repositories.postgres_platform_config import (
+    PostgresPlatformConfigRepository,
+)
 from backend.adapters.repositories.postgres_schools import PostgresSchoolRepository
 from backend.adapters.repositories.postgres_student_groups import (
     PostgresStudentGroupRepository,
@@ -1045,6 +1048,52 @@ async def test_whatsapp_config_upsert_round_trip(
     # Tenant-safe: a malformed/foreign school never leaks a row.
     assert await config.get("not-a-uuid") is None
     assert await config.get(_MISSING_UUID) is None
+
+
+async def test_platform_config_upsert_partial_update_round_trip(
+    sm: async_sessionmaker[AsyncSession],
+) -> None:
+    # W-live-test: the platform config singleton — get None before any save, then partial upserts
+    # that update ONLY the provided fields (fetch-merge), and get always returns the merged row.
+    config = PostgresPlatformConfigRepository(sm)
+
+    assert await config.get() is None  # never saved
+
+    # Save only the token — interim settings stay at their defaults.
+    first = await config.upsert(
+        meta_access_token="tok-1234",
+        interim_test_number=None,
+        interim_mode=None,
+    )
+    assert first.id == "platform"
+    assert first.meta_access_token == "tok-1234"
+    assert first.interim_test_number is None
+    assert first.interim_mode is False
+
+    # Save only the interim number/mode — the token MUST survive (partial update).
+    second = await config.upsert(
+        meta_access_token=None,
+        interim_test_number="919999888877",
+        interim_mode=True,
+    )
+    assert second.meta_access_token == "tok-1234"  # unchanged
+    assert second.interim_test_number == "919999888877"
+    assert second.interim_mode is True
+    assert second.created_at == first.created_at  # create time unchanged on update
+    assert second.updated_at >= first.updated_at  # bumped (func.now())
+
+    # Save only a new token — the interim settings survive.
+    third = await config.upsert(
+        meta_access_token="tok-9999",
+        interim_test_number=None,
+        interim_mode=None,
+    )
+    assert third.meta_access_token == "tok-9999"
+    assert third.interim_test_number == "919999888877"
+    assert third.interim_mode is True
+
+    got = await config.get()
+    assert got is not None and got.meta_access_token == "tok-9999"
 
 
 async def test_whatsapp_send_log_record_count_and_check(

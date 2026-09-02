@@ -27,6 +27,7 @@ from backend.api.routers import (
     health,
     me,
     media,
+    platform_config,
     review,
     schools,
     staff,
@@ -281,6 +282,10 @@ def create_app(rate_limiter: RateLimiter | None = None) -> FastAPI:
     # otherwise be captured by the schools router's GET/PATCH /v1/schools/{school_id}
     # (SCHOOL_MANAGE, platform-only). Register it FIRST so the literal wins the match.
     app.include_router(whatsapp.router)
+    # Platform-wide config (W-live-test): the DB-stored Meta token + interim-send settings,
+    # platform-admin only. The literal path /v1/platform/whatsapp-config has its own prefix, no
+    # collision with the schools router.
+    app.include_router(platform_config.router)
     app.include_router(schools.router)
     app.include_router(staff.router)
     app.include_router(students.router)

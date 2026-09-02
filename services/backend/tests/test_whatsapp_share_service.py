@@ -21,6 +21,7 @@ from backend.domain.models import (
     MatchCorrection,
     MatchVerdict,
     Media,
+    PlatformConfig,
     SchoolWhatsAppConfig,
     Student,
     WhatsAppReceipt,
@@ -28,6 +29,7 @@ from backend.domain.models import (
 )
 from backend.domain.ports import Thumbnailer
 from backend.services.gallery_service import GalleryService
+from backend.services.platform_config_service import PlatformConfigService
 from backend.services.whatsapp_config_service import WhatsAppConfigService
 from backend.services.whatsapp_share_service import (
     WhatsAppShareService,
@@ -41,6 +43,7 @@ from backend_fakes import (
     FakeMediaRepo,
     FakeMlResultsReader,
     FakeObjectStore,
+    FakePlatformConfigRepo,
     FakeStudentRepo,
     FakeThumbnailer,
     FakeWhatsAppConfigRepo,
@@ -120,8 +123,10 @@ def _build(
     send_log: FakeWhatsAppSendLogRepo | None = None,
     default_sender: str = "",
     monthly_cap: int = 12000,
+    platform_config: PlatformConfig | None = None,
 ) -> tuple[_Svc, _Handles]:
-    """Wire a WhatsAppShareService over fakes. Returns (service, handles)."""
+    """Wire a WhatsAppShareService over fakes. Returns (service, handles). ``platform_config``
+    (W-live-test) drives the interim path; default None → interim off → template path."""
     student = student or make_student(
         id="stu-1",
         school_id="school-1",
@@ -151,10 +156,14 @@ def _build(
     config_service = WhatsAppConfigService(
         config_repo, default_sender_number=default_sender, provider="gupshup"
     )
+    platform_service = PlatformConfigService(
+        FakePlatformConfigRepo(platform_config)
+    )
     fake_sender = sender or _RecordingSender()
     log = send_log or FakeWhatsAppSendLogRepo()
     service = WhatsAppShareService(
         config_service,
+        platform_service,
         gallery,
         students,
         store,
@@ -175,10 +184,13 @@ def _build(
 
 class _RecordingSender:
     """A WhatsAppSender that records each call + can raise on a chosen media (by image_url
-    substring) to exercise per-media failure isolation."""
+    substring) to exercise per-media failure isolation. W-live-test: also records the free-form
+    ``send_text``/``send_image_link`` used by the interim path."""
 
     def __init__(self, *, raise_on_url_substr: str | None = None) -> None:
         self.sent: list[dict[str, str | None]] = []
+        self.texts: list[dict[str, str]] = []
+        self.image_links: list[dict[str, str | None]] = []
         self._raise_on = raise_on_url_substr
 
     async def send_image(
@@ -201,6 +213,29 @@ class _RecordingSender:
             }
         )
         return WhatsAppReceipt(provider_message_id=f"pm-{len(self.sent)}", to=to)
+
+    async def send_text(
+        self, *, to: str, body: str, sender_number: str
+    ) -> WhatsAppReceipt:
+        self.texts.append({"to": to, "body": body, "sender": sender_number})
+        return WhatsAppReceipt(provider_message_id=f"txt-{len(self.texts)}", to=to)
+
+    async def send_image_link(
+        self,
+        *,
+        to: str,
+        image_url: str,
+        caption: str | None,
+        sender_number: str,
+    ) -> WhatsAppReceipt:
+        if self._raise_on is not None and self._raise_on in image_url:
+            raise UpstreamError("transport blip")
+        self.image_links.append(
+            {"to": to, "image_url": image_url, "caption": caption, "sender": sender_number}
+        )
+        return WhatsAppReceipt(
+            provider_message_id=f"link-{len(self.image_links)}", to=to
+        )
 
 
 async def _send(
@@ -526,3 +561,200 @@ async def test_no_log_row_or_error_contains_the_phone_number() -> None:
 def test_utc_month_start_is_first_of_month() -> None:
     now = datetime(2026, 8, 30, 17, 45, tzinfo=UTC)
     assert _utc_month_start(now) == datetime(2026, 8, 1, tzinfo=UTC)
+
+
+# ---- interim free-form send (W-live-test) -------------------------------
+
+_TEST_NUMBER = "919999888877"
+
+
+def _platform(*, interim_mode: bool, number: str | None = _TEST_NUMBER) -> PlatformConfig:
+    now = datetime(2026, 1, 1, tzinfo=UTC)
+    return PlatformConfig(
+        id="platform",
+        meta_access_token=None,
+        interim_test_number=number,
+        interim_mode=interim_mode,
+        created_at=now,
+        updated_at=now,
+    )
+
+
+async def test_interim_mode_sends_text_intro_plus_photos_to_test_number() -> None:
+    """Interim mode: a text intro + N image_link sends, all to the hardcoded test number, with
+    the consent gate SKIPPED (student not opted in). Send-log rows recorded per photo."""
+    media = [
+        make_media(id="m1", school_id="school-1", event_id="event-1"),
+        make_media(id="m2", school_id="school-1", event_id="event-1"),
+    ]
+    appearances = [
+        make_appearance(student_id="stu-1", media_id="m1", event_id="event-1"),
+        make_appearance(student_id="stu-1", media_id="m2", event_id="event-1"),
+    ]
+    # A student NOT opted in + no number — proves the interim path skips the consent gate.
+    student = make_student(
+        id="stu-1", school_id="school-1", mobile_number=None, whatsapp_opt_in=False
+    )
+    sender = _RecordingSender()
+    service, h = _build(
+        student=student,
+        appearances=appearances,
+        media=media,
+        sender=sender,
+        platform_config=_platform(interim_mode=True),
+    )
+    summary = await _send(service)
+    assert summary.sent == 2 and summary.failed == 0 and summary.skipped == 0
+    # Exactly one intro text to the test number, naming the count.
+    assert len(sender.texts) == 1
+    assert sender.texts[0]["to"] == _TEST_NUMBER
+    assert "2" in sender.texts[0]["body"]
+    # Each photo went to the test number via the free-form image_link (NOT the template send).
+    assert len(sender.image_links) == 2
+    assert all(link["to"] == _TEST_NUMBER for link in sender.image_links)
+    assert sender.sent == []  # template send_image never used
+    # Send-log rows recorded (student_id/media_id, never a recipient PII field).
+    rows = h.log.rows
+    assert len(rows) == 2 and all(r.status == "sent" for r in rows)
+    assert {r.media_id for r in rows} == {"m1", "m2"}
+    # The SENT path records the platform sender ("interim" here, default unset), NEVER the
+    # recipient test number (the "not-PII" invariant on sender_number — B1 regression guard).
+    assert all(r.sender_number == "interim" for r in rows)
+    assert all(_TEST_NUMBER != r.sender_number for r in rows)
+
+
+async def test_interim_mode_reuses_effective_overlay_rejected_not_sent() -> None:
+    """Even in interim mode a REJECTED appearance is never sent (the BP5 overlay is reused)."""
+    media = [make_media(id="m1", school_id="school-1", event_id="event-1")]
+    appearances = [
+        make_appearance(student_id="stu-1", media_id="m1", event_id="event-1")
+    ]
+    corrections = [
+        make_match_correction(
+            media_id="m1",
+            student_id="stu-1",
+            event_id="event-1",
+            verdict=MatchVerdict.REJECTED,
+        )
+    ]
+    sender = _RecordingSender()
+    service, h = _build(
+        appearances=appearances,
+        corrections=corrections,
+        media=media,
+        sender=sender,
+        platform_config=_platform(interim_mode=True),
+    )
+    summary = await _send(service)
+    assert summary.sent == 0
+    assert sender.image_links == []  # provably not sent
+
+
+async def test_interim_mode_respects_budget_cap() -> None:
+    media = [
+        make_media(id="m1", school_id="school-1", event_id="event-1"),
+        make_media(id="m2", school_id="school-1", event_id="event-1"),
+    ]
+    appearances = [
+        make_appearance(student_id="stu-1", media_id="m1", event_id="event-1"),
+        make_appearance(student_id="stu-1", media_id="m2", event_id="event-1"),
+    ]
+    log = FakeWhatsAppSendLogRepo()
+    await log.record(
+        school_id="school-1", student_id="stu-1", media_id="m0", actor_user_id="a",
+        actor_role="school_admin", sender_number=_TEST_NUMBER, status="sent",
+        provider_message_id="pm-0", error=None,
+    )
+    sender = _RecordingSender()
+    service, h = _build(
+        appearances=appearances, media=media, sender=sender, send_log=log,
+        monthly_cap=2, platform_config=_platform(interim_mode=True),
+    )
+    summary = await _send(service)
+    assert summary.sent == 1 and summary.skipped == 1
+    assert len(sender.image_links) == 1  # only one NEW photo hit the provider
+
+
+async def test_interim_intro_failure_does_not_abort_photos() -> None:
+    """A failing intro text (window/auth) must NOT stop the photos from being sent."""
+
+    class _IntroFailsSender(_RecordingSender):
+        async def send_text(
+            self, *, to: str, body: str, sender_number: str
+        ) -> WhatsAppReceipt:
+            raise UpstreamError("outside 24h window")  # no PII
+
+    media = [make_media(id="m1", school_id="school-1", event_id="event-1")]
+    appearances = [
+        make_appearance(student_id="stu-1", media_id="m1", event_id="event-1")
+    ]
+    sender = _IntroFailsSender()
+    service, h = _build(
+        appearances=appearances, media=media, sender=sender,
+        platform_config=_platform(interim_mode=True),
+    )
+    summary = await _send(service)
+    assert summary.sent == 1  # the photo still went out
+    assert len(sender.image_links) == 1
+
+
+async def test_interim_mode_off_uses_template_path_regression() -> None:
+    """With interim mode OFF (default) the existing template path runs unchanged: the consent
+    gate applies (opted-in + number) and send_image (template) is used, not the free-form calls."""
+    media = [make_media(id="m1", school_id="school-1", event_id="event-1")]
+    appearances = [
+        make_appearance(student_id="stu-1", media_id="m1", event_id="event-1")
+    ]
+    sender = _RecordingSender()
+    service, h = _build(
+        appearances=appearances,
+        media=media,
+        sender=sender,
+        platform_config=_platform(interim_mode=False),
+    )
+    summary = await _send(service)
+    assert summary.sent == 1
+    # The TEMPLATE send was used; the free-form interim calls were not.
+    assert len(sender.sent) == 1 and sender.sent[0]["template"] == _TEMPLATE
+    assert sender.texts == [] and sender.image_links == []
+
+
+async def test_interim_mode_without_number_falls_back_to_template() -> None:
+    """interim_mode True but NO test number → not interim; the template path runs (consent
+    applies)."""
+    media = [make_media(id="m1", school_id="school-1", event_id="event-1")]
+    appearances = [
+        make_appearance(student_id="stu-1", media_id="m1", event_id="event-1")
+    ]
+    sender = _RecordingSender()
+    service, h = _build(
+        appearances=appearances,
+        media=media,
+        sender=sender,
+        platform_config=_platform(interim_mode=True, number=None),
+    )
+    summary = await _send(service)
+    assert summary.sent == 1
+    assert len(sender.sent) == 1  # template path
+    assert sender.image_links == []
+
+
+async def test_no_recipient_number_leaks_in_interim_log_rows() -> None:
+    """PII: no interim send-log row carries the test recipient number in error/provider id."""
+    media = [make_media(id="m1", school_id="school-1", event_id="event-1")]
+    appearances = [
+        make_appearance(student_id="stu-1", media_id="m1", event_id="event-1")
+    ]
+    sender = _RecordingSender(raise_on_url_substr="m1.jpg")  # force a failure
+    service, h = _build(
+        appearances=appearances, media=media, sender=sender,
+        platform_config=_platform(interim_mode=True),
+    )
+    await _send(service)
+    for r in h.log.rows:
+        assert _TEST_NUMBER not in (r.error or "")
+        assert _TEST_NUMBER not in (r.provider_message_id or "")
+        # The recipient (test) number is NEVER the log's sender_number (that column is not-PII);
+        # with no platform default sender configured it's the literal "interim" marker.
+        assert _TEST_NUMBER != r.sender_number
+        assert r.sender_number == "interim"

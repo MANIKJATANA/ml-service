@@ -441,6 +441,36 @@ class SchoolWhatsAppConfig(Base):
     )
 
 
+class PlatformConfig(Base):
+    """The platform-wide config singleton (W-live-test, migration 0024).
+
+    Exactly ONE row: the application always reads/writes the constant key ``"platform"`` (``id``
+    is the PK). Platform-admin-only. ``meta_access_token`` is a SECRET stored here per owner
+    decision (a UI-editable Meta Cloud API temp token) — never returned in full (only
+    ``token_set``/``token_last4`` are exposed), never logged, with an ENV fallback
+    (``BE_WHATSAPP_META_ACCESS_TOKEN``). ``interim_test_number``/``interim_mode`` drive the
+    interim free-form send (a text intro + N real photos to a hardcoded test number). Read by
+    PK, so no extra index."""
+
+    __tablename__ = "platform_config"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    meta_access_token: Mapped[str | None] = mapped_column(String, nullable=True)
+    interim_test_number: Mapped[str | None] = mapped_column(String, nullable=True)
+    interim_mode: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+
 class Media(Base):
     """One uploaded event photo + its per-photo processing state (decisions/0027).
     ``id`` (as a string) is the ML ``media_id``; ``storage_path`` is the ML ``media_uri``.

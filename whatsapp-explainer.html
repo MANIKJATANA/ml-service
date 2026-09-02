@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WhatsApp — Simple Explainer</title>
+<style>
+  :root{
+    --ink:#18202f; --ink2:#48546a; --muted:#7b8698; --line:#e6eaf0; --bg:#f6f8fb; --card:#fff;
+    --blue:#2563eb; --blue-bg:#eaf1ff; --green:#15803d; --green-bg:#e7f7ec;
+    --amber:#a15c00; --amber-bg:#fff4e2; --grey-bg:#eef1f5; --purple:#6d28d9; --purple-bg:#f1ebff;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    line-height:1.6;font-size:16px}
+  .wrap{max-width:840px;margin:0 auto;padding:36px 20px 80px}
+  h1{font-size:30px;margin:0 0 4px;letter-spacing:-.02em}
+  .tag{color:var(--muted);font-size:15px;margin-bottom:24px}
+  h2{font-size:13px;text-transform:uppercase;letter-spacing:.09em;color:var(--muted);
+     margin:36px 0 14px;padding-bottom:8px;border-bottom:1px solid var(--line)}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px 20px;
+        margin:12px 0;box-shadow:0 1px 2px rgba(16,24,40,.04)}
+  .row{display:flex;gap:14px;align-items:flex-start}
+  .ico{flex:0 0 auto;font-size:22px;line-height:1.3}
+  .card h3{margin:0 0 4px;font-size:17px}
+  .card p{margin:.2em 0;color:var(--ink2)}
+  .badge{display:inline-block;font-size:12px;font-weight:700;padding:2px 9px;border-radius:20px;
+         vertical-align:middle}
+  .b-done{background:var(--green-bg);color:var(--green)}
+  .b-prog{background:var(--amber-bg);color:var(--amber)}
+  .b-todo{background:var(--grey-bg);color:var(--ink2)}
+  .b-you{background:var(--purple-bg);color:var(--purple)}
+  .flow{background:var(--blue-bg);border:1px solid #cfe0ff;border-radius:14px;padding:18px 20px;
+        margin:16px 0;text-align:center;color:var(--ink)}
+  .flow b{color:var(--blue)}
+  .flow .arrow{color:var(--blue);font-weight:700;margin:0 8px}
+  .hi{background:var(--green-bg);border:1px solid #bfe6cc;border-radius:14px;padding:18px 20px;margin:16px 0}
+  .hi h3{margin:0 0 6px;color:var(--green)}
+  .concept{margin:12px 0}
+  .concept b{color:var(--ink)}
+  .concept .ex{color:var(--muted);font-size:14.5px}
+  ol.todo{padding-left:0;list-style:none;counter-reset:s}
+  ol.todo li{counter-increment:s;position:relative;padding:10px 0 10px 40px;border-bottom:1px solid var(--line)}
+  ol.todo li:last-child{border-bottom:none}
+  ol.todo li::before{content:counter(s);position:absolute;left:0;top:9px;width:26px;height:26px;
+    background:var(--purple);color:#fff;border-radius:50%;display:flex;align-items:center;
+    justify-content:center;font-size:14px;font-weight:700}
+  code{background:#eef2f7;padding:1px 6px;border-radius:5px;font-family:Consolas,monospace;font-size:13.5px}
+  .small{font-size:14px;color:var(--muted)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>WhatsApp photo delivery — where we are 📸</h1>
+  <div class="tag">A simple map of what's built, what works, and what's left. No jargon.</div>
+
+  <h2>The goal (one line)</h2>
+  <div class="flow">
+    Staff pick a student's photos <span class="arrow">→</span> the app sends them
+    <span class="arrow">→</span> they arrive on <b>WhatsApp</b>
+    <div class="small" style="margin-top:8px">Instead of downloading + forwarding photos by hand.</div>
+  </div>
+
+  <h2>What already works (built &amp; saved)</h2>
+
+  <div class="card"><div class="row"><div class="ico">✅</div><div>
+    <h3>Student mobile number + consent <span class="badge b-done">DONE</span></h3>
+    <p>Every student can have a mobile number + an "opted in to WhatsApp" switch. Stored safely.</p>
+  </div></div></div>
+
+  <div class="card"><div class="row"><div class="ico">✅</div><div>
+    <h3>The "provider" plumbing <span class="badge b-done">DONE</span></h3>
+    <p>The app can talk to a WhatsApp provider. You can choose <b>Gupshup</b> (a middleman service)
+       or <b>Meta</b> (WhatsApp's own system) — just by a setting. You picked <b>Meta</b>.</p>
+  </div></div></div>
+
+  <div class="card"><div class="row"><div class="ico">✅</div><div>
+    <h3>The "Send on WhatsApp" button <span class="badge b-done">DONE</span></h3>
+    <p>Staff open a student → "Send on WhatsApp" → the app gathers that student's photos and sends
+       them. (This was fully built + tested against a pretend sender.)</p>
+  </div></div></div>
+
+  <div class="card"><div class="row"><div class="ico">✅</div><div>
+    <h3>Housekeeping + a second provider <span class="badge b-done">DONE</span></h3>
+    <p>A cleanup job for temporary files, and the Meta option added alongside Gupshup.</p>
+  </div></div></div>
+
+  <div class="hi">
+    <h3>🎉 Today we proved it's REAL</h3>
+    <p>We connected to your actual Meta account and sent to your number <b>9306229596</b>:</p>
+    <p>• A "hello world" <b>text message</b> → ✅ delivered.<br>
+       • A real <b>image</b> (uploaded + sent) → ✅ delivered.</p>
+    <p style="margin-top:8px">So the WhatsApp connection genuinely works — real messages and real
+       photos reach the phone. 🙌</p>
+  </div>
+
+  <h2>What I'm building right now (your latest ask)</h2>
+
+  <div class="card"><div class="row"><div class="ico">🔨</div><div>
+    <h3>Edit the token from the screen <span class="badge b-done">Backend DONE</span>
+        <span class="badge b-prog">Screen PENDING</span></h3>
+    <p>Meta's test token <b>expires roughly every day</b>. Instead of editing a file + restarting
+       each time, you'll paste a fresh token on a settings screen and it just works.</p>
+    <p class="small">Backend is finished + tested. The screen itself didn't get built (a tool hit a
+       temporary rate-limit) — I'm redoing that part now.</p>
+  </div></div></div>
+
+  <div class="card"><div class="row"><div class="ico">🔨</div><div>
+    <h3>"Test send" of real photos <span class="badge b-done">Backend DONE</span>
+        <span class="badge b-prog">Screen PENDING</span></h3>
+    <p>A test mode: hit "Send on WhatsApp" and it sends a nice text —
+       <i>"Your school has shared N photos"</i> — plus the actual photos from storage, to your test
+       number. (Later this goes to each student's own number.)</p>
+    <p class="small">Backend done + tested (850 checks pass). Turned on/off by a switch on the same
+       screen above.</p>
+  </div></div></div>
+
+  <h2>5 things to understand (the confusing bits, simply)</h2>
+  <div class="card">
+    <div class="concept"><b>1. Test number vs real number.</b> Right now you're on Meta's free
+      <b>test number</b> (<code>+1 555…</code>). It can only send to a few numbers you approve.
+      To message real parents, you'll add <b>your own business number</b> later.</div>
+    <div class="concept"><b>2. Two ways to send.</b>
+      <br>• <b>Template</b> = a pre-approved message format. Needed to message someone who has
+        <i>not</i> messaged you first (i.e. real parents). For photos this needs an "image template"
+        — <b>not made yet</b>.
+      <br>• <b>Free-form</b> = any message/photo, but ONLY works for <b>24 hours after the person
+        messages you</b>. <span class="ex">(Today's image test used this — it worked because you had
+        messaged the test number.)</span></div>
+    <div class="concept"><b>3. The 24-hour window.</b> After someone WhatsApps your business number,
+      you can send them anything freely for 24 hours. After that, only templates.</div>
+    <div class="concept"><b>4. The temporary token.</b> Meta's test token expires ~daily — that's the
+      whole reason we're adding the "edit token on screen" feature.</div>
+    <div class="concept"><b>5. Opt-in.</b> The app only sends to a student marked "opted in" with a
+      number on file (for real sends).</div>
+  </div>
+
+  <h2>What YOU need to do — for real production (sending to actual parents)</h2>
+  <div class="card">
+    <ol class="todo">
+      <li><b>Verify your Meta business</b> + accept the WhatsApp Business Terms (in the Meta console).
+        <span class="small">— Meta said this is pending; it's required to leave "test mode".</span></li>
+      <li><b>Add your own WhatsApp business number</b> (replace the <code>+1 555…</code> test one).</li>
+      <li><b>Create + get an "image template" approved</b> (so you can send photos to parents who
+        haven't messaged first). <span class="small">Tell me the wording you want; I'll set it up.</span></li>
+      <li><b>Get a permanent token</b> (so it stops expiring every day).</li>
+    </ol>
+    <p class="small" style="margin-top:10px">None of these are code — they're account steps on Meta's
+      side. Everything on the app side is ready or nearly ready.</p>
+  </div>
+
+  <h2>My next step</h2>
+  <div class="card"><div class="row"><div class="ico">👉</div><div>
+    <p>Rebuild the settings screen (token + test-mode) that the rate-limit interrupted, review it,
+       and save it. Then you'll have a screen to paste the token + flip the test mode — no more file
+       edits.</p>
+  </div></div></div>
+
+  <p class="small" style="text-align:center;margin-top:30px">In short: the WhatsApp connection works
+    and delivers real photos. What's left is (a) a small settings screen I'm redoing, and (b) Meta
+    account steps on your side for real-parent sending.</p>
+
+</div>
+</body>
+</html>

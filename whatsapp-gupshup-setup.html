@@ -313,6 +313,17 @@ BE_WHATSAPP_META_TEMPLATE_LANG=en_US</code></pre>
         Meta (the sender is the <code>PHONE_NUMBER_ID</code>). Keep the <strong>API version</strong>
         current — Meta deprecates old Graph versions.</p>
     </div>
+    <div class="callout warn">
+      <span class="tag">Rotating the token + interim test mode</span>
+      <p>Meta's temporary token expires ~daily. Instead of editing <code>.env</code> + restarting,
+        go to <strong>Platform → WhatsApp</strong> and paste a fresh token — it's stored in the DB,
+        <strong>overrides <code>.env</code></strong>, and takes effect on the next send.</p>
+      <p>That page also has an <strong>"Interim test mode"</strong>: when ON, "Send on WhatsApp"
+        sends a text + the real photos to a configured <strong>test number</strong> (not the
+        student), for smoke-testing before you have an image template. It only delivers inside
+        WhatsApp's 24-hour window, and it diverts <strong>all</strong> sends while ON —
+        <strong>turn it OFF for normal delivery.</strong></p>
+    </div>
   </div>
 
   <div class="foot-cta">

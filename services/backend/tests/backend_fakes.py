@@ -37,6 +37,7 @@ from backend.domain.models import (
     MediaType,
     NotificationEvent,
     PhotoResult,
+    PlatformConfig,
     Role,
     School,
     SchoolSort,
@@ -67,6 +68,7 @@ from backend.domain.ports import (
     NotificationChannel,
     NotificationReadRepository,
     ObjectStore,
+    PlatformConfigRepository,
     SchoolRepository,
     StudentGroupRepository,
     StudentRepository,
@@ -2384,6 +2386,57 @@ class FakeAdminActionAuditRepo:
         return list(self._rows)
 
 
+class FakePlatformConfigRepo:
+    """PlatformConfigRepository double (W-live-test): the singleton row (or None before any save).
+    ``upsert`` is a PARTIAL update — a ``None`` field is left unchanged (fetch-merge), matching the
+    real adapter — so a caller can save just the token or just the number/mode. ``updated_at``
+    ticks per save so a re-save is observably newer."""
+
+    _SINGLETON_ID = "platform"
+
+    def __init__(self, config: PlatformConfig | None = None) -> None:
+        self._row: PlatformConfig | None = config
+        self._tick = 0
+
+    async def get(self) -> PlatformConfig | None:
+        return self._row
+
+    async def upsert(
+        self,
+        *,
+        meta_access_token: str | None,
+        interim_test_number: str | None,
+        interim_mode: bool | None,
+    ) -> PlatformConfig:
+        self._tick += 1
+        current = self._row
+        created_at = current.created_at if current is not None else _NOW
+        merged_token = (
+            meta_access_token
+            if meta_access_token is not None
+            else (current.meta_access_token if current else None)
+        )
+        merged_number = (
+            interim_test_number
+            if interim_test_number is not None
+            else (current.interim_test_number if current else None)
+        )
+        merged_mode = (
+            interim_mode
+            if interim_mode is not None
+            else (current.interim_mode if current else False)
+        )
+        self._row = PlatformConfig(
+            id=self._SINGLETON_ID,
+            meta_access_token=merged_token,
+            interim_test_number=merged_number,
+            interim_mode=merged_mode,
+            created_at=created_at,
+            updated_at=_NOW + timedelta(seconds=self._tick),
+        )
+        return self._row
+
+
 class FakeWhatsAppConfigRepo:
     """WhatsAppConfigRepository double (W1): a dict keyed on school_id. ``get`` returns the row
     or None; ``upsert`` creates/replaces it, keeping ``created_at`` stable and bumping
@@ -2608,6 +2661,7 @@ class SeededContainer(Container):
         whatsapp_config: WhatsAppConfigRepository | None = None,
         whatsapp_sender: WhatsAppSender | None = None,
         whatsapp_send_log: WhatsAppSendLogRepository | None = None,
+        platform_config: PlatformConfigRepository | None = None,
         jwt_secret: str = _TEST_JWT_SECRET,
     ) -> None:
         super().__init__(Settings(jwt_secret=SecretStr(jwt_secret)))
@@ -2657,6 +2711,12 @@ class SeededContainer(Container):
         )
         self._seed_whatsapp_send_log: WhatsAppSendLogRepository = (
             whatsapp_send_log or FakeWhatsAppSendLogRepo()
+        )
+        # W-live-test: the platform config singleton (DB-stored Meta token + interim-send
+        # settings). Default = empty (never saved → get() None → the service synthesizes a
+        # disabled default, so interim mode is off and the template path runs unchanged).
+        self._seed_platform_config: PlatformConfigRepository = (
+            platform_config or FakePlatformConfigRepo()
         )
         # Wire the FK-cascade simulation so delete-student removes the profile too.
         if isinstance(self._seed_users, FakeUserRepo) and isinstance(
@@ -2771,3 +2831,6 @@ class SeededContainer(Container):
 
     def whatsapp_send_log_repo(self) -> WhatsAppSendLogRepository:
         return self._seed_whatsapp_send_log
+
+    def platform_config_repo(self) -> PlatformConfigRepository:
+        return self._seed_platform_config

@@ -49,6 +49,7 @@ import type {
   UserResponse,
   UserStatus,
   WhatsAppConfigResponse,
+  WhatsAppPlatformConfigResponse,
   WhatsAppSendResponse,
 } from "./types";
 
@@ -539,6 +540,27 @@ export function updateWhatsAppConfig(body: {
   business_name: string | null;
 }): Promise<WhatsAppConfigResponse> {
   return bffFetch<WhatsAppConfigResponse>("/api/v1/schools/whatsapp-config", {
+    method: "PUT",
+    body: JSON.stringify(body),
+  });
+}
+
+// --- WhatsApp platform config (W-live-test, platform-admin only) ---
+
+/** The platform-wide WhatsApp config (SCHOOL_MANAGE — platform-admin). The Meta token is never
+ *  returned — only `token_set` + `token_last4`. */
+export function getWhatsAppPlatformConfig(): Promise<WhatsAppPlatformConfigResponse> {
+  return bffFetch<WhatsAppPlatformConfigResponse>("/api/v1/platform/whatsapp-config");
+}
+
+/** Update the platform WhatsApp config. `meta_access_token: null` (or omitted) leaves the stored
+ *  token unchanged; a non-null value replaces it. */
+export function updateWhatsAppPlatformConfig(body: {
+  meta_access_token?: string | null;
+  interim_test_number?: string | null;
+  interim_mode?: boolean;
+}): Promise<WhatsAppPlatformConfigResponse> {
+  return bffFetch<WhatsAppPlatformConfigResponse>("/api/v1/platform/whatsapp-config", {
     method: "PUT",
     body: JSON.stringify(body),
   });

@@ -32,6 +32,10 @@ async def test_container_builds_and_memoizes_student_stack() -> None:
             jwt_secret=SecretStr("x" * 32),
             object_store_impl="local_fs",
             ml_enrollment_client_impl="fake",
+            # Pin the sender impl so pydantic-settings can't read BE_WHATSAPP_SENDER_IMPL from a
+            # local .env (e.g. =meta for a live smoke) and make the fake-branch assertion below
+            # flaky — the same guard applied for faiss_lock_impl in BP8d's container test.
+            whatsapp_sender_impl="fake",
         )
     )
     assert container.student_repo() is container.student_repo()
@@ -55,6 +59,9 @@ async def test_container_builds_and_memoizes_student_stack() -> None:
     # service is the FIRST place the sender is wired into a service.
     assert container.whatsapp_send_log_repo() is container.whatsapp_send_log_repo()
     assert container.whatsapp_share_service() is container.whatsapp_share_service()
+    # W-live-test: the platform config repo (postgres, lazy — no connect) + its service memoize.
+    assert container.platform_config_repo() is container.platform_config_repo()
+    assert container.platform_config_service() is container.platform_config_service()
     await container.aclose()
 
 
@@ -74,6 +81,42 @@ async def test_container_builds_meta_whatsapp_sender() -> None:
     sender = container.whatsapp_sender()
     assert isinstance(sender, MetaWhatsAppSender)
     assert container.whatsapp_sender() is sender  # memoized
+    await container.aclose()
+
+
+async def test_meta_token_provider_prefers_db_then_env_fallback() -> None:
+    # W-live-test: the Meta token is resolved FRESH per send by container._meta_token — the
+    # DB-stored token wins, else the env fallback (BE_WHATSAPP_META_ACCESS_TOKEN). Verified by
+    # swapping in a fake platform-config repo (no DB / no connect).
+    from datetime import UTC, datetime
+
+    from backend.domain.models import PlatformConfig
+    from backend_fakes import FakePlatformConfigRepo
+
+    container = Container(
+        Settings(
+            jwt_secret=SecretStr("x" * 32),
+            whatsapp_sender_impl="meta",
+            whatsapp_meta_access_token=SecretStr("env-fallback-token"),
+        )
+    )
+    # No DB token → the env fallback is used.
+    container._platform_config_repo = FakePlatformConfigRepo()
+    assert await container._meta_token() == "env-fallback-token"
+
+    # A DB token takes precedence over the env fallback.
+    now = datetime.now(UTC)
+    container._platform_config_repo = FakePlatformConfigRepo(
+        PlatformConfig(
+            id="platform",
+            meta_access_token="db-token",
+            interim_test_number=None,
+            interim_mode=False,
+            created_at=now,
+            updated_at=now,
+        )
+    )
+    assert await container._meta_token() == "db-token"
     await container.aclose()
 
 

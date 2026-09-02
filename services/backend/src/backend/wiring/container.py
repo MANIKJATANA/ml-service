@@ -37,6 +37,7 @@ from backend.domain.ports import (
     ObjectStore,
     PasswordHasher,
     PermissionResolver,
+    PlatformConfigRepository,
     SchoolRepository,
     StudentGroupRepository,
     StudentRepository,
@@ -63,6 +64,7 @@ from backend.services.listing_service import ListingService
 from backend.services.media_service import MediaService
 from backend.services.notification_service import NotificationService
 from backend.services.onboarding_service import OnboardingService
+from backend.services.platform_config_service import PlatformConfigService
 from backend.services.review_service import ReviewService
 from backend.services.student_service import StudentService
 from backend.services.whatsapp_config_service import WhatsAppConfigService
@@ -100,6 +102,8 @@ class Container:
         self._thumbnailer: Thumbnailer | None = None
         self._ml_enrollment_client: MlEnrollmentClient | None = None
         self._whatsapp_sender: WhatsAppSender | None = None
+        self._platform_config_repo: PlatformConfigRepository | None = None
+        self._platform_config_service: PlatformConfigService | None = None
         self._whatsapp_config_repo: WhatsAppConfigRepository | None = None
         self._whatsapp_config_service: WhatsAppConfigService | None = None
         self._whatsapp_send_log_repo: WhatsAppSendLogRepository | None = None
@@ -367,7 +371,38 @@ class Container:
                         self._ml_enrollment_client = cls()
         return self._ml_enrollment_client
 
+    # ---- platform config (W-live-test) ---------------------------------
+
+    def platform_config_repo(self) -> PlatformConfigRepository:
+        if self._platform_config_repo is None:
+            with self._lock:
+                if self._platform_config_repo is None:
+                    cls = registry.resolve(
+                        registry.PLATFORM_CONFIG_REPO_REGISTRY,
+                        self._s.repository_impl,
+                    )
+                    self._platform_config_repo = cls(self.sessionmaker())
+        return self._platform_config_repo
+
+    def platform_config_service(self) -> PlatformConfigService:
+        if self._platform_config_service is None:
+            with self._lock:
+                if self._platform_config_service is None:
+                    self._platform_config_service = PlatformConfigService(
+                        self.platform_config_repo(),
+                    )
+        return self._platform_config_service
+
     # ---- WhatsApp (W1) -------------------------------------------------
+
+    async def _meta_token(self) -> str:
+        """Resolve the Meta access token FRESH per send: the DB-stored token (W-live-test)
+        takes precedence, else the env fallback (``BE_WHATSAPP_META_ACCESS_TOKEN``). Bound as the
+        Meta sender's ``token_provider`` so a UI edit takes effect on the next send without a
+        rebuild. The token is NEVER logged."""
+        cfg = await self.platform_config_repo().get()
+        db_token = cfg.meta_access_token if cfg else None
+        return db_token or self._s.whatsapp_meta_access_token.get_secret_value()
 
     def whatsapp_sender(self) -> WhatsAppSender:
         # Config-selected (BE_WHATSAPP_SENDER_IMPL) sender. fake = credential-free default;
@@ -388,8 +423,12 @@ class Container:
                             timeout_s=self._s.whatsapp_http_timeout_s,
                         )
                     elif impl == "meta":
+                        # W-live-test: the token is resolved FRESH per send via _meta_token
+                        # (DB-stored token first, env fallback) — never a static kwarg — so a UI
+                        # edit takes effect on the next send. The sender stays memoized (the
+                        # provider is a bound method; only the token it returns varies per call).
                         self._whatsapp_sender = cls(
-                            access_token=self._s.whatsapp_meta_access_token.get_secret_value(),
+                            token_provider=self._meta_token,
                             phone_number_id=self._s.whatsapp_meta_phone_number_id,
                             api_version=self._s.whatsapp_meta_api_version,
                             base_url=self._s.whatsapp_meta_base_url,
@@ -444,6 +483,7 @@ class Container:
                 if self._whatsapp_share_service is None:
                     self._whatsapp_share_service = WhatsAppShareService(
                         self.whatsapp_config_service(),
+                        self.platform_config_service(),
                         self.gallery_service(),
                         self.student_repo(),
                         self.object_store(),

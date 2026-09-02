@@ -122,6 +122,15 @@ WHATSAPP_CONFIG_REPO_REGISTRY: dict[str, str] = {
     ),
 }
 
+# Platform-wide config singleton (W-live-test). Holds the DB-stored Meta token + interim-send
+# settings; platform-admin only.
+PLATFORM_CONFIG_REPO_REGISTRY: dict[str, str] = {
+    "postgres": (
+        "backend.adapters.repositories.postgres_platform_config"
+        ":PostgresPlatformConfigRepository"
+    ),
+}
+
 # WhatsApp send audit (W2). The append-only spend/delivery log the share service writes to.
 WHATSAPP_SEND_LOG_REPO_REGISTRY: dict[str, str] = {
     "postgres": (

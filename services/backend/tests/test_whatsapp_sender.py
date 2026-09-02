@@ -49,6 +49,24 @@ async def test_fake_sender_distinct_message_ids_and_optional_caption() -> None:
     assert len(sender.sent) == 2
 
 
+async def test_fake_sender_records_free_form_text_and_image_link() -> None:
+    # W-live-test: the interim free-form calls are recorded on their own lists.
+    sender = FakeWhatsAppSender()
+    rt = await sender.send_text(to="919999888877", body="hi", sender_number="s")
+    ri = await sender.send_image_link(
+        to="919999888877", image_url="https://d.test/m1", caption=None, sender_number="s"
+    )
+    assert rt.to == "919999888877" and rt.provider_message_id.startswith("fake-")
+    assert ri.to == "919999888877" and ri.provider_message_id.startswith("fake-")
+    assert len(sender.sent_text) == 1
+    assert sender.sent_text[0].body == "hi" and sender.sent_text[0].to == "919999888877"
+    assert len(sender.sent_image_links) == 1
+    assert sender.sent_image_links[0].image_url == "https://d.test/m1"
+    assert sender.sent_image_links[0].caption is None
+    # The free-form calls did not touch the template list.
+    assert sender.sent == []
+
+
 # The one Gupshup line that's testable without a live account: parsing the success body into a
 # receipt. (The HTTP call itself is provider-doc-dependent and covered by the integration smoke.)
 @pytest.mark.parametrize(

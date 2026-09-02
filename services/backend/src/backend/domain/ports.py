@@ -35,6 +35,7 @@ from backend.domain.models import (
     MediaProcessingStatus,
     MediaType,
     NotificationEvent,
+    PlatformConfig,
     RateLimitResult,
     Role,
     School,
@@ -906,6 +907,47 @@ class WhatsAppSender(Protocol):
         sender_number: str,
         caption: str | None = None,
     ) -> WhatsAppReceipt: ...
+
+    async def send_text(
+        self, *, to: str, body: str, sender_number: str
+    ) -> WhatsAppReceipt:
+        """Send a FREE-FORM text message (no template) — the interim send's intro line
+        (W-live-test). Only deliverable inside an open 24-hour customer window; raises
+        ``UpstreamError`` (→502) on transport failure / non-2xx, ``ValidationError`` (→400) on a
+        rejected recipient/window."""
+        ...
+
+    async def send_image_link(
+        self,
+        *,
+        to: str,
+        image_url: str,
+        caption: str | None,
+        sender_number: str,
+    ) -> WhatsAppReceipt:
+        """Send a FREE-FORM image message (no template) — the interim send's photos (W-live-test).
+        Like ``send_text``, only inside an open 24-hour window. Same error contract."""
+        ...
+
+
+class PlatformConfigRepository(Protocol):
+    """The platform-wide config singleton (W-live-test, migration 0024). Exactly ONE row, keyed
+    on the constant id ``"platform"``. Holds the DB-stored Meta access token (a SECRET, never
+    returned in full / never logged — the container reads it with an env fallback) + the interim
+    free-form-send settings. Platform-admin only (authorization is at the route)."""
+
+    async def get(self) -> PlatformConfig | None: ...
+    async def upsert(
+        self,
+        *,
+        meta_access_token: str | None,
+        interim_test_number: str | None,
+        interim_mode: bool | None,
+    ) -> PlatformConfig:
+        """Create/replace the singleton, updating ONLY the provided (non-None) fields — a caller
+        can save just the token, OR just the number/mode, without clobbering the rest (a
+        fetch-merge upsert). ``None`` for any field means "leave unchanged"."""
+        ...
 
 
 class WhatsAppConfigRepository(Protocol):

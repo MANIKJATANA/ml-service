@@ -111,6 +111,17 @@ export interface WhatsAppConfigResponse {
   updated_at: string;
 }
 
+/** Platform-wide WhatsApp config (W-live-test), platform-admin only. The Meta access token is
+ *  stored server-side but NEVER returned — only `token_set` + `token_last4`. `interim_mode` turns
+ *  on the interim "send real photos to the test number" test flow. */
+export interface WhatsAppPlatformConfigResponse {
+  token_set: boolean;
+  token_last4: string | null;
+  interim_test_number: string | null;
+  interim_mode: boolean;
+  updated_at: string;
+}
+
 /** One media's outcome from a student-centric WhatsApp send (W2). `sent` = the provider
  *  accepted it; `failed` = the send couldn't be made; `skipped` = not attempted (not
  *  effectively appearing / over the monthly budget). */

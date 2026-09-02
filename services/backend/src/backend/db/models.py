@@ -446,16 +446,21 @@ class PlatformConfig(Base):
 
     Exactly ONE row: the application always reads/writes the constant key ``"platform"`` (``id``
     is the PK). Platform-admin-only. ``meta_access_token`` is a SECRET stored here per owner
-    decision (a UI-editable Meta Cloud API temp token) — never returned in full (only
-    ``token_set``/``token_last4`` are exposed), never logged, with an ENV fallback
-    (``BE_WHATSAPP_META_ACCESS_TOKEN``). ``interim_test_number``/``interim_mode`` drive the
-    interim free-form send (a text intro + N real photos to a hardcoded test number). Read by
-    PK, so no extra index."""
+    decision (a UI-editable Meta Cloud API token) — never returned in full (only
+    ``token_set``/``token_last4`` are exposed), never logged. It is the SOLE source of the token
+    (0098: NO env fallback — a stale ``.env`` value is never used). ``interim_test_number``/
+    ``interim_mode`` drive the interim free-form send (a text intro + N real photos to a hardcoded
+    test number). Read by PK, so no extra index."""
 
     __tablename__ = "platform_config"
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
     meta_access_token: Mapped[str | None] = mapped_column(String, nullable=True)
+    # The Meta sender phone-number ID (migration 0025). DB-controlled so it can be changed in the UI
+    # without a restart, and (0098) the SOLE source — NO env fallback. For the Meta provider this IS
+    # the phone-number ID in the send URL (not a +country number). Nullable → "" when unset (a send
+    # then fails clearly rather than silently using a stale env value).
+    sender_number: Mapped[str | None] = mapped_column(String, nullable=True)
     interim_test_number: Mapped[str | None] = mapped_column(String, nullable=True)
     interim_mode: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("false")

@@ -569,10 +569,14 @@ _TEST_NUMBER = "919999888877"
 
 
 def _platform(*, interim_mode: bool, number: str | None = _TEST_NUMBER) -> PlatformConfig:
+    # NB: the interim path is now gated PURELY on `number` (interim_test_number) being set — the
+    # `interim_mode` flag is a vestigial column and does NOT drive the gate. `number=None` → the
+    # template path runs; a set `number` → the interim path.
     now = datetime(2026, 1, 1, tzinfo=UTC)
     return PlatformConfig(
         id="platform",
         meta_access_token=None,
+        sender_number=None,
         interim_test_number=number,
         interim_mode=interim_mode,
         created_at=now,
@@ -698,9 +702,10 @@ async def test_interim_intro_failure_does_not_abort_photos() -> None:
     assert len(sender.image_links) == 1
 
 
-async def test_interim_mode_off_uses_template_path_regression() -> None:
-    """With interim mode OFF (default) the existing template path runs unchanged: the consent
-    gate applies (opted-in + number) and send_image (template) is used, not the free-form calls."""
+async def test_no_interim_number_uses_template_path_regression() -> None:
+    """With NO interim test number set the existing template path runs unchanged: the consent
+    gate applies (opted-in + number) and send_image (template) is used, not the free-form calls.
+    (interim_mode is vestigial — even set True below, an absent number means the template path.)"""
     media = [make_media(id="m1", school_id="school-1", event_id="event-1")]
     appearances = [
         make_appearance(student_id="stu-1", media_id="m1", event_id="event-1")
@@ -710,7 +715,7 @@ async def test_interim_mode_off_uses_template_path_regression() -> None:
         appearances=appearances,
         media=media,
         sender=sender,
-        platform_config=_platform(interim_mode=False),
+        platform_config=_platform(interim_mode=True, number=None),
     )
     summary = await _send(service)
     assert summary.sent == 1

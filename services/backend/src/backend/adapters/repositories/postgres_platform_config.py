@@ -23,10 +23,22 @@ from backend.domain.models import PlatformConfig
 _SINGLETON_ID = "platform"
 
 
+def _merge_str(value: str | None, current: str | None) -> str | None:
+    """Partial-update merge for a clearable string column: ``None`` → keep ``current`` (the caller
+    omitted the field); ``""`` → clear to NULL (an explicit blank edit); a non-empty value → set it.
+    The service trims + forwards, sending ``None`` for an omitted field and ``""`` for a cleared one
+    — so this distinguishes 'unchanged' from 'cleared' (needed to turn OFF the interim send by
+    clearing ``interim_test_number``)."""
+    if value is None:
+        return current
+    return value or None
+
+
 def _to_config(row: ConfigRow) -> PlatformConfig:
     return PlatformConfig(
         id=row.id,
         meta_access_token=row.meta_access_token,
+        sender_number=row.sender_number,
         interim_test_number=row.interim_test_number,
         interim_mode=row.interim_mode,
         created_at=row.created_at,
@@ -53,20 +65,21 @@ class PostgresPlatformConfigRepository:
         self,
         *,
         meta_access_token: str | None,
+        sender_number: str | None,
         interim_test_number: str | None,
         interim_mode: bool | None,
     ) -> PlatformConfig:
-        # Fetch-merge partial update: keep any field the caller didn't provide.
+        # Fetch-merge partial update: None → keep the current value, "" → clear to NULL, a value →
+        # set it (see _merge_str). interim_mode is a plain bool (None → unchanged).
         current = await self.get()
-        merged_token = (
-            meta_access_token
-            if meta_access_token is not None
-            else (current.meta_access_token if current else None)
+        merged_token = _merge_str(
+            meta_access_token, current.meta_access_token if current else None
         )
-        merged_number = (
-            interim_test_number
-            if interim_test_number is not None
-            else (current.interim_test_number if current else None)
+        merged_sender = _merge_str(
+            sender_number, current.sender_number if current else None
+        )
+        merged_number = _merge_str(
+            interim_test_number, current.interim_test_number if current else None
         )
         merged_mode = (
             interim_mode
@@ -78,6 +91,7 @@ class PostgresPlatformConfigRepository:
             .values(
                 id=_SINGLETON_ID,
                 meta_access_token=merged_token,
+                sender_number=merged_sender,
                 interim_test_number=merged_number,
                 interim_mode=merged_mode,
             )
@@ -85,6 +99,7 @@ class PostgresPlatformConfigRepository:
                 index_elements=["id"],
                 set_={
                     "meta_access_token": merged_token,
+                    "sender_number": merged_sender,
                     "interim_test_number": merged_number,
                     "interim_mode": merged_mode,
                     "updated_at": func.now(),

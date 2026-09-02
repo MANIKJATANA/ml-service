@@ -78,6 +78,34 @@ async def test_blank_strings_trim_to_none() -> None:
     assert after.interim_test_number is None
 
 
+async def test_set_sender_number_and_partial_update() -> None:
+    repo = FakePlatformConfigRepo()
+    service = PlatformConfigService(repo)
+    after = await service.set_config(sender_number="106540388866237")
+    assert after.sender_number == "106540388866237"
+    # A later token-only save keeps the sender number (partial update).
+    after = await service.set_config(meta_access_token=_SECRET)
+    assert after.sender_number == "106540388866237"
+    assert after.meta_access_token == _SECRET
+
+
+async def test_clearing_interim_number_turns_off_and_keeps_others() -> None:
+    # The gate is now the interim number's PRESENCE (no toggle) — clearing it (a provided "") must
+    # NULL it (turn interim off) while leaving the sender/token untouched. `None` = unchanged.
+    repo = FakePlatformConfigRepo()
+    service = PlatformConfigService(repo)
+    await service.set_config(
+        meta_access_token=_SECRET,
+        sender_number="106540388866237",
+        interim_test_number="919306229596",
+    )
+    # An explicit blank clears ONLY the interim number; omitted fields (None) stay.
+    after = await service.set_config(interim_test_number="")
+    assert after.interim_test_number is None  # cleared → interim OFF
+    assert after.sender_number == "106540388866237"  # unchanged
+    assert after.meta_access_token == _SECRET  # unchanged
+
+
 # ---- masking: the response never carries the full token -----------------
 
 
@@ -103,6 +131,7 @@ def test_response_no_token_when_unset() -> None:
         PlatformConfig(
             id="platform",
             meta_access_token=None,
+            sender_number=None,
             interim_test_number=None,
             interim_mode=False,
             created_at=now,
@@ -111,6 +140,7 @@ def test_response_no_token_when_unset() -> None:
     )
     assert resp.token_set is False
     assert resp.token_last4 is None
+    assert resp.sender_number is None
 
 
 def test_short_token_has_no_last4() -> None:
@@ -123,6 +153,7 @@ def test_short_token_has_no_last4() -> None:
         PlatformConfig(
             id="platform",
             meta_access_token="abc",  # < 4 chars
+            sender_number=None,
             interim_test_number=None,
             interim_mode=False,
             created_at=now,
@@ -165,8 +196,10 @@ def test_route_get_default_masked() -> None:
     body = resp.json()
     assert body["token_set"] is False
     assert body["token_last4"] is None
-    assert body["interim_mode"] is False
+    assert body["sender_number"] is None
+    assert body["interim_test_number"] is None
     assert "meta_access_token" not in body  # the secret is never in the response
+    assert "interim_mode" not in body  # the toggle was dropped from the API surface
 
 
 def test_route_put_then_get_reflects_and_masks() -> None:
@@ -177,22 +210,22 @@ def test_route_put_then_get_reflects_and_masks() -> None:
         headers=hdr,
         json={
             "meta_access_token": _SECRET,
+            "sender_number": "106540388866237",
             "interim_test_number": "919999888877",
-            "interim_mode": True,
         },
     )
     assert put.status_code == 200, put.text
     body = put.json()
     assert body["token_set"] is True
     assert body["token_last4"] == _SECRET[-4:]
+    assert body["sender_number"] == "106540388866237"
     assert body["interim_test_number"] == "919999888877"
-    assert body["interim_mode"] is True
     assert _SECRET not in put.text  # the full token never appears in the response body
 
     reread = client.get("/v1/platform/whatsapp-config", headers=hdr).json()
     assert reread["token_set"] is True
+    assert reread["sender_number"] == "106540388866237"
     assert reread["interim_test_number"] == "919999888877"
-    assert reread["interim_mode"] is True
 
 
 def test_route_partial_update_keeps_token() -> None:
@@ -203,16 +236,15 @@ def test_route_partial_update_keeps_token() -> None:
         headers=hdr,
         json={"meta_access_token": _SECRET},
     )
-    # Now update only interim mode/number — the token stays set.
+    # Now update only the interim number — the token stays set (partial update).
     client.put(
         "/v1/platform/whatsapp-config",
         headers=hdr,
-        json={"interim_test_number": "911112223333", "interim_mode": True},
+        json={"interim_test_number": "911112223333"},
     )
     body = client.get("/v1/platform/whatsapp-config", headers=hdr).json()
     assert body["token_set"] is True  # still set
     assert body["interim_test_number"] == "911112223333"
-    assert body["interim_mode"] is True
 
 
 def test_route_school_admin_is_403() -> None:
@@ -221,7 +253,9 @@ def test_route_school_admin_is_403() -> None:
     assert client.get("/v1/platform/whatsapp-config", headers=hdr).status_code == 403
     assert (
         client.put(
-            "/v1/platform/whatsapp-config", headers=hdr, json={"interim_mode": True}
+            "/v1/platform/whatsapp-config",
+            headers=hdr,
+            json={"interim_test_number": "911"},
         ).status_code
         == 403
     )

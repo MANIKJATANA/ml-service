@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>WhatsApp settings — kya banaya & kyu nahi dikh raha</title>
+<style>
+  :root{
+    --wa:#25d366; --wa-dark:#128c7e; --ink:#0f172a; --ink2:#475569; --muted:#94a3b8;
+    --line:#e2e8f0; --bg:#f1f5f9; --card:#ffffff; --warn-bg:#fff7ed; --warn-ink:#9a3412; --warn-line:#fdba74;
+    --ok-bg:#ecfdf5; --ok-ink:#065f46; --ok-line:#6ee7b7; --bad-bg:#fef2f2; --bad-ink:#991b1b; --bad-line:#fca5a5;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.6 -apple-system,Segoe UI,Roboto,system-ui,sans-serif;padding:32px 16px}
+  .wrap{max-width:860px;margin:0 auto}
+  h1{font-size:28px;margin:0 0 6px}
+  .sub{color:var(--ink2);margin:0 0 28px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:22px 22px;margin:18px 0;box-shadow:0 1px 2px rgba(15,23,42,.04)}
+  .tag{display:inline-block;font-size:12px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--wa-dark);background:#e7fbf1;border:1px solid #bff3d8;border-radius:999px;padding:3px 10px;margin-bottom:10px}
+  h2{font-size:20px;margin:2px 0 10px}
+  p{margin:8px 0}
+  .big{font-size:19px;font-weight:700}
+  .why{background:var(--warn-bg);border:1px solid var(--warn-line);border-radius:14px;padding:18px 20px}
+  .why .em{color:var(--warn-ink);font-weight:700}
+  code,.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:14px}
+  .cmd{background:#0f172a;color:#e2e8f0;border-radius:12px;padding:14px 16px;font-family:ui-monospace,Consolas,monospace;font-size:14px;overflow:auto}
+  .cmd .c{color:var(--wa)}
+  /* browser mock */
+  .browser{border:1px solid var(--line);border-radius:14px;overflow:hidden;box-shadow:0 8px 24px rgba(15,23,42,.10)}
+  .bar{background:#f8fafc;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:8px;padding:10px 14px}
+  .dot{width:11px;height:11px;border-radius:50%}
+  .url{flex:1;background:#fff;border:1px solid var(--line);border-radius:8px;padding:5px 12px;color:var(--ink2);font-size:13px;font-family:ui-monospace,Consolas,monospace}
+  .screen{padding:22px}
+  .screen h3{margin:0 0 4px;font-size:20px}
+  .screen .desc{color:var(--ink2);font-size:14px;margin:0 0 18px}
+  .field{margin:0 0 16px}
+  .field label{display:block;font-weight:600;font-size:14px;margin-bottom:5px}
+  .field .hint{color:var(--muted);font-size:12.5px;margin-top:4px}
+  .inp{width:100%;border:1px solid var(--line);border-radius:9px;padding:10px 12px;font-size:15px;background:#fff;color:var(--ink)}
+  .inp.filled{color:var(--ink);font-family:ui-monospace,Consolas,monospace}
+  .num{display:inline-block;width:22px;height:22px;line-height:22px;text-align:center;background:var(--wa);color:#fff;border-radius:50%;font-size:12px;font-weight:800;margin-right:8px}
+  .banner{background:var(--warn-bg);border:1px solid var(--warn-line);color:var(--warn-ink);border-radius:9px;padding:10px 12px;font-size:13.5px;font-weight:600;margin:6px 0 16px}
+  .savebtn{background:var(--wa-dark);color:#fff;border:none;border-radius:9px;padding:10px 18px;font-weight:700;font-size:14px;float:right}
+  .clear{clear:both}
+  /* before/after */
+  .ba{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media(max-width:640px){.ba{grid-template-columns:1fr}}
+  .col{border-radius:14px;padding:16px 18px}
+  .col.old{background:var(--bad-bg);border:1px solid var(--bad-line)}
+  .col.new{background:var(--ok-bg);border:1px solid var(--ok-line)}
+  .col h4{margin:0 0 10px;font-size:15px}
+  .col.old h4{color:var(--bad-ink)} .col.new h4{color:var(--ok-ink)}
+  .col ul{margin:0;padding-left:18px} .col li{margin:6px 0;font-size:14.5px}
+  .steps{counter-reset:s;padding:0;list-style:none;margin:6px 0 0}
+  .steps li{position:relative;padding:8px 0 8px 40px;border-bottom:1px dashed var(--line)}
+  .steps li:last-child{border-bottom:none}
+  .steps li::before{counter-increment:s;content:counter(s);position:absolute;left:0;top:8px;width:26px;height:26px;line-height:26px;text-align:center;background:var(--wa-dark);color:#fff;border-radius:50%;font-weight:800;font-size:13px}
+  .kbd{background:#eef2f7;border:1px solid var(--line);border-radius:6px;padding:1px 7px;font-family:ui-monospace,Consolas,monospace;font-size:13px}
+  .foot{color:var(--muted);font-size:13px;text-align:center;margin:26px 0 4px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>WhatsApp settings — jo maine banaya 👀</h1>
+  <p class="sub">Aur sabse zaroori sawaal: <b>tujhe abhi kyu nahi dikh raha</b>.</p>
+
+  <!-- WHY NOT VISIBLE -->
+  <div class="card why">
+    <span class="tag" style="color:var(--warn-ink);background:#ffedd5;border-color:var(--warn-line)">Sabse pehle ye samajh</span>
+    <p class="big">Jo app tere browser me abhi chal raha hai, wo <span class="em">purana build</span> hai.</p>
+    <p>Maine code <b>files</b> me badla hai (backend + frontend). Docker container abhi bhi <b>purana code</b> chala raha hai — isliye nayi screen tab tak nahi dikhegi jab tak tu <b>rebuild</b> na kare. Ye galti nahi hai, bas ek build chahiye.</p>
+    <div class="cmd"># ek command — naya code + DB migration dono apply<br><span class="c">docker compose up --build</span></div>
+    <p style="margin-top:10px">Iske baad → sign in as <b>platform admin</b> → left nav me <b>WhatsApp</b>. (Note: <b>school</b> admin wala "WhatsApp" alag screen hai — usme ye 3 fields nahi hote. Ye <b>Platform → WhatsApp</b> hai.)</p>
+  </div>
+
+  <!-- MOCKUP OF NEW SCREEN -->
+  <div class="card">
+    <span class="tag">Rebuild ke baad aisi dikhegi</span>
+    <h2>Platform → WhatsApp</h2>
+    <div class="browser">
+      <div class="bar">
+        <span class="dot" style="background:#ff5f57"></span><span class="dot" style="background:#febc2e"></span><span class="dot" style="background:#28c840"></span>
+        <span class="url">yourapp.com/whatsapp</span>
+      </div>
+      <div class="screen">
+        <h3>WhatsApp</h3>
+        <p class="desc">Platform-wide WhatsApp settings — sender number, Meta access token, aur interim test number. Sab DB me, yahin editable (no restart).</p>
+
+        <div class="field">
+          <label><span class="num">1</span>Sender number</label>
+          <input class="inp filled" value="106540388866237" readonly>
+          <div class="hint">Meta ka <b>phone-number ID</b> (Meta → WhatsApp → API Setup se — numeric "Phone number ID", +91… wala number nahi). Sirf DB me store hota hai — yahi ek jagah set hota hai (koi .env nahi).</div>
+        </div>
+
+        <div class="field">
+          <label><span class="num">2</span>Meta access token</label>
+          <input class="inp" type="password" value="xxxxxxxxxxxx" readonly>
+          <div class="hint">A token is set (ending 1234). Blank chhod = purana rahega; naya paste = replace. Poora token kabhi wapas nahi dikhta (safe).</div>
+        </div>
+
+        <div class="field">
+          <label><span class="num">3</span>Interim test number</label>
+          <input class="inp filled" value="919306229596" readonly>
+          <div class="hint">Jahan test sends jaayenge. <b>Number daala = test mode ON</b>, khaali kiya = normal delivery. (Alag toggle ab nahi hai.)</div>
+        </div>
+
+        <div class="banner">⚠️ Interim test mode ON hai (number set hai) — har "Send on WhatsApp" is test number pe jaayega, <b>students ko nahi</b>. Normal delivery ke liye ye field clear kar de.</div>
+
+        <button class="savebtn">Save settings</button>
+        <div class="clear"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- BEFORE / AFTER -->
+  <div class="card">
+    <span class="tag">Kya badla</span>
+    <div class="ba">
+      <div class="col old">
+        <h4>❌ Pehle (0097)</h4>
+        <ul>
+          <li>Token (UI se)</li>
+          <li>Interim number</li>
+          <li><b>Interim mode ka toggle</b> (extra cheez — confuse kar rahi thi)</li>
+          <li>Sender number <b>sirf .env me</b> → badalna ho to restart</li>
+        </ul>
+      </div>
+      <div class="col new">
+        <h4>✅ Ab</h4>
+        <ul>
+          <li><b>Sender number</b> (ab DB se, UI editable)</li>
+          <li>Token (UI se)</li>
+          <li>Interim number</li>
+          <li>Toggle hata diya → <b>number = switch</b> (set = ON, clear = OFF)</li>
+          <li>Teeno <b>DB se</b> → koi restart nahi</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- HOW TO TEST -->
+  <div class="card">
+    <span class="tag">Ab dikhega + test hoga — steps</span>
+    <ol class="steps">
+      <li>Terminal me: <span class="kbd">docker compose up --build</span> — naya code chadhega + migration <code>0025</code> khud apply hoga.</li>
+      <li>Browser: sign in as <b>platform admin</b> → nav me <b>WhatsApp</b>.</li>
+      <li><b>Sender number</b> = tera Meta phone-number ID (API Setup se).</li>
+      <li><b>Token</b> = ek <b>fresh</b> token paste kar (abhi wala expire ho chuka hai). Best: permanent system-user token (phir kabhi expire nahi).</li>
+      <li><b>Interim number</b> = <code>919306229596</code> → Save.</li>
+      <li>Kisi student pe <b>Send on WhatsApp</b> → intro text + asli photos us number pe aayenge (24h window khula hona chahiye).</li>
+    </ol>
+  </div>
+
+  <div class="card" style="background:#0f172a;color:#e2e8f0;border:none">
+    <p style="margin:0"><b style="color:var(--wa)">TL;DR</b> — code ho gaya + saare tests pass. Tujhe nahi dikh raha kyunki app rebuild nahi hua. <b style="color:#fff">docker compose up --build</b> chala → Platform → WhatsApp → 3 fields dikhenge. Bas.</p>
+  </div>
+
+  <p class="foot">File: whatsapp-3-fields.html · abhi tak commit nahi kiya (tere OK ka wait)</p>
+</div>
+</body>
+</html>

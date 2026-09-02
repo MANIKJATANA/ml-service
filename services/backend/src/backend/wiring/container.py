@@ -396,13 +396,21 @@ class Container:
     # ---- WhatsApp (W1) -------------------------------------------------
 
     async def _meta_token(self) -> str:
-        """Resolve the Meta access token FRESH per send: the DB-stored token (W-live-test)
-        takes precedence, else the env fallback (``BE_WHATSAPP_META_ACCESS_TOKEN``). Bound as the
-        Meta sender's ``token_provider`` so a UI edit takes effect on the next send without a
-        rebuild. The token is NEVER logged."""
+        """Resolve the Meta access token FRESH per send from the DB ONLY (``platform_config``,
+        edited at Platform → WhatsApp) — there is deliberately NO env fallback (0098), so a stale
+        ``.env`` value can never be silently used. Returns "" when unset (a send then fails
+        clearly). Bound as the Meta sender's ``token_provider`` so a UI edit takes effect on the
+        next send without a rebuild. The token is NEVER logged."""
         cfg = await self.platform_config_repo().get()
-        db_token = cfg.meta_access_token if cfg else None
-        return db_token or self._s.whatsapp_meta_access_token.get_secret_value()
+        return (cfg.meta_access_token if cfg else None) or ""
+
+    async def _meta_phone_number_id(self) -> str:
+        """Resolve the Meta sender phone-number ID FRESH per send from the DB ONLY (the platform
+        ``sender_number``, edited at Platform → WhatsApp) — NO env fallback (0098). Returns "" when
+        unset. Bound as the Meta sender's ``phone_number_id_provider`` so a UI edit takes effect on
+        the next send (no rebuild)."""
+        cfg = await self.platform_config_repo().get()
+        return (cfg.sender_number if cfg else None) or ""
 
     def whatsapp_sender(self) -> WhatsAppSender:
         # Config-selected (BE_WHATSAPP_SENDER_IMPL) sender. fake = credential-free default;
@@ -423,13 +431,14 @@ class Container:
                             timeout_s=self._s.whatsapp_http_timeout_s,
                         )
                     elif impl == "meta":
-                        # W-live-test: the token is resolved FRESH per send via _meta_token
-                        # (DB-stored token first, env fallback) — never a static kwarg — so a UI
-                        # edit takes effect on the next send. The sender stays memoized (the
-                        # provider is a bound method; only the token it returns varies per call).
+                        # W-live-test: the token AND the sender phone-number ID are resolved FRESH
+                        # per send via _meta_token / _meta_phone_number_id (DB-stored first, env
+                        # fallback) — never static kwargs — so a UI edit takes effect on the next
+                        # send. The sender stays memoized (the providers are bound methods; only the
+                        # values they return vary per call).
                         self._whatsapp_sender = cls(
                             token_provider=self._meta_token,
-                            phone_number_id=self._s.whatsapp_meta_phone_number_id,
+                            phone_number_id_provider=self._meta_phone_number_id,
                             api_version=self._s.whatsapp_meta_api_version,
                             base_url=self._s.whatsapp_meta_base_url,
                             template_lang=self._s.whatsapp_meta_template_lang,

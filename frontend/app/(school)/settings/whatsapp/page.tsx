@@ -37,11 +37,11 @@ function WhatsAppForm({
   // or this school has its own number set.
   // The active provider drives two fields. Gupshup matches a template by UUID and uses the
   // per-school sender number; Meta matches by the template NAME and takes the sender from the
-  // platform's phone-number ID (env) — so under Meta the "Sender number" field is not used.
+  // platform's phone-number ID (set at Platform → WhatsApp) — so under Meta this field is not used.
   const isMeta = config.provider === "meta";
 
   const sharedHint = isMeta
-    ? "Not used with Meta — the sender is the platform's Meta phone number (set via BE_WHATSAPP_META_PHONE_NUMBER_ID)."
+    ? "Not used with Meta — the sender is the platform's Meta sender number (set by a platform admin under Platform → WhatsApp)."
     : config.using_shared_number
       ? config.effective_sender_number
         ? `Leave blank to use the shared app number (${config.effective_sender_number}).`

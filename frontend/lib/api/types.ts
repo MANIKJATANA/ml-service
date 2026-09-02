@@ -111,14 +111,16 @@ export interface WhatsAppConfigResponse {
   updated_at: string;
 }
 
-/** Platform-wide WhatsApp config (W-live-test), platform-admin only. The Meta access token is
- *  stored server-side but NEVER returned — only `token_set` + `token_last4`. `interim_mode` turns
- *  on the interim "send real photos to the test number" test flow. */
+/** Platform-wide WhatsApp config (W-live-test), platform-admin only. The three DB-controlled
+ *  fields: `sender_number` (the Meta sender phone-number ID, returned in full — not a secret), the
+ *  Meta access token (stored server-side but NEVER returned — only `token_set` + `token_last4`),
+ *  and `interim_test_number`. When an interim number is set, every "Send on WhatsApp" is diverted
+ *  to it (the interim test flow); clear it for normal delivery. */
 export interface WhatsAppPlatformConfigResponse {
   token_set: boolean;
   token_last4: string | null;
+  sender_number: string | null;
   interim_test_number: string | null;
-  interim_mode: boolean;
   updated_at: string;
 }
 

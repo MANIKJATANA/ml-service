@@ -25,12 +25,16 @@ _SINGLETON_ID = "platform"
 
 
 def _clean(value: str | None) -> str | None:
-    """Trim an optional string; blank → None (so a whitespace-only edit clears the field). A
-    genuinely-omitted field is passed as ``None`` by the caller and stays unchanged in the repo."""
+    """Normalize a partial-update string field. ``None`` = the caller omitted the field → leave it
+    unchanged. A provided string is TRIMMED and passed through as-is — so a provided blank yields
+    ``""``, which the repo stores as NULL (an explicit CLEAR). This is what distinguishes 'omitted'
+    (``None`` → keep the current value) from 'cleared' (a provided blank → NULL) — essential now
+    that turning OFF the interim test send means CLEARING ``interim_test_number`` (there is no
+    separate toggle). Callers that must never clear a field on a blank edit (the write-only token)
+    send ``None`` for a blank, never ``""`` (the FE does this)."""
     if value is None:
         return None
-    cleaned = value.strip()
-    return cleaned or None
+    return value.strip()
 
 
 class PlatformConfigService:
@@ -47,6 +51,7 @@ class PlatformConfigService:
         return PlatformConfig(
             id=_SINGLETON_ID,
             meta_access_token=None,
+            sender_number=None,
             interim_test_number=None,
             interim_mode=False,
             created_at=now,
@@ -57,14 +62,16 @@ class PlatformConfigService:
         self,
         *,
         meta_access_token: str | None = None,
+        sender_number: str | None = None,
         interim_test_number: str | None = None,
         interim_mode: bool | None = None,
     ) -> PlatformConfig:
         """Create/replace the platform config — a PARTIAL update, so ``None`` leaves a field
-        unchanged (a caller can save just the token, or just the number/mode). String fields are
-        trimmed (blank → None)."""
+        unchanged (a caller can save just the token, or just the sender/interim number). String
+        fields are trimmed (blank → None, so a whitespace-only edit clears the field)."""
         return await self._repo.upsert(
             meta_access_token=_clean(meta_access_token),
+            sender_number=_clean(sender_number),
             interim_test_number=_clean(interim_test_number),
             interim_mode=interim_mode,
         )

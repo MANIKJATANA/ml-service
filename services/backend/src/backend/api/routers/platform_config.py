@@ -47,7 +47,7 @@ async def update_platform_config(
     unchanged). The response masks the Meta token."""
     config = await container.platform_config_service().set_config(
         meta_access_token=body.meta_access_token,
+        sender_number=body.sender_number,
         interim_test_number=body.interim_test_number,
-        interim_mode=body.interim_mode,
     )
     return PlatformConfigResponse.from_config(config)

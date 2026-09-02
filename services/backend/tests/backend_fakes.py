@@ -2405,21 +2405,28 @@ class FakePlatformConfigRepo:
         self,
         *,
         meta_access_token: str | None,
+        sender_number: str | None,
         interim_test_number: str | None,
         interim_mode: bool | None,
     ) -> PlatformConfig:
         self._tick += 1
         current = self._row
+
+        def merge(value: str | None, cur: str | None) -> str | None:
+            # None → keep; "" → clear (NULL); value → set (mirrors _merge_str in the pg adapter).
+            if value is None:
+                return cur
+            return value or None
+
         created_at = current.created_at if current is not None else _NOW
-        merged_token = (
-            meta_access_token
-            if meta_access_token is not None
-            else (current.meta_access_token if current else None)
+        merged_token = merge(
+            meta_access_token, current.meta_access_token if current else None
         )
-        merged_number = (
-            interim_test_number
-            if interim_test_number is not None
-            else (current.interim_test_number if current else None)
+        merged_sender = merge(
+            sender_number, current.sender_number if current else None
+        )
+        merged_number = merge(
+            interim_test_number, current.interim_test_number if current else None
         )
         merged_mode = (
             interim_mode
@@ -2429,6 +2436,7 @@ class FakePlatformConfigRepo:
         self._row = PlatformConfig(
             id=self._SINGLETON_ID,
             meta_access_token=merged_token,
+            sender_number=merged_sender,
             interim_test_number=merged_number,
             interim_mode=merged_mode,
             created_at=created_at,

@@ -66,17 +66,12 @@ async def test_container_builds_and_memoizes_student_stack() -> None:
 
 
 async def test_container_builds_meta_whatsapp_sender() -> None:
-    # Selecting BE_WHATSAPP_SENDER_IMPL=meta builds the Meta Cloud API adapter (creds from
-    # settings, the token read only here); fake/gupshup branches are unchanged.
+    # Selecting BE_WHATSAPP_SENDER_IMPL=meta builds the Meta Cloud API adapter; the token + sender
+    # phone-number ID are resolved per send from the DB (0098), not from settings/env.
     from backend.adapters.whatsapp.meta_sender import MetaWhatsAppSender
 
     container = Container(
-        Settings(
-            jwt_secret=SecretStr("x" * 32),
-            whatsapp_sender_impl="meta",
-            whatsapp_meta_access_token=SecretStr("test-token"),
-            whatsapp_meta_phone_number_id="1234567890",
-        )
+        Settings(jwt_secret=SecretStr("x" * 32), whatsapp_sender_impl="meta")
     )
     sender = container.whatsapp_sender()
     assert isinstance(sender, MetaWhatsAppSender)
@@ -84,32 +79,29 @@ async def test_container_builds_meta_whatsapp_sender() -> None:
     await container.aclose()
 
 
-async def test_meta_token_provider_prefers_db_then_env_fallback() -> None:
-    # W-live-test: the Meta token is resolved FRESH per send by container._meta_token — the
-    # DB-stored token wins, else the env fallback (BE_WHATSAPP_META_ACCESS_TOKEN). Verified by
-    # swapping in a fake platform-config repo (no DB / no connect).
+async def test_meta_token_resolved_from_db_only_no_env_fallback() -> None:
+    # 0098: the Meta token is resolved FRESH per send by container._meta_token from the DB ONLY —
+    # there is NO env fallback, so a stale .env value can never be used. Verified by swapping in a
+    # fake platform-config repo (no DB / no connect).
     from datetime import UTC, datetime
 
     from backend.domain.models import PlatformConfig
     from backend_fakes import FakePlatformConfigRepo
 
     container = Container(
-        Settings(
-            jwt_secret=SecretStr("x" * 32),
-            whatsapp_sender_impl="meta",
-            whatsapp_meta_access_token=SecretStr("env-fallback-token"),
-        )
+        Settings(jwt_secret=SecretStr("x" * 32), whatsapp_sender_impl="meta")
     )
-    # No DB token → the env fallback is used.
+    # No DB token → "" (never an env fallback).
     container._platform_config_repo = FakePlatformConfigRepo()
-    assert await container._meta_token() == "env-fallback-token"
+    assert await container._meta_token() == ""
 
-    # A DB token takes precedence over the env fallback.
+    # The DB token is the only source.
     now = datetime.now(UTC)
     container._platform_config_repo = FakePlatformConfigRepo(
         PlatformConfig(
             id="platform",
             meta_access_token="db-token",
+            sender_number=None,
             interim_test_number=None,
             interim_mode=False,
             created_at=now,
@@ -117,6 +109,39 @@ async def test_meta_token_provider_prefers_db_then_env_fallback() -> None:
         )
     )
     assert await container._meta_token() == "db-token"
+    await container.aclose()
+
+
+async def test_meta_phone_number_id_resolved_from_db_only_no_env_fallback() -> None:
+    # 0098: the Meta sender phone-number ID is resolved FRESH per send by
+    # container._meta_phone_number_id from the DB ONLY (the platform sender_number) — no env
+    # fallback. Mirrors the token provider.
+    from datetime import UTC, datetime
+
+    from backend.domain.models import PlatformConfig
+    from backend_fakes import FakePlatformConfigRepo
+
+    container = Container(
+        Settings(jwt_secret=SecretStr("x" * 32), whatsapp_sender_impl="meta")
+    )
+    # No DB sender_number → "" (never an env fallback).
+    container._platform_config_repo = FakePlatformConfigRepo()
+    assert await container._meta_phone_number_id() == ""
+
+    # The DB sender_number is the only source.
+    now = datetime.now(UTC)
+    container._platform_config_repo = FakePlatformConfigRepo(
+        PlatformConfig(
+            id="platform",
+            meta_access_token=None,
+            sender_number="db-phone-id",
+            interim_test_number=None,
+            interim_mode=False,
+            created_at=now,
+            updated_at=now,
+        )
+    )
+    assert await container._meta_phone_number_id() == "db-phone-id"
     await container.aclose()
 
 

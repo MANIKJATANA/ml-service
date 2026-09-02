@@ -941,11 +941,12 @@ class PlatformConfigRepository(Protocol):
         self,
         *,
         meta_access_token: str | None,
+        sender_number: str | None,
         interim_test_number: str | None,
         interim_mode: bool | None,
     ) -> PlatformConfig:
         """Create/replace the singleton, updating ONLY the provided (non-None) fields — a caller
-        can save just the token, OR just the number/mode, without clobbering the rest (a
+        can save just the token, OR just the sender/interim number, without clobbering the rest (a
         fetch-merge upsert). ``None`` for any field means "leave unchanged"."""
         ...
 

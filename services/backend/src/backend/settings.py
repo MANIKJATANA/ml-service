@@ -107,12 +107,13 @@ class Settings(BaseSettings):
 
     # --- WhatsApp: Meta Cloud API (alt provider, BE_WHATSAPP_SENDER_IMPL=meta) ---
     # Sends directly through the platform's own Meta WhatsApp Business account (the Graph API)
-    # instead of the Gupshup BSP. The sender is the phone_number_id (in the URL); Meta matches a
-    # template by NAME (paste it in the settings screen). Use a PERMANENT/system-user access
-    # token (a short-lived one expires) and keep the API version current (Meta deprecates old
-    # Graph versions). The secret is read only in the container, never logged.
-    whatsapp_meta_access_token: SecretStr = SecretStr("")  # SECRET: permanent access token
-    whatsapp_meta_phone_number_id: str = ""  # the sending WhatsApp phone-number ID
+    # instead of the Gupshup BSP. Meta matches a template by NAME (paste it in the settings screen)
+    # and keep the API version current (Meta deprecates old Graph versions).
+    #
+    # NB (0098): the access TOKEN and the sender PHONE-NUMBER ID are NOT env-configured — they live
+    # ONLY in the DB (`platform_config`, edited at Platform → WhatsApp) and are resolved fresh per
+    # send. There is deliberately NO env fallback for them, so a stale value can never be silently
+    # used. Only the non-secret API plumbing below stays in env.
     whatsapp_meta_api_version: str = "v21.0"  # Graph API version — bump to current at go-live
     whatsapp_meta_base_url: str = "https://graph.facebook.com"
     whatsapp_meta_template_lang: str = "en_US"  # the approved template's language code

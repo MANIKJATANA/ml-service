@@ -328,14 +328,18 @@ class SchoolWhatsAppConfig:
 
 @dataclass(frozen=True, slots=True)
 class PlatformConfig:
-    """The platform-wide config singleton (W-live-test, migration 0024). ``meta_access_token`` is
-    a SECRET stored in the DB per owner decision (a UI-editable Meta Cloud API temp token) — the
-    API layer NEVER returns it in full (only ``token_set``/``token_last4``) and it is never
-    logged; the container reads it (with an env fallback) to build the sender's token provider.
-    ``interim_test_number``/``interim_mode`` drive the interim free-form send."""
+    """The platform-wide config singleton (W-live-test, migration 0024; ``sender_number`` added in
+    0025). ``meta_access_token`` is a SECRET stored in the DB per owner decision (a UI-editable Meta
+    Cloud API temp token) — the API layer NEVER returns it in full (only ``token_set``/
+    ``token_last4``) and it is never logged; the container reads it (with an env fallback) to build
+    the sender's token provider. ``sender_number`` is the Meta sender phone-number ID
+    (DB-controlled, env fallback) — likewise resolved fresh per send. ``interim_test_number`` drives
+    the interim free-form send (a text intro + N real photos to a hardcoded test number) whenever it
+    is set; ``interim_mode`` is a vestigial column (the interim path is gated on the number)."""
 
     id: str
     meta_access_token: str | None
+    sender_number: str | None
     interim_test_number: str | None
     interim_mode: bool
     created_at: datetime

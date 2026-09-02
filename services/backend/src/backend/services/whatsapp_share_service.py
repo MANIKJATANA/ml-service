@@ -106,8 +106,11 @@ class WhatsAppShareService:
         #     hardcoded test number (NOT the student). It reuses the student's EFFECTIVE media
         #     (BP5 overlay) + the budget + the send-log, but DELIBERATELY skips the student
         #     opt-in/mobile-number consent gate (the recipient is the test number, not the student).
+        #     GATED PURELY ON THE INTERIM NUMBER'S PRESENCE (the old `interim_mode` toggle was
+        #     dropped from the UI/API): set an interim number → all sends divert to it; clear it →
+        #     normal delivery.
         platform = await self._platform_config.get_config()
-        if platform.interim_mode and platform.interim_test_number:
+        if platform.interim_test_number:
             return await self._send_interim(
                 school_id=school_id,
                 student_id=student_id,

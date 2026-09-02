@@ -297,32 +297,40 @@ BE_WHATSAPP_IMAGE_MAX_BYTES=4800000    <span class="cmt"># keep each photo under
       <li>Create + get approved a template with an <strong>Image header</strong> + a minimal body →
         note its <strong class="k">name</strong>.</li>
     </ol>
-    <p><strong>Configure <code>.env</code>:</strong></p>
+    <p><strong>Configure <code>.env</code>:</strong> only the provider selector + non-secret Graph
+      API plumbing live in <code>.env</code>.</p>
 <pre><code>BE_WHATSAPP_SENDER_IMPL=meta
-BE_WHATSAPP_META_ACCESS_TOKEN=&lt;permanent-access-token&gt;   <span class="cmt"># SECRET</span>
-BE_WHATSAPP_META_PHONE_NUMBER_ID=&lt;your-phone-number-id&gt; <span class="cmt"># the sender</span>
 BE_WHATSAPP_META_API_VERSION=v21.0                     <span class="cmt"># keep current</span>
 BE_WHATSAPP_META_TEMPLATE_LANG=en_US</code></pre>
-    <p>Restart the backend. In <code>/settings/whatsapp</code> the field now reads
-      <strong>"Template name"</strong> (Meta matches by name, not a UUID) — paste the approved
+    <p>The <strong>access token</strong> and the <strong>sender phone-number ID</strong> are
+      <strong>NOT env vars</strong> — set them in the UI at <strong>Platform → WhatsApp</strong>
+      (DB-only, resolved fresh per send, no restart). In <code>/settings/whatsapp</code> the field
+      reads <strong>"Template name"</strong> (Meta matches by name, not a UUID) — paste the approved
       template's <strong>name</strong>, and it shows <em>Provider: Meta</em>.</p>
     <div class="callout tip">
       <span class="tag">Differences vs Gupshup</span>
       <p>Meta matches a template by its <strong>name</strong> (Gupshup uses the UUID) — the settings
         field relabels automatically. The per-school <strong>"Sender number" is ignored</strong> for
-        Meta (the sender is the <code>PHONE_NUMBER_ID</code>). Keep the <strong>API version</strong>
-        current — Meta deprecates old Graph versions.</p>
+        Meta (the sender is the platform phone-number ID set at <strong>Platform → WhatsApp</strong>).
+        Keep the <strong>API version</strong> current — Meta deprecates old Graph versions.</p>
     </div>
     <div class="callout warn">
-      <span class="tag">Rotating the token + interim test mode</span>
+      <span class="tag">Three DB-controlled fields (no restart) + interim test mode</span>
       <p>Meta's temporary token expires ~daily. Instead of editing <code>.env</code> + restarting,
-        go to <strong>Platform → WhatsApp</strong> and paste a fresh token — it's stored in the DB,
-        <strong>overrides <code>.env</code></strong>, and takes effect on the next send.</p>
-      <p>That page also has an <strong>"Interim test mode"</strong>: when ON, "Send on WhatsApp"
-        sends a text + the real photos to a configured <strong>test number</strong> (not the
-        student), for smoke-testing before you have an image template. It only delivers inside
-        WhatsApp's 24-hour window, and it diverts <strong>all</strong> sends while ON —
-        <strong>turn it OFF for normal delivery.</strong></p>
+        go to <strong>Platform → WhatsApp</strong> — that one screen has <strong>three fields, all
+        stored in the DB and applied on the next send</strong>:</p>
+      <ol>
+        <li><strong>Sender number</strong> — the Meta sender <strong>phone-number ID</strong> (from
+          Meta → WhatsApp → API Setup, the numeric "Phone number ID", <em>not</em> the +country
+          number). This is the ONLY place it's set — there is no env var for it.</li>
+        <li><strong>Meta access token</strong> — paste a fresh token; stored <strong>only in the
+          DB</strong> (no env var), never shown again (only "set · ending 1234").</li>
+        <li><strong>Interim test number</strong> — the pre-template test mode.
+          <strong>Setting a number here turns it ON</strong> (there is no separate toggle): "Send on
+          WhatsApp" then sends a text + the real photos to <em>that</em> number, not the student. It
+          only delivers inside WhatsApp's 24-hour window, and it diverts <strong>all</strong> sends
+          while set — <strong>clear the field for normal delivery.</strong></li>
+      </ol>
     </div>
   </div>
 

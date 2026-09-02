@@ -10,14 +10,15 @@ API docs (a template message with an image-header component). Still untested end
 live Meta account exists — the live smoke verifies real delivery + that the approved template's
 name/language line up; version-sensitive lines are flagged CONFIRM against Meta Cloud API docs.
 
-W-live-test: the access token is resolved FRESH per send via an injected ``token_provider``
-(DB-stored token first, env fallback — see the container), so a UI edit takes effect immediately
-without a rebuild. The token is NEVER logged.
+W-live-test: BOTH the access token AND the sender ``phone_number_id`` are resolved FRESH per send
+via injected providers (DB-stored value first, env fallback — see the container), so a UI edit to
+either takes effect immediately without a rebuild. The token is NEVER logged.
 
 Two quirks vs Gupshup:
-- ``sender_number`` is IGNORED — Meta's sender is the ``phone_number_id`` in the URL, not a body
-  field (the per-school "Sender number" is a Gupshup-era concept; per-school Meta numbers = many
-  phone-number IDs = a future slice).
+- The per-call ``sender_number`` kwarg is IGNORED — Meta's sender is the ``phone_number_id`` in the
+  URL, not a body field. That ID is DB-configurable (the platform ``sender_number``, resolved by
+  ``phone_number_id_provider``) with an env fallback; the per-call ``sender_number`` (a Gupshup-era
+  per-school concept) still has no effect here.
 - Meta identifies a template by its NAME (+ a required language code), not a UUID.
 """
 
@@ -35,38 +36,41 @@ from backend.domain.models import WhatsAppReceipt
 class MetaWhatsAppSender:
     """``WhatsAppSender`` over the Meta WhatsApp Cloud API (Graph API) at ``base_url``.
 
-    The platform owns ONE Meta WhatsApp Business account → one access token (resolved per send by
-    ``token_provider``) + one ``phone_number_id`` (the sender). ``to`` (the recipient) is
-    per-call; ``sender_number`` is ignored (Meta's sender is the ``phone_number_id`` in the URL —
-    see the module docstring).
+    The platform owns ONE Meta WhatsApp Business account → one access token + one sender
+    ``phone_number_id``, BOTH resolved fresh per send by their providers (``token_provider`` /
+    ``phone_number_id_provider``; DB-stored first, env fallback). ``to`` (the recipient) is
+    per-call; the per-call ``sender_number`` kwarg is ignored (Meta's sender is the resolved
+    ``phone_number_id`` in the URL — see the module docstring).
     """
 
     def __init__(
         self,
         *,
         token_provider: Callable[[], Awaitable[str]],
-        phone_number_id: str,
+        phone_number_id_provider: Callable[[], Awaitable[str]],
         api_version: str,
         base_url: str,
         template_lang: str,
         timeout_s: float = 30.0,
     ) -> None:
         self._token_provider = token_provider
-        self._phone_number_id = phone_number_id
+        self._phone_number_id_provider = phone_number_id_provider
         self._api_version = api_version
         self._base_url = base_url.rstrip("/")
         self._template_lang = template_lang
         self._timeout = timeout_s
 
-    def _messages_url(self) -> str:
+    def _messages_url(self, phone_number_id: str) -> str:
         # Cloud API messages endpoint; the sender is the phone_number_id in the path.
-        return f"{self._base_url}/{self._api_version}/{self._phone_number_id}/messages"
+        return f"{self._base_url}/{self._api_version}/{phone_number_id}/messages"
 
     async def _post(self, body: dict[str, Any], *, to: str) -> WhatsAppReceipt:
         """POST a message body to the Cloud API. Auth: a Bearer access token resolved fresh per
-        send (never logged). Returns a receipt or raises ``UpstreamError`` with the recipient
-        REDACTED."""
+        send (never logged). The sender phone-number ID is likewise resolved fresh per send
+        (W-live-test — DB-configurable). Returns a receipt or raises ``UpstreamError`` with the
+        recipient REDACTED."""
         token = await self._token_provider()
+        phone_number_id = await self._phone_number_id_provider()
         headers = {
             "Authorization": f"Bearer {token}",
             "Content-Type": "application/json",
@@ -74,7 +78,7 @@ class MetaWhatsAppSender:
         try:
             async with httpx.AsyncClient(timeout=self._timeout) as client:
                 resp = await client.post(
-                    self._messages_url(), headers=headers, json=body
+                    self._messages_url(phone_number_id), headers=headers, json=body
                 )
                 resp.raise_for_status()
                 payload: Any = resp.json()

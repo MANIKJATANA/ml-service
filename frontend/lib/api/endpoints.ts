@@ -553,12 +553,13 @@ export function getWhatsAppPlatformConfig(): Promise<WhatsAppPlatformConfigRespo
   return bffFetch<WhatsAppPlatformConfigResponse>("/api/v1/platform/whatsapp-config");
 }
 
-/** Update the platform WhatsApp config. `meta_access_token: null` (or omitted) leaves the stored
- *  token unchanged; a non-null value replaces it. */
+/** Update the platform WhatsApp config (the three DB-controlled fields). `meta_access_token: null`
+ *  (or omitted) leaves the stored token unchanged; a non-null value replaces it. `sender_number` /
+ *  `interim_test_number`: null (or omitted) leaves unchanged; `""` → cleared (server trims). */
 export function updateWhatsAppPlatformConfig(body: {
   meta_access_token?: string | null;
+  sender_number?: string | null;
   interim_test_number?: string | null;
-  interim_mode?: boolean;
 }): Promise<WhatsAppPlatformConfigResponse> {
   return bffFetch<WhatsAppPlatformConfigResponse>("/api/v1/platform/whatsapp-config", {
     method: "PUT",

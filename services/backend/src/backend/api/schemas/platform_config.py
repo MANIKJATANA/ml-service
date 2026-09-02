@@ -22,24 +22,27 @@ __all__ = [
 
 
 class UpdatePlatformConfigRequest(BaseModel):
-    """The editable platform config. All optional — ``None`` = leave unchanged (a partial
-    update). ``meta_access_token`` is the UI-editable Meta temp token (stored in the DB per
-    owner decision; never returned in full)."""
+    """The editable platform config — the three DB-controlled fields (sender number, token,
+    interim number). All optional — ``None`` = leave unchanged (a partial update).
+    ``meta_access_token`` is the UI-editable Meta temp token (stored in the DB per owner decision;
+    never returned in full). ``sender_number`` is the Meta sender phone-number ID."""
 
     meta_access_token: str | None = Field(default=None, max_length=2000)
+    sender_number: str | None = Field(default=None, max_length=64)
     interim_test_number: str | None = Field(default=None, max_length=32)
-    interim_mode: bool | None = None
 
 
 class PlatformConfigResponse(BaseModel):
     """The platform config, with the Meta token MASKED. ``token_set`` = a token is on file;
     ``token_last4`` = its last 4 chars (a recognition hint), or null. The full token is NEVER
-    included."""
+    included. ``sender_number`` (the Meta sender phone-number ID) is NOT a secret and is returned in
+    full so the current value is visible. When ``interim_test_number`` is set, every "Send on
+    WhatsApp" is diverted to it (the interim test path); clear it for normal delivery."""
 
     token_set: bool
     token_last4: str | None
+    sender_number: str | None
     interim_test_number: str | None
-    interim_mode: bool
     updated_at: datetime
 
     @classmethod
@@ -48,7 +51,7 @@ class PlatformConfigResponse(BaseModel):
         return cls(
             token_set=bool(token),
             token_last4=token[-4:] if token and len(token) >= 4 else None,
+            sender_number=config.sender_number,
             interim_test_number=config.interim_test_number,
-            interim_mode=config.interim_mode,
             updated_at=config.updated_at,
         )

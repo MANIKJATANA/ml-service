@@ -133,6 +133,41 @@ export interface ProvisionedStudentResponse {
   temp_password: string;
 }
 
+/** One student who effectively appears in the SELECTED event photos + whether they can receive
+ *  (the event-photo fan-out preview). `photo_count` = how many of the selected they're in. */
+export interface EventPhotoRecipient {
+  student_id: string;
+  name: string;
+  photo_count: number;
+  opted_in: boolean;
+  has_number: boolean;
+}
+export interface EventPhotoRecipientsResponse {
+  recipients: EventPhotoRecipient[];
+  /** Platform WhatsApp test mode: every appearing student's photos go to the test number
+   *  regardless of consent — so the FE lets the send proceed even with no opted-in student. */
+  interim: boolean;
+}
+
+/** One student's outcome from an event-photo fan-out send. `reason` set only when the whole
+ *  student was skipped (not opted in / no number). */
+export interface EventPhotoSendResult {
+  student_id: string;
+  name: string;
+  sent: number;
+  failed: number;
+  skipped: number;
+  reason: string | null;
+}
+export interface EventPhotoSendResponse {
+  results: EventPhotoSendResult[];
+  students_sent: number;
+  students_skipped: number;
+  sent: number;
+  failed: number;
+  skipped: number;
+}
+
 /** One CSV row's outcome from a bulk import (BP7d). `status`: created | duplicate |
  *  invalid | error; `temp_password` set only when created. */
 export interface BulkStudentResult {

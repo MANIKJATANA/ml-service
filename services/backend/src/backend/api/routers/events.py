@@ -40,6 +40,13 @@ from backend.api.schemas.notifications import (
     NotificationRosterResponse,
     NotifyResultResponse,
 )
+from backend.api.schemas.whatsapp import (
+    EventPhotoRecipientResponse,
+    EventPhotoRecipientsRequest,
+    EventPhotoRecipientsResponse,
+    EventPhotoSendRequest,
+    EventPhotoSendResponse,
+)
 from backend.domain.models import UNSET, EventSort, EventStatus, SortDir, User
 from backend.domain.permissions import Permission
 
@@ -49,6 +56,9 @@ EventManager = Annotated[User, Depends(require_permissions(Permission.EVENT_MANA
 MediaUploader = Annotated[User, Depends(require_permissions(Permission.MEDIA_UPLOAD))]
 StatusViewer = Annotated[User, Depends(require_permissions(Permission.JOB_STATUS_VIEW))]
 Notifier = Annotated[User, Depends(require_permissions(Permission.NOTIFICATION_SEND))]
+WhatsAppSendManager = Annotated[
+    User, Depends(require_permissions(Permission.WHATSAPP_SEND))
+]
 
 
 @router.post("", status_code=status.HTTP_201_CREATED, response_model=EventResponse)
@@ -213,3 +223,61 @@ async def notification_roster(
         school_id=tenant_of(actor), event_id=event_id
     )
     return NotificationRosterResponse.from_roster(roster)
+
+
+@router.post(
+    "/{event_id}/photo-recipients", response_model=EventPhotoRecipientsResponse
+)
+async def event_photo_recipients(
+    event_id: str,
+    body: EventPhotoRecipientsRequest,
+    container: ContainerDep,
+    actor: WhatsAppSendManager,
+) -> EventPhotoRecipientsResponse:
+    """Pre-send preview for the event-photo fan-out: for the SELECTED photos, who effectively
+    appears in them (BP5 overlay — rejected excluded), how many each, and whether they can
+    receive (opted in + a number). Requires ``whatsapp:send``; tenant from the token (a foreign
+    event/media contributes nothing). Sends NOTHING — the FE confirms before the send."""
+    recipients = await container.gallery_service().event_photo_recipients(
+        school_id=tenant_of(actor), event_id=event_id, media_ids=body.media_ids
+    )
+    # Interim test mode (a platform interim number is set) diverts every send to the test number
+    # regardless of consent — surface it so the FE enables the send even with no opted-in student.
+    platform = await container.platform_config_service().get_config()
+    return EventPhotoRecipientsResponse(
+        recipients=[
+            EventPhotoRecipientResponse(
+                student_id=s.id,
+                name=s.name,
+                photo_count=len(ids),
+                opted_in=s.whatsapp_opt_in,
+                has_number=s.mobile_number is not None,
+            )
+            for s, ids in recipients
+        ],
+        interim=bool(platform.interim_test_number),
+    )
+
+
+@router.post(
+    "/{event_id}/whatsapp-send-photos", response_model=EventPhotoSendResponse
+)
+async def send_event_photos(
+    event_id: str,
+    body: EventPhotoSendRequest,
+    container: ContainerDep,
+    actor: WhatsAppSendManager,
+) -> EventPhotoSendResponse:
+    """Fan out the SELECTED event photos to the students who appear in them — each gets the
+    subset they effectively appear in (BP5 overlay). Reuses the fully-gated per-student send
+    (consent + budget + effective intersection + interim + PII); a non-consenting student is
+    skipped, never aborting the fan-out. Requires ``whatsapp:send``; tenant from the token. 400
+    if WhatsApp isn't configured. PII-free (no recipient number in the response)."""
+    summary = await container.whatsapp_share_service().send_event_photos(
+        school_id=tenant_of(actor),
+        event_id=event_id,
+        media_ids=body.media_ids,
+        actor_user_id=actor.id,
+        actor_role=actor.role.value,
+    )
+    return EventPhotoSendResponse.from_summary(summary)

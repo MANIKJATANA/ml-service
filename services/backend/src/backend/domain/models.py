@@ -694,3 +694,32 @@ class WhatsAppSendSummary:
     sent: int
     failed: int
     skipped: int
+
+
+@dataclass(frozen=True, slots=True)
+class EventPhotoSendStudentResult:
+    """One student's outcome from an event-photo FAN-OUT send (select photos in an event → send
+    each appearing student their subset). ``reason`` is set only when the whole student was skipped
+    before any send (not opted in / no mobile number); otherwise it's None and the per-photo
+    ``sent``/``failed``/``skipped`` (over the monthly budget) roll up that student's send."""
+
+    student_id: str
+    name: str
+    sent: int
+    failed: int
+    skipped: int
+    reason: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class EventPhotoSendSummary:
+    """The rolled-up outcome of an event-photo fan-out (per-student results + totals). PII-free
+    (never a recipient number). ``students_sent`` = students who got ≥1 photo; ``students_skipped``
+    = students entirely skipped (no consent)."""
+
+    results: list[EventPhotoSendStudentResult]
+    students_sent: int
+    students_skipped: int
+    sent: int
+    failed: int
+    skipped: int

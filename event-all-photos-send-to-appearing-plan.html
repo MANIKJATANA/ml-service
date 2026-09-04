@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Plan — "All photos": select → send to whoever appears</title>
+<style>
+  :root{
+    --wa:#25d366; --wa-dark:#128c7e; --ink:#0f172a; --ink2:#475569; --muted:#94a3b8;
+    --line:#e2e8f0; --bg:#f1f5f9; --card:#ffffff;
+    --warn-bg:#fff7ed; --warn-ink:#9a3412; --warn-line:#fdba74;
+    --ok-bg:#ecfdf5; --ok-ink:#065f46; --ok-line:#6ee7b7;
+    --acc:#2563eb; --acc-soft:#eff6ff; --acc-line:#bfdbfe;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.6 -apple-system,Segoe UI,Roboto,system-ui,sans-serif;padding:32px 16px}
+  .wrap{max-width:880px;margin:0 auto}
+  h1{font-size:25px;margin:0 0 6px}
+  .sub{color:var(--ink2);margin:0 0 20px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:22px;margin:16px 0;box-shadow:0 1px 2px rgba(15,23,42,.04)}
+  h2{font-size:19px;margin:0 0 4px}
+  h3{font-size:15px;margin:14px 0 6px}
+  p{margin:8px 0}
+  .tag{display:inline-block;font-size:11.5px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;color:var(--wa-dark);background:#e7fbf1;border:1px solid #bff3d8;border-radius:999px;padding:3px 10px;margin-bottom:8px}
+  ul{margin:6px 0;padding-left:20px} li{margin:5px 0;font-size:14.6px}
+  code{font-family:ui-monospace,Consolas,monospace;font-size:13px;background:#eef2f7;border:1px solid var(--line);border-radius:5px;padding:1px 6px}
+  .warn{background:var(--warn-bg);border:1px solid var(--warn-line);border-radius:12px;padding:13px 16px;color:var(--warn-ink);font-size:14px}
+  .ok{background:var(--ok-bg);border:1px solid var(--ok-line);border-radius:12px;padding:12px 15px;color:var(--ok-ink);font-size:14px}
+  /* mock */
+  .mock{border:1px solid var(--line);border-radius:12px;overflow:hidden;box-shadow:0 6px 18px rgba(15,23,42,.08);margin:12px 0}
+  .mbar{background:#f8fafc;border-bottom:1px solid var(--line);display:flex;gap:7px;align-items:center;padding:9px 13px}
+  .dot{width:10px;height:10px;border-radius:50%}
+  .murl{flex:1;background:#fff;border:1px solid var(--line);border-radius:7px;padding:4px 11px;color:var(--ink2);font-size:12.5px;font-family:ui-monospace,Consolas,monospace}
+  .mbody{padding:18px}
+  .tabs{display:flex;gap:6px;border-bottom:1px solid var(--line);margin-bottom:14px}
+  .tab{padding:7px 12px;font-size:13.5px;color:var(--ink2);border-bottom:2px solid transparent;margin-bottom:-1px}
+  .tab.on{color:var(--ink);border-color:var(--wa-dark);font-weight:600}
+  .bar{display:flex;gap:8px;align-items:center;background:#f8fafc;border:1px solid var(--line);border-radius:10px;padding:9px 11px;margin:0 0 12px}
+  .sel{margin-right:auto;font-size:13px;color:var(--ink);font-weight:700}
+  .btn{border:1px solid var(--line);border-radius:8px;padding:6px 12px;font-size:13px;background:#fff;font-weight:600;color:var(--ink)}
+  .btn.p{background:var(--wa-dark);color:#fff;border:none}
+  .grid{display:grid;grid-template-columns:repeat(6,1fr);gap:7px;margin:4px 0}
+  .tile{aspect-ratio:1;border-radius:8px;background:linear-gradient(135deg,#dbeafe,#ede9fe);position:relative;border:1px solid var(--line)}
+  .tile.sel{outline:3px solid var(--wa);outline-offset:-3px}
+  .tile.sel::after{content:"✓";position:absolute;top:4px;right:5px;background:var(--wa-dark);color:#fff;width:18px;height:18px;line-height:18px;text-align:center;border-radius:50%;font-size:11px;font-weight:800}
+  /* preview dialog */
+  .dlg{max-width:420px;margin:14px auto;border:1px solid var(--line);border-radius:14px;background:#fff;box-shadow:0 12px 40px rgba(15,23,42,.18);overflow:hidden}
+  .dlg .h{padding:16px 18px 4px} .dlg h4{margin:0;font-size:17px} .dlg .d{color:var(--ink2);font-size:13px;margin:4px 0 0}
+  .rows{padding:6px 18px}
+  .row{display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px dashed var(--line);font-size:14px}
+  .row:last-child{border-bottom:none}
+  .av{width:26px;height:26px;border-radius:50%;background:#dbeafe;flex:none}
+  .cnt{margin-left:auto;font-weight:700;color:var(--ink2)}
+  .skip{color:var(--muted)} .skip .cnt{color:var(--muted);font-weight:600}
+  .dfoot{padding:12px 18px;background:#f8fafc;border-top:1px solid var(--line);display:flex;gap:8px;justify-content:flex-end;align-items:center}
+  .note{margin-right:auto;font-size:12.5px;color:var(--ink2)}
+  .step{counter-reset:none}
+  .flow{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:6px 0}
+  .box{border:1px solid var(--line);border-radius:10px;padding:8px 12px;background:#fff;font-size:13px;text-align:center}
+  .arw{color:var(--muted);font-weight:800}
+  .foot{color:var(--muted);font-size:13px;text-align:center;margin:22px 0 4px}
+  .tl{background:#0f172a;color:#e2e8f0;border:none} .tl b{color:var(--wa)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>Plan — Event <span style="color:var(--wa-dark)">"All photos"</span>: select karo → jo-jo us photo me hai, unko bhejo</h1>
+  <p class="sub">Bhejne se pehle <b>ek baar dikhega</b> ki kis-kis ko kitni photo jaayegi. Abhi sirf plan — <b>approve kare tabhi implement</b>.</p>
+
+  <!-- CONTEXT -->
+  <div class="card">
+    <span class="tag">Abhi kya hai</span>
+    <p><b>All photos</b> tab pe pehle se <b>Select mode</b> hai (photos chuno → Download). Bas ek <b>"Send to appearing students"</b> action add karna hai: chuni hui photos me jo-jo student aate hain, unme se har ek ko <b>unki wali photos</b> WhatsApp pe chali jaayein.</p>
+  </div>
+
+  <!-- FLOW -->
+  <div class="card">
+    <span class="tag">Flow</span>
+    <div class="flow">
+      <div class="box">Photos select</div><span class="arw">➜</span>
+      <div class="box">"Send to appearing students"</div><span class="arw">➜</span>
+      <div class="box"><b>Preview</b> (kisko kitni)</div><span class="arw">➜</span>
+      <div class="box">Confirm</div><span class="arw">➜</span>
+      <div class="box">Fan-out send</div>
+    </div>
+  </div>
+
+  <!-- MOCKUP: select bar -->
+  <div class="card">
+    <span class="tag">1 · Select bar me naya button</span>
+    <div class="mock">
+      <div class="mbar"><span class="dot" style="background:#ff5f57"></span><span class="dot" style="background:#febc2e"></span><span class="dot" style="background:#28c840"></span><span class="murl">…/events/sports-day/gallery?tab=all</span></div>
+      <div class="mbody">
+        <div class="tabs"><span class="tab on">All photos</span><span class="tab">By student</span><span class="tab">Needs review</span></div>
+        <div class="bar">
+          <span class="sel">8 selected</span>
+          <span class="btn p">Send to appearing students</span>
+          <span class="btn">⤓ Download 8</span>
+          <span class="btn">Cancel</span>
+        </div>
+        <div class="grid">
+          <div class="tile sel"></div><div class="tile sel"></div><div class="tile"></div><div class="tile sel"></div><div class="tile sel"></div><div class="tile"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MOCKUP: preview -->
+  <div class="card">
+    <span class="tag">2 · "Ek baar dikhade" — preview + confirm</span>
+    <div class="dlg">
+      <div class="h">
+        <h4>Send these 8 photos on WhatsApp?</h4>
+        <p class="d">Har student ko sirf wahi photos jaayengi jinme wo aate hain.</p>
+      </div>
+      <div class="rows">
+        <div class="row"><span class="av"></span>Aarav Sharma <span class="cnt">5 photos</span></div>
+        <div class="row"><span class="av"></span>Diya Verma <span class="cnt">3 photos</span></div>
+        <div class="row"><span class="av"></span>Kabir Singh <span class="cnt">2 photos</span></div>
+        <div class="row skip"><span class="av"></span>Isha Roy — opted-in nahi <span class="cnt">skip</span></div>
+        <div class="row skip"><span class="av"></span>Rohan M — number nahi <span class="cnt">skip</span></div>
+      </div>
+      <div class="dfoot">
+        <span class="note">3 students · 10 WhatsApp messages · 2 skipped</span>
+        <span class="btn">Cancel</span>
+        <span class="btn p">Send</span>
+      </div>
+    </div>
+    <p style="font-size:13px;color:var(--ink2)">Preview batata hai: <b>kisko kitni photos</b>, <b>kitne total messages</b> (cost), aur <b>kaun skip</b> ho raha (opted-in nahi / number nahi). Reject ki hui appearance kabhi count nahi hoti (BP5 effective overlay).</p>
+  </div>
+
+  <!-- HOW (BACKEND) -->
+  <div class="card">
+    <span class="tag">Kaise banega</span>
+    <h3>Backend (do chhote endpoints — reuse, koi migration nahi)</h3>
+    <ul>
+      <li><b>Preview:</b> <code>POST /v1/events/{id}/photo-recipients</code> + <code>media_ids</code> → per-student <code>{name, photo_count, opted_in, has_number}</code> — jo students in photos me <b>effectively</b> aate hain (BP5 overlay, rejected excluded). Kuch bhejta nahi.</li>
+      <li><b>Send:</b> <code>POST /v1/events/{id}/whatsapp-send-photos</code> + <code>media_ids</code> → server har <b>consenting</b> student (opted-in + number) ko unki wali selected photos bhejta hai — pehle se bani <code>WhatsAppShareService</code> machinery se (effective intersection + budget cap + send-log + PII-free). Ek summary return.</li>
+      <li>Dono <code>GalleryService</code> (appearances) + <code>WhatsAppShareService</code> reuse karte hain. Permission <code>whatsapp:send</code> (admin+teacher). <b>Koi migration, koi ML change nahi.</b></li>
+    </ul>
+    <h3>Frontend</h3>
+    <ul>
+      <li>All-photos select bar me <b>"Send to appearing students"</b> button (jab ≥1 selected).</li>
+      <li>Click → preview fetch → <b>dialog</b> (kisko-kitni + total messages + skipped) → Confirm → send → honest toast ("Sent to N students, X messages · Y skipped").</li>
+    </ul>
+    <p class="ok">✅ Server sab gates lagata hai (consent, effective set, budget, PII) — FE sirf preview dikhata + confirm karta.</p>
+  </div>
+
+  <!-- THE IMPORTANT FLAG -->
+  <div class="card">
+    <span class="tag" style="color:var(--warn-ink);background:#ffedd5;border-color:var(--warn-line)">⚠️ Zaroori — ek purana decision reverse ho raha</span>
+    <div class="warn">
+      <p style="margin:0 0 6px"><b>Photo-fanout</b> (ek photo → usme aane wale sabko) ko <b>decision 0094 (W2) me deliberately reject kiya tha</b> ("too risky") — tab student-centric (ek student → uski photos) chuna tha. Ye feature wahi photo-fanout wapas laata hai.</p>
+      <p style="margin:0"><b>Kyun ab theek hai:</b> (1) bhejne se pehle <b>preview + confirm</b> ("ek baar dikhade"), (2) sirf <b>opted-in + number wale</b> ko jaata hai, (3) <b>budget cap</b> lagta hai, (4) sirf <b>effective</b> appearances (reject/hataye hue nahi). Tera ye request hi iska sign-off — bas record kar dunga (naya decision).</p>
+    </div>
+  </div>
+
+  <!-- LIMITS -->
+  <div class="card">
+    <span class="tag">Honest limits</span>
+    <ul>
+      <li><b>Cost:</b> fan-out me messages = Σ (har student ke liye uski selected photos). Preview me total dikhega taaki surprise na ho; budget cap cross hone pe baaki skip.</li>
+      <li>Sirf <b>opted-in + number</b> wale students ko — baaki preview me "skip" dikhenge (unke liye By-student / detail se number/opt-in set karo).</li>
+      <li>Send server-side loop (per student), best-effort — kisi ek ka fail poora batch nahi rokta; summary me sab dikh jaata.</li>
+      <li>"All photos" tab server-paginated hai — select sirf <b>loaded</b> (scroll-in) photos pe (jaise abhi download-select). Poore event ki har photo ek saath select karne ka "select-all-across-pages" abhi scope se bahar.</li>
+    </ul>
+  </div>
+
+  <div class="card tl">
+    <p style="margin:0"><b>TL;DR</b> — All-photos me photos select → <b>"Send to appearing students"</b> → <b>preview</b> (kisko kitni + total messages + kaun skip) → confirm → server har consenting student ko unki photos bhejta hai. 2 chhote backend endpoints (reuse, no migration) + FE bar+dialog. <b>Note:</b> ye 0094 ka "no photo-fanout" reverse karta — preview+consent+budget se guard, tera sign-off record kar dunga. <b>Approve kare to bana du.</b></p>
+  </div>
+
+  <p class="foot">File: event-all-photos-send-to-appearing-plan.html · abhi tak commit nahi kiya — tere OK ka wait</p>
+</div>
+</body>
+</html>

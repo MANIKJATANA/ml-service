@@ -165,6 +165,31 @@ class GalleryService:
             StudentInEvent(student=s, media_count=counts[s.id]) for s in students
         ]
 
+    async def event_photo_recipients(
+        self, *, school_id: str, event_id: str, media_ids: list[str]
+    ) -> list[tuple[Student, list[str]]]:
+        """For the SELECTED media in an event, the students who EFFECTIVELY appear in them, each
+        paired with the subset of the selected media they appear in (BP5 overlay — a ``rejected``
+        pair is excluded, an ``added`` one included). Drives the "send selected photos to whoever
+        appears" fan-out + its pre-send preview. A ``media_id`` outside this event/school, or one
+        no one effectively appears in, contributes nothing — so a crafted id can never leak a
+        student or fan a send outside the event (the safety spine). Ordered most-matched-first,
+        then stable by student id."""
+        await self._require_event(school_id, event_id)
+        appearances = await self._reader.list_event_appearances(school_id, event_id)
+        corrections = await self._corrections.list_for_event(school_id, event_id)
+        pairs = effective_event_pairs(appearances, corrections)  # (student_id, media_id)
+        selected = set(media_ids)
+        by_student: dict[str, list[str]] = {}
+        for student_id, media_id in pairs:
+            if media_id in selected:
+                by_student.setdefault(student_id, []).append(media_id)
+        # De-rostered (BP9): fetch only the students who appear in the selection.
+        students = await self._students.list_by_ids(school_id, list(by_student))
+        result = [(s, by_student[s.id]) for s in students]
+        result.sort(key=lambda t: (-len(t[1]), t[0].id))
+        return result
+
     async def event_student_media(
         self, *, school_id: str, event_id: str, student_id: str
     ) -> list[Media]:

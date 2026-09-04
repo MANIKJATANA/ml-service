@@ -9,6 +9,7 @@ import { mutate as globalMutate } from "swr";
 import { FilterChips } from "@/components/gallery/filter-chips";
 import { GridSkeleton } from "@/components/gallery/grid-skeleton";
 import { PhotoGrid } from "@/components/gallery/photo-grid";
+import { SendToAppearingDialog } from "@/components/gallery/send-to-appearing-dialog";
 import { SignedImage } from "@/components/gallery/signed-image";
 import { StudentChipPicker } from "@/components/gallery/student-chip-picker";
 import { StudentPhotoActions } from "@/components/gallery/student-photo-actions";
@@ -41,6 +42,7 @@ function AllPhotos({ eventId }: { eventId: string }) {
   const { toast } = useToast();
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [sendOpen, setSendOpen] = useState(false);
   const selectedIds = [...selected];
   const { busy, done, total: dlTotal, cap: dlCap, onDownloadAll } = useDownloadAll(selectedIds);
   const isInitialLoading = isLoading && items.length === 0;
@@ -115,14 +117,28 @@ function AllPhotos({ eventId }: { eventId: string }) {
   }
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-end gap-3">
+      <div className="flex flex-wrap items-center justify-end gap-3">
         {selectMode ? (
           <>
             <span className="mr-auto text-body-sm text-ink" role="status">
               {selected.size} selected
               {busy ? ` · downloading ${done} of ${dlTotal}` : ""}
             </span>
-            <Button size="sm" onClick={downloadSelected} loading={busy} disabled={selected.size === 0}>
+            {/* Fan out the selected photos to whoever appears in them (a preview confirms first). */}
+            <Button
+              size="sm"
+              onClick={() => setSendOpen(true)}
+              disabled={selected.size === 0 || busy}
+            >
+              Send to appearing students
+            </Button>
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={downloadSelected}
+              loading={busy}
+              disabled={selected.size === 0}
+            >
               Download {selected.size > 0 ? selected.size : ""}
             </Button>
             <Button size="sm" variant="ghost" onClick={exitSelect} disabled={busy}>
@@ -148,6 +164,13 @@ function AllPhotos({ eventId }: { eventId: string }) {
         selectionMode={selectMode}
         selectedIds={selected}
         onToggleSelect={toggleSelect}
+      />
+      <SendToAppearingDialog
+        eventId={eventId}
+        mediaIds={selectedIds}
+        open={sendOpen}
+        onOpenChange={setSendOpen}
+        onSent={exitSelect}
       />
     </div>
   );

@@ -15,6 +15,8 @@ import type {
   EventCategoryResponse,
   EventForStudentResponse,
   EventListPageResponse,
+  EventPhotoRecipientsResponse,
+  EventPhotoSendResponse,
   EventResponse,
   EventStatus,
   EventStatusResponse,
@@ -374,6 +376,30 @@ export function sendWhatsApp(
 ): Promise<WhatsAppSendResponse> {
   return bffFetch<WhatsAppSendResponse>(
     `/api/v1/students/${encodeURIComponent(studentId)}/whatsapp-send`,
+    { method: "POST", body: JSON.stringify({ media_ids: mediaIds }) },
+  );
+}
+
+/** Preview the event-photo fan-out: which students effectively appear in the SELECTED photos +
+ *  whether they can receive (opted in + a number). Sends nothing — the FE confirms first. */
+export function eventPhotoRecipients(
+  eventId: string,
+  mediaIds: string[],
+): Promise<EventPhotoRecipientsResponse> {
+  return bffFetch<EventPhotoRecipientsResponse>(
+    `/api/v1/events/${encodeURIComponent(eventId)}/photo-recipients`,
+    { method: "POST", body: JSON.stringify({ media_ids: mediaIds }) },
+  );
+}
+
+/** Fan out the SELECTED event photos to whoever appears in them — each gets the subset they
+ *  effectively appear in. The server loops the per-student send (consent + budget + PII). */
+export function sendEventPhotos(
+  eventId: string,
+  mediaIds: string[],
+): Promise<EventPhotoSendResponse> {
+  return bffFetch<EventPhotoSendResponse>(
+    `/api/v1/events/${encodeURIComponent(eventId)}/whatsapp-send-photos`,
     { method: "POST", body: JSON.stringify({ media_ids: mediaIds }) },
   );
 }

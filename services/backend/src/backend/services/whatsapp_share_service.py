@@ -22,6 +22,8 @@ import structlog
 
 from backend.domain.errors import NotFoundError, UpstreamError, ValidationError
 from backend.domain.models import (
+    EventPhotoSendStudentResult,
+    EventPhotoSendSummary,
     Media,
     WhatsAppSendItemResult,
     WhatsAppSendSummary,
@@ -177,6 +179,115 @@ class WhatsAppShareService:
         skipped = sum(1 for r in results if r.status == "skipped")
         return WhatsAppSendSummary(
             results=results, sent=sent, failed=failed, skipped=skipped
+        )
+
+    async def send_event_photos(
+        self,
+        *,
+        school_id: str,
+        event_id: str,
+        media_ids: list[str],
+        actor_user_id: str,
+        actor_role: str,
+    ) -> EventPhotoSendSummary:
+        """Fan out a set of SELECTED event photos to the students who appear in them (photo-fanout,
+        a deliberate revision of [0094]'s student-centric-only stance — guarded by a pre-send
+        preview + consent + budget). Each appearing student gets the subset they EFFECTIVELY appear
+        in (BP5 overlay, via ``GalleryService.event_photo_recipients`` — a rejected pair excluded, a
+        crafted/foreign media id contributing nothing). Reuses ``send_student_photos`` per recipient
+        — so every per-student gate (consent, budget, effective intersection, interim divert,
+        send-log, PII-free) is inherited unchanged; a non-consenting student is SKIPPED (never
+        aborting the fan-out)."""
+        # Config once: WhatsApp must be configured (interim number OR sender+template), else the
+        # whole fan-out fails cleanly (400) rather than N per-student "not configured" skips.
+        platform = await self._platform_config.get_config()
+        interim = bool(platform.interim_test_number)
+        if not interim:
+            sender = platform.sender_number or self._default_sender
+            if not sender:
+                raise ValidationError(
+                    "WhatsApp is not configured — set the sender number at Platform → WhatsApp"
+                )
+            if not platform.template_name:
+                raise ValidationError(
+                    "WhatsApp is not configured — set the approved template at Platform → WhatsApp"
+                )
+
+        recipients = await self._gallery.event_photo_recipients(
+            school_id=school_id, event_id=event_id, media_ids=media_ids
+        )
+        results: list[EventPhotoSendStudentResult] = []
+        for student, their_ids in recipients:
+            # In interim mode the test number receives regardless of consent; otherwise a student
+            # needs opt-in AND a number on file — else skip them (never abort the fan-out).
+            if not interim and not (
+                student.whatsapp_opt_in and student.mobile_number is not None
+            ):
+                reason = (
+                    "not opted in"
+                    if not student.whatsapp_opt_in
+                    else "no mobile number"
+                )
+                results.append(
+                    EventPhotoSendStudentResult(
+                        student_id=student.id,
+                        name=student.name,
+                        sent=0,
+                        failed=0,
+                        skipped=len(their_ids),
+                        reason=reason,
+                    )
+                )
+                continue
+            # Reuse the fully-gated per-student send. The budget count is read from the DB per
+            # call, so it respects the running total across the fan-out (sequential). Best-effort:
+            # a concurrent delete/opt-out/number-clear (or an unexpected per-student error) between
+            # resolving the recipients and this send must NOT abort the fan-out — record the one
+            # student as an error and keep going (the BP27 best-effort pattern).
+            try:
+                summary = await self.send_student_photos(
+                    school_id=school_id,
+                    student_id=student.id,
+                    media_ids=their_ids,
+                    actor_user_id=actor_user_id,
+                    actor_role=actor_role,
+                )
+            except (NotFoundError, ValidationError, UpstreamError):
+                _log.warning(
+                    "whatsapp_fanout_student_send_failed",
+                    school_id=school_id,
+                    event_id=event_id,
+                    student_id=student.id,
+                    exc_info=True,
+                )
+                results.append(
+                    EventPhotoSendStudentResult(
+                        student_id=student.id,
+                        name=student.name,
+                        sent=0,
+                        failed=0,
+                        skipped=len(their_ids),
+                        reason="error",
+                    )
+                )
+                continue
+            results.append(
+                EventPhotoSendStudentResult(
+                    student_id=student.id,
+                    name=student.name,
+                    sent=summary.sent,
+                    failed=summary.failed,
+                    skipped=summary.skipped,
+                    reason=None,
+                )
+            )
+        return EventPhotoSendSummary(
+            results=results,
+            students_sent=sum(1 for r in results if r.sent > 0),
+            students_skipped=sum(1 for r in results if r.reason is not None),
+            sent=sum(r.sent for r in results),
+            failed=sum(r.failed for r in results),
+            skipped=sum(r.skipped for r in results),
         )
 
     async def _resolve_targets(

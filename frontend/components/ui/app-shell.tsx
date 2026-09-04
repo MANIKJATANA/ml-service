@@ -111,7 +111,9 @@ function NavList({
   onNavigate?: () => void;
 }) {
   return (
-    <nav className="flex flex-1 flex-col gap-0.5 p-3">
+    // `overflow-y-auto`: if the nav ever outgrows its column, IT scrolls (keeping the pinned
+    // user footer visible) rather than pushing the footer off-screen.
+    <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto p-3">
       {items.map((item) => {
         const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
         const Icon = item.icon;
@@ -298,10 +300,12 @@ export function AppShell({ user, children }: { user: UserResponse; children: Rea
   }
 
   return (
-    <div className="flex min-h-dvh bg-surface">
+    // The shell fills the viewport exactly and doesn't itself scroll — the sidebar stays FIXED
+    // while ONLY the main content pane below scrolls (`overflow-y-auto` on <main>).
+    <div className="flex h-dvh overflow-hidden bg-surface">
       <SkipLink />
       {!online ? <OfflineBar /> : null}
-      {/* Desktop sidebar */}
+      {/* Desktop sidebar — fixed (full-height flex child of the non-scrolling shell) */}
       <aside className="hidden w-60 shrink-0 flex-col border-r border-hairline bg-canvas sm:flex">
         <div className="flex h-14 items-center border-b border-hairline px-5">
           <span className="text-headline text-ink">Photos</span>
@@ -353,7 +357,12 @@ export function AppShell({ user, children }: { user: UserResponse; children: Rea
             <span className="text-headline text-ink">Photos</span>
           </div>
         </header>
-        <main id="main-content" tabIndex={-1} className="flex-1 p-4 focus:outline-none sm:p-8">
+        {/* Only this pane scrolls — the sidebar (and the mobile header above) stay put. */}
+        <main
+          id="main-content"
+          tabIndex={-1}
+          className="flex-1 overflow-y-auto p-4 focus:outline-none sm:p-8"
+        >
           <div className="mx-auto w-full max-w-6xl">{children}</div>
         </main>
       </div>

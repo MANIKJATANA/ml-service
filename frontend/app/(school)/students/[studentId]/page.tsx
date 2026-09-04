@@ -4,13 +4,10 @@ import {
   AlertTriangle,
   Ban,
   CircleCheck,
-  Download,
   ImagePlus,
   KeyRound,
   Pencil,
   RefreshCw,
-  Shuffle,
-  SquareCheck,
   Trash2,
 } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
@@ -20,7 +17,7 @@ import useSWR, { mutate as globalMutate } from "swr";
 import { EventPicker } from "@/components/gallery/event-picker";
 import { FilterChips } from "@/components/gallery/filter-chips";
 import { GridSkeleton } from "@/components/gallery/grid-skeleton";
-import { PhotoGrid } from "@/components/gallery/photo-grid";
+import { StudentPhotoActions } from "@/components/gallery/student-photo-actions";
 import { type Invite, InviteResultDialog } from "@/components/staff/invite-result-dialog";
 import { StudentAvatar } from "@/components/ui/avatar";
 import { Breadcrumb } from "@/components/ui/breadcrumb";
@@ -37,7 +34,6 @@ import { ProgressBar } from "@/components/ui/progress-bar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatusPill } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
-import { SendPhotosButton } from "@/components/whatsapp/send-photos-button";
 import {
   deleteStudent,
   enrollStudent,
@@ -59,7 +55,6 @@ import type {
 import { uploadReferencePhoto } from "@/lib/api/upload";
 import { formatEventDate, toISODate } from "@/lib/events/calendar";
 import { useClasses } from "@/lib/hooks/use-classes";
-import { useDownloadAll } from "@/lib/hooks/use-download-all";
 import { useAllStudentMedia, useStudentEvents, useStudentMedia } from "@/lib/hooks/use-galleries";
 import { useStudentReferencePhoto } from "@/lib/hooks/use-student-reference-photo";
 import { useStudent } from "@/lib/hooks/use-students";
@@ -394,7 +389,6 @@ function EngagementCard({ studentId }: { studentId: string }) {
 // beside it, with a searchable picker for the rest (decisions/0100).
 const QUICK_EVENTS = 3;
 const ALL_VIEW = "__all__"; // the "All events" chip id (not a real event id)
-const DEFAULT_RANDOM = 10; // the default "select random N" count
 
 /** event_id → {name, date} for photo captions + zip foldering. */
 function eventMetaOf(events: EventForStudentResponse[]) {
@@ -403,108 +397,11 @@ function eventMetaOf(events: EventForStudentResponse[]) {
   return m;
 }
 
-/** Pick up to `n` random media ids (Fisher–Yates partial shuffle; browser `Math.random`). */
-function pickRandomIds(media: GalleryMediaResponse[], n: number): Set<string> {
-  const ids = media.map((m) => m.media_id);
-  for (let i = ids.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [ids[i], ids[j]] = [ids[j], ids[i]];
-  }
-  return new Set(ids.slice(0, Math.max(0, Math.min(n, ids.length))));
-}
-
-/** Download a GIVEN set of the student's photos as ONE zip — foldered/named by event/date. Reuses
- *  the download entitlement (both staff roles hold `gallery:view_all`) + the streaming
- *  `useDownloadAll` — no backend change (BP26 v1 / decisions/0081: staff download → share). The
- *  `mediaList` is the ACTIVE target (the current view, or the current selection — decisions/0100),
- *  so the zip re-keys when the view/selection changes. Its count is the EFFECTIVE set (BP5
- *  corrections applied) — so it can differ from the EngagementCard's raw `photos_appearing`. */
-function PhotoDownloadButton({
-  mediaList,
-  studentName,
-  eventMeta,
-}: {
-  mediaList: GalleryMediaResponse[];
-  studentName: string;
-  eventMeta: Map<string, { name: string; date: string | null }>;
-}) {
-  const { toast } = useToast();
-  // `new Date()` in a lazy initializer runs once at mount, not on every render.
-  const [zipStamp] = useState(() => toISODate(new Date()));
-  const mediaIds = useMemo(() => mediaList.map((m) => m.media_id), [mediaList]);
-  const entryBase = useCallback(
-    (i: number) => {
-      const m = mediaList[i];
-      const meta = m ? eventMeta.get(m.event_id) : undefined;
-      const folder = (meta && sanitizeFilename(meta.name)) || "Photos";
-      const datePart = meta?.date ?? "photo";
-      return `${folder}/${datePart}-${String(i + 1).padStart(3, "0")}`;
-    },
-    [mediaList, eventMeta],
-  );
-  const zipName = `${sanitizeFilename(studentName) || "student"}-photos-${zipStamp}.zip`;
-  const { busy, done, total, cap, onDownloadAll } = useDownloadAll(mediaIds, {
-    entryBase,
-    zipName,
-  });
-
-  async function handleDownload() {
-    try {
-      const { saved, capped, cancelled } = await onDownloadAll();
-      if (cancelled) return; // dismissed the save dialog — silent, not an error
-      // Copy mirrors the sibling staff surface (the event-gallery download) for consistency.
-      if (saved === 0) {
-        toast("Couldn't download the photos. Please try again.", "error");
-      } else if (capped) {
-        toast(
-          `Saved the first ${cap} of ${total} photos. To get the rest, open this page in desktop Chrome or Edge.`,
-          "info",
-          { sticky: true },
-        );
-      } else if (saved < total) {
-        toast(
-          `Saved ${saved} of ${total} photos — ${total - saved} couldn't be saved right now. Try again.`,
-          "info",
-          { sticky: true },
-        );
-      } else {
-        toast(`Downloaded ${total} ${total === 1 ? "photo" : "photos"}.`, "success");
-      }
-    } catch {
-      toast("Couldn't prepare the download. Please try again.", "error");
-    }
-  }
-
-  return (
-    <div className="flex items-center gap-3">
-      <Button
-        variant="secondary"
-        onClick={handleDownload}
-        loading={busy}
-        disabled={busy || total === 0}
-      >
-        <Download className="size-4" aria-hidden="true" />
-        {busy
-          ? `Preparing ${done}/${total}…`
-          : `Download ${total} ${total === 1 ? "photo" : "photos"}`}
-      </Button>
-      {/* SR-only progress (mirrors the student self-view): a *visible* per-tick live region would
-          announce on every photo; the button-label flip covers sighted users. */}
-      {busy ? (
-        <span className="sr-only" aria-live="polite">
-          Preparing {done} of {total} photos
-        </span>
-      ) : null}
-    </div>
-  );
-}
-
 /** Events the student appears in, with a smart filter (All + the latest events + a searchable
- *  picker) and a per-photo SELECT mode so staff send/download EXACTLY the photos they want
- *  (decisions/0100). Browse mode: tiles open the lightbox and the actions target the whole current
- *  view; Select mode: tiles toggle, and "Select all"/"Select random N"/manual taps build the
- *  target. Hidden until the student has been matched into at least one photo (decisions/0035).
- *  `optedIn`/`hasNumber` gate the WhatsApp send (disabled with a reason hint). */
+ *  picker); the select/send/download UX itself is the shared `StudentPhotoActions` (also used by
+ *  the event-gallery "By student" tab). "All" shows the whole effective set captioned by event; a
+ *  picked event shows just its photos. Hidden until the student has been matched into ≥1 photo
+ *  (decisions/0035). `optedIn`/`hasNumber` gate the WhatsApp send (disabled with a reason hint). */
 function AppearsInSection({
   studentId,
   studentName,
@@ -527,28 +424,31 @@ function AppearsInSection({
     picked !== null && events?.some((e) => e.event_id === picked) ? picked : null;
   const { media: eventMedia } = useStudentMedia(studentId, activePicked); // null → not fetched
 
-  const [selectMode, setSelectMode] = useState(false);
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [randomN, setRandomN] = useState(DEFAULT_RANDOM);
-
-  // Clear the selection whenever the view changes (stale-safe; adjust-state-during-render, so a
-  // selection can never act on photos from a different view).
-  const [prevView, setPrevView] = useState(activePicked);
-  if (prevView !== activePicked) {
-    setPrevView(activePicked);
-    setSelected(new Set());
-  }
-
   const eventMeta = useMemo(() => eventMetaOf(events ?? []), [events]);
-
-  // The photos currently in view: "All" → the whole effective set; else the picked event's.
-  const viewMedia = activePicked === null ? allMedia : eventMedia;
-  // What the actions act on: the selection (Select mode) or the whole view (Browse).
-  const targetMedia = useMemo(() => {
-    const list = viewMedia ?? [];
-    return selectMode ? list.filter((m) => selected.has(m.media_id)) : list;
-  }, [viewMedia, selectMode, selected]);
-  const targetIds = useMemo(() => targetMedia.map((m) => m.media_id), [targetMedia]);
+  // `new Date()` in a lazy initializer runs once at mount, not on every render.
+  const [zipStamp] = useState(() => toISODate(new Date()));
+  // Zip each photo into its event folder (the "All" view spans events), named by event date.
+  const zipEntryFor = useCallback(
+    (m: GalleryMediaResponse, i: number) => {
+      const meta = eventMeta.get(m.event_id);
+      const folder = (meta && sanitizeFilename(meta.name)) || "Photos";
+      const datePart = meta?.date ?? "photo";
+      return `${folder}/${datePart}-${String(i + 1).padStart(3, "0")}`;
+    },
+    [eventMeta],
+  );
+  // In "All" the photos span events → caption each with its event (BP20); a single-event view
+  // doesn't need it.
+  const captionOf = useCallback(
+    (m: GalleryMediaResponse): string | undefined => {
+      if (activePicked !== null) return undefined;
+      const meta = eventMeta.get(m.event_id);
+      if (!meta) return undefined;
+      const d = formatEventDate(meta.date);
+      return d ? `${meta.name} · ${d}` : meta.name;
+    },
+    [activePicked, eventMeta],
+  );
 
   if (isLoading) {
     return (
@@ -559,6 +459,9 @@ function AppearsInSection({
     );
   }
   if (error || !events || events.length === 0) return null;
+
+  // The photos currently in view: "All" → the whole effective set; else the picked event's.
+  const viewMedia = activePicked === null ? allMedia : eventMedia;
 
   // Quick chips: "All" + the latest events (newest-first, undated last); if a non-quick event is
   // picked (via the picker), surface it as a chip too so it's visible + deselectable.
@@ -578,57 +481,12 @@ function AppearsInSection({
     ...chipEvents.map((e) => ({ id: e.event_id, label: e.name, count: e.media_count })),
   ];
   const hasMoreEvents = events.length > chipEvents.length; // a picker helps beyond the quick set
-  const viewCount = viewMedia?.length ?? 0;
-
-  function toggleSelect(id: string) {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }
-  function exitSelect() {
-    setSelectMode(false);
-    setSelected(new Set());
-  }
-
-  const gridItems = (viewMedia ?? []).map((m) => {
-    // In "All" the photos span events → caption each with its event (BP20); a single-event view
-    // doesn't need it.
-    let caption: string | undefined;
-    if (activePicked === null) {
-      const meta = eventMeta.get(m.event_id);
-      if (meta) {
-        const d = formatEventDate(meta.date);
-        caption = d ? `${meta.name} · ${d}` : meta.name;
-      }
-    }
-    return {
-      id: m.media_id,
-      mediaType: m.media_type,
-      hasThumbnail: m.has_thumbnail,
-      caption,
-    };
-  });
 
   return (
     <Card className="flex flex-col gap-4 p-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-headline text-ink">Appears in</h2>
-        {selectMode ? (
-          <Button variant="secondary" size="sm" onClick={exitSelect}>
-            Done
-          </Button>
-        ) : (
-          <Button variant="secondary" size="sm" onClick={() => setSelectMode(true)}>
-            <SquareCheck className="size-4" aria-hidden="true" />
-            Select photos
-          </Button>
-        )}
-      </div>
+      <h2 className="text-headline text-ink">Appears in</h2>
 
-      {/* Phase 2: "All" + latest chips, plus a searchable picker for a long event history. */}
+      {/* "All" + latest chips, plus a searchable picker for a long event history. */}
       <div className="flex flex-wrap items-center gap-2">
         <FilterChips
           ariaLabel="Events"
@@ -641,88 +499,27 @@ function AppearsInSection({
         ) : null}
       </div>
 
-      {/* Phase 3: in Select mode, build the target — all of this view, a random sample, or taps. */}
-      {selectMode ? (
-        <div className="flex flex-wrap items-center gap-2 rounded-button bg-surface px-3 py-2">
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => setSelected(new Set((viewMedia ?? []).map((m) => m.media_id)))}
-            disabled={viewCount === 0}
-          >
-            Select all ({viewCount})
-          </Button>
-          <div className="flex items-center gap-1.5">
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => setSelected(pickRandomIds(viewMedia ?? [], randomN))}
-              disabled={viewCount === 0}
-            >
-              <Shuffle className="size-4" aria-hidden="true" />
-              Select random
-            </Button>
-            <input
-              type="number"
-              min={1}
-              max={Math.max(1, viewCount)}
-              // Show a value that's honest for the CURRENT view (never > its count) while `randomN`
-              // preserves the user's intent for a bigger view; `pickRandomIds` also clamps.
-              value={Math.min(randomN, Math.max(1, viewCount))}
-              onChange={(e) => setRandomN(Math.max(1, Number(e.target.value) || 1))}
-              aria-label="Number of random photos"
-              className="h-8 w-16 rounded-button border border-hairline bg-canvas px-2 text-body-sm text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            />
-          </div>
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => setSelected(new Set())}
-            disabled={selected.size === 0}
-          >
-            Clear
-          </Button>
-          <span role="status" className="ml-auto text-body-sm text-ink-secondary">
-            {selected.size} selected
-          </span>
-        </div>
-      ) : null}
-
-      {/* The grid — Select mode toggles tiles; Browse opens the lightbox (+ appearance editing). */}
+      {/* The shared select/send/download UX (also used by the event "By student" tab). Note:
+          switching to an UNCACHED event unmounts this during the load gap, so an active Select
+          mode resets to browse (the selection had to be rebuilt for the new view anyway; a cached
+          switch keeps it mounted and just clears the selection via `resetKey`). */}
       {viewMedia === undefined ? (
         <GridSkeleton />
       ) : viewMedia.length === 0 ? (
         <p className="text-body-sm text-ink-secondary">No photos in this view.</p>
-      ) : selectMode ? (
-        <PhotoGrid
-          items={gridItems}
-          selectionMode
-          selectedIds={selected}
-          onToggleSelect={toggleSelect}
-          showAppearances={false}
-        />
       ) : (
-        <PhotoGrid items={gridItems} canManageAppearances />
+        <StudentPhotoActions
+          media={viewMedia}
+          studentId={studentId}
+          studentName={studentName}
+          optedIn={optedIn}
+          hasNumber={hasNumber}
+          resetKey={activePicked ?? "all"}
+          captionOf={captionOf}
+          zipEntryFor={zipEntryFor}
+          zipName={`${sanitizeFilename(studentName) || "student"}-photos-${zipStamp}.zip`}
+        />
       )}
-
-      {/* Actions — target the selection (Select mode) or the whole view (Browse). Shown once the
-          view has loaded, so Send never flashes "Send 0" during the fetch. */}
-      {viewMedia !== undefined && viewMedia.length > 0 ? (
-        <div className="flex flex-wrap items-center gap-3">
-          <SendPhotosButton
-            studentId={studentId}
-            studentName={studentName}
-            mediaIds={targetIds}
-            optedIn={optedIn}
-            hasNumber={hasNumber}
-          />
-          <PhotoDownloadButton
-            mediaList={targetMedia}
-            studentName={studentName}
-            eventMeta={eventMeta}
-          />
-        </div>
-      ) : null}
     </Card>
   );
 }

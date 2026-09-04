@@ -1,6 +1,6 @@
 "use client";
 
-import { Download, Images } from "lucide-react";
+import { Images } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useMemo, useState } from "react";
@@ -10,6 +10,8 @@ import { FilterChips } from "@/components/gallery/filter-chips";
 import { GridSkeleton } from "@/components/gallery/grid-skeleton";
 import { PhotoGrid } from "@/components/gallery/photo-grid";
 import { SignedImage } from "@/components/gallery/signed-image";
+import { StudentChipPicker } from "@/components/gallery/student-chip-picker";
+import { StudentPhotoActions } from "@/components/gallery/student-photo-actions";
 import { StudentRefAvatar } from "@/components/gallery/student-ref-avatar";
 import { Breadcrumb } from "@/components/ui/breadcrumb";
 import { Button } from "@/components/ui/button";
@@ -18,10 +20,9 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/components/ui/toast";
-import { SendPhotosButton } from "@/components/whatsapp/send-photos-button";
 import { batchReview, undoCorrection } from "@/lib/api/endpoints";
 import { isApiError } from "@/lib/api/errors";
-import type { MediaType } from "@/lib/api/types";
+import type { GalleryMediaResponse, MediaType } from "@/lib/api/types";
 import { toISODate } from "@/lib/events/calendar";
 import { useDownloadAll } from "@/lib/hooks/use-download-all";
 import { useEvent } from "@/lib/hooks/use-events";
@@ -125,12 +126,12 @@ function AllPhotos({ eventId }: { eventId: string }) {
               Download {selected.size > 0 ? selected.size : ""}
             </Button>
             <Button size="sm" variant="ghost" onClick={exitSelect} disabled={busy}>
-              Cancel
+              Done
             </Button>
           </>
         ) : (
           <Button size="sm" variant="secondary" onClick={() => setSelectMode(true)}>
-            Select
+            Select photos
           </Button>
         )}
       </div>
@@ -152,11 +153,13 @@ function AllPhotos({ eventId }: { eventId: string }) {
   );
 }
 
-/** The picked student's photos in THIS event, plus a per-student "Download all" (the BP26
- *  follow-on, decisions/0081): the same effective set the tab already shows, zipped as one file.
- *  Reuses the download entitlement (both staff roles hold `gallery:view_all`) + the streaming
- *  `useDownloadAll` mint — no backend change, no widening. `useEvent` is SWR-deduped with the
- *  page's own call. Hooks run before the early returns (Rules of Hooks). */
+/** The picked student's photos in THIS event — the shared select/send/download UX
+ *  (`StudentPhotoActions`, decisions/0100 + its event-gallery follow-on): browse (lightbox +
+ *  appearance editing) OR a per-photo Select mode (Select all / Select random N / manual taps) →
+ *  Send/Download exactly the chosen subset (or the whole set in browse). Reuses the download
+ *  entitlement (both staff roles hold `gallery:view_all`) + the effective set the tab already
+ *  shows — no backend change, no widening. `useEvent` is SWR-deduped with the page's own call.
+ *  Hooks run before the early returns (Rules of Hooks). */
 function EventStudentPhotos({
   eventId,
   studentId,
@@ -168,53 +171,21 @@ function EventStudentPhotos({
 }) {
   const { media, isLoading, error } = useEventStudentMedia(eventId, studentId);
   const { event } = useEvent(eventId);
-  const { toast } = useToast();
   // W2: the picked student's opt-in/number for the WhatsApp send (not on the roster row).
   const { student } = useStudent(studentId);
 
-  const mediaIds = useMemo(() => (media ? media.map((m) => m.media_id) : []), [media]);
   // `new Date()` in a lazy initializer runs once at mount, not on every render.
   const [zipStamp] = useState(() => toISODate(new Date()));
   const datePart = event?.event_date ?? "photo";
-  const entryBase = useCallback(
-    (i: number) => `${datePart}-${String(i + 1).padStart(3, "0")}`,
+  // A single-event view → flat, event-date-named zip entries (no per-event folder).
+  const zipEntryFor = useCallback(
+    (_m: GalleryMediaResponse, i: number) => `${datePart}-${String(i + 1).padStart(3, "0")}`,
     [datePart],
   );
   const eventPart = event ? sanitizeFilename(event.name) : "";
   const zipName = `${sanitizeFilename(studentName) || "student"}${
     eventPart ? `-${eventPart}` : ""
   }-photos-${zipStamp}.zip`;
-  const { busy, done, total, cap, onDownloadAll } = useDownloadAll(mediaIds, {
-    entryBase,
-    zipName,
-  });
-
-  async function handleDownloadAll() {
-    try {
-      const { saved, capped, cancelled } = await onDownloadAll();
-      if (cancelled) return; // dismissed the save dialog — silent, not an error
-      // Copy mirrors the sibling staff surfaces (student detail + the event-gallery download).
-      if (saved === 0) {
-        toast("Couldn't download the photos. Please try again.", "error");
-      } else if (capped) {
-        toast(
-          `Saved the first ${cap} of ${total} photos. To get the rest, open this page in desktop Chrome or Edge.`,
-          "info",
-          { sticky: true },
-        );
-      } else if (saved < total) {
-        toast(
-          `Saved ${saved} of ${total} photos — ${total - saved} couldn't be saved right now. Try again.`,
-          "info",
-          { sticky: true },
-        );
-      } else {
-        toast(`Downloaded ${total} ${total === 1 ? "photo" : "photos"}.`, "success");
-      }
-    } catch {
-      toast("Couldn't prepare the download. Please try again.", "error");
-    }
-  }
 
   if (isLoading) return <GridSkeleton />;
   if (error) return <p className="text-body-sm text-ink-secondary">Couldn&apos;t load photos.</p>;
@@ -222,42 +193,28 @@ function EventStudentPhotos({
     return <p className="text-body-sm text-ink-secondary">No photos for this student.</p>;
   }
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+    <StudentPhotoActions
+      media={media}
+      studentId={studentId}
+      studentName={studentName}
+      optedIn={student?.whatsapp_opt_in ?? false}
+      hasNumber={student?.mobile_number != null}
+      resetKey={studentId}
+      zipEntryFor={zipEntryFor}
+      zipName={zipName}
+      size="sm"
+      leftHeader={
         <p className="text-body-sm text-ink-secondary">
-          {total} {total === 1 ? "photo" : "photos"} in this event
+          {media.length} {media.length === 1 ? "photo" : "photos"} in this event
         </p>
-        <div className="flex flex-wrap items-center gap-3">
-          <SendPhotosButton
-            studentId={studentId}
-            studentName={studentName}
-            mediaIds={mediaIds}
-            optedIn={student?.whatsapp_opt_in ?? false}
-            hasNumber={student?.mobile_number != null}
-            size="sm"
-          />
-          <Button variant="secondary" size="sm" onClick={handleDownloadAll} loading={busy} disabled={busy}>
-            <Download className="size-4" aria-hidden="true" />
-            {busy ? `Preparing ${done}/${total}…` : `Download all ${total}`}
-          </Button>
-          {busy ? (
-            <span className="sr-only" aria-live="polite">
-              Preparing {done} of {total} photos
-            </span>
-          ) : null}
-        </div>
-      </div>
-      <PhotoGrid
-        items={media.map((m) => ({
-          id: m.media_id,
-          mediaType: m.media_type,
-          hasThumbnail: m.has_thumbnail,
-        }))}
-        canManageAppearances
-      />
-    </div>
+      }
+    />
   );
 }
+
+// A big event matches many students; show this many top (by photo-count) quick chips beside a
+// searchable picker for the rest (mirrors the student page's "Appears in" events filter).
+const QUICK_STUDENTS = 4;
 
 function ByStudent({ eventId }: { eventId: string }) {
   const { students, isLoading, error, mutate } = useEventStudents(eventId);
@@ -287,16 +244,42 @@ function ByStudent({ eventId }: { eventId: string }) {
     );
   }
 
-  const activeId = picked ?? students[0].student_id;
+  // Most-matched first, so the quick chips + the default pick are the students most likely wanted.
+  const sorted = [...students].sort((a, b) => b.media_count - a.media_count);
+  // Derived (stale-safe): if a background revalidation drops the picked student, fall back to the
+  // top student — a stale pick can never strand the tab or fetch a gone student.
+  const activeId =
+    picked !== null && students.some((s) => s.student_id === picked)
+      ? picked
+      : sorted[0].student_id;
   const activeStudent = students.find((s) => s.student_id === activeId);
+
+  // Quick chips: the top few matched students; if a non-quick student is picked (via the picker),
+  // surface them as a chip too so the selection stays visible + deselectable (mirrors the events
+  // filter on the student page).
+  const quick = sorted.slice(0, QUICK_STUDENTS);
+  const quickIds = new Set(quick.map((s) => s.student_id));
+  const chipStudents =
+    activeStudent && !quickIds.has(activeStudent.student_id) ? [...quick, activeStudent] : quick;
+  const hasMoreStudents = students.length > chipStudents.length; // a picker helps beyond the quick set
+
   return (
     <div className="flex flex-col gap-6">
-      <FilterChips
-        ariaLabel="Students"
-        items={students.map((s) => ({ id: s.student_id, label: s.name, count: s.media_count }))}
-        activeId={activeId}
-        onSelect={setPicked}
-      />
+      <div className="flex flex-wrap items-center gap-2">
+        <FilterChips
+          ariaLabel="Students"
+          items={chipStudents.map((s) => ({
+            id: s.student_id,
+            label: s.name,
+            count: s.media_count,
+          }))}
+          activeId={activeId}
+          onSelect={setPicked}
+        />
+        {hasMoreStudents ? (
+          <StudentChipPicker students={students} activeId={activeId} onPick={setPicked} />
+        ) : null}
+      </div>
       <EventStudentPhotos
         eventId={eventId}
         studentId={activeId}

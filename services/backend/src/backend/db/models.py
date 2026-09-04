@@ -409,13 +409,15 @@ class EventCategory(Base):
 
 
 class SchoolWhatsAppConfig(Base):
-    """A school's per-school, NON-SECRET WhatsApp settings (W1, migration 0022).
+    """DORMANT (0099): a school's per-school WhatsApp settings (W1, migration 0022).
 
-    One row per school (``school_id`` is the PK + a CASCADE FK). ``enabled`` gates sending;
-    ``sender_number`` is the school's own approved sender (NULL → the shared platform number
-    at send time); ``template_name`` names the approved template; ``business_name`` is a
-    display label. The one platform provider secret (the Gupshup API key) is a settings env
-    var — never a column here. Read by PK, so no extra index."""
+    Schools no longer configure WhatsApp — the platform admin owns it all (``platform_config``).
+    The per-school config service/repo/routes/permission were removed in 0099; this ORM model +
+    its ``school_whatsapp_config`` table are kept ONLY so the migration chain and metadata stay
+    consistent (no destructive drop). Nothing reads or writes it. A future cleanup migration may
+    drop the table.
+
+    One row per school (``school_id`` is the PK + a CASCADE FK). Read by PK, so no extra index."""
 
     __tablename__ = "school_whatsapp_config"
 
@@ -445,10 +447,12 @@ class PlatformConfig(Base):
     """The platform-wide config singleton (W-live-test, migration 0024).
 
     Exactly ONE row: the application always reads/writes the constant key ``"platform"`` (``id``
-    is the PK). Platform-admin-only. ``meta_access_token`` is a SECRET stored here per owner
+    is the PK). Platform-admin-only. Schools no longer configure WhatsApp — this singleton is the
+    SOLE WhatsApp config source (0099). ``meta_access_token`` is a SECRET stored here per owner
     decision (a UI-editable Meta Cloud API token) — never returned in full (only
     ``token_set``/``token_last4`` are exposed), never logged. It is the SOLE source of the token
-    (0098: NO env fallback — a stale ``.env`` value is never used). ``interim_test_number``/
+    (0098: NO env fallback — a stale ``.env`` value is never used). ``template_name`` (migration
+    0026) is the approved message template the non-interim send uses. ``interim_test_number``/
     ``interim_mode`` drive the interim free-form send (a text intro + N real photos to a hardcoded
     test number). Read by PK, so no extra index."""
 
@@ -461,6 +465,10 @@ class PlatformConfig(Base):
     # the phone-number ID in the send URL (not a +country number). Nullable → "" when unset (a send
     # then fails clearly rather than silently using a stale env value).
     sender_number: Mapped[str | None] = mapped_column(String, nullable=True)
+    # The approved message template the non-interim send uses (migration 0026). Moved here from the
+    # per-school config (0099): schools no longer configure WhatsApp. Nullable → a send fails
+    # clearly ("set the approved template at Platform → WhatsApp") when unset.
+    template_name: Mapped[str | None] = mapped_column(String, nullable=True)
     interim_test_number: Mapped[str | None] = mapped_column(String, nullable=True)
     interim_mode: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("false")

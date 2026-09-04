@@ -46,9 +46,6 @@ from backend.adapters.repositories.postgres_teacher_classes import (
     PostgresTeacherClassRepository,
 )
 from backend.adapters.repositories.postgres_users import PostgresUserRepository
-from backend.adapters.repositories.postgres_whatsapp_config import (
-    PostgresWhatsAppConfigRepository,
-)
 from backend.adapters.repositories.postgres_whatsapp_send_log import (
     PostgresWhatsAppSendLogRepository,
 )
@@ -1005,51 +1002,6 @@ async def test_download_audit_record_list_and_scope(
     assert await audit.count_for_media(_MISSING_UUID, m.id) == 0
 
 
-async def test_whatsapp_config_upsert_round_trip(
-    sm: async_sessionmaker[AsyncSession],
-) -> None:
-    # W1: a school's WhatsApp config — get None before any save, insert on first upsert, then a
-    # second upsert UPDATES the row (same created_at) and bumps updated_at.
-    schools = PostgresSchoolRepository(sm)
-    config = PostgresWhatsAppConfigRepository(sm)
-    a = await schools.create(name="A", max_teachers=5)
-
-    assert await config.get(a.id) is None  # never saved
-
-    first = await config.upsert(
-        school_id=a.id,
-        enabled=False,
-        sender_number=None,
-        template_name=None,
-        business_name=None,
-    )
-    assert first.school_id == a.id
-    assert first.enabled is False
-    assert first.sender_number is None
-
-    got = await config.get(a.id)
-    assert got is not None and got.enabled is False
-
-    # Second upsert updates in place (PK conflict → UPDATE), bumping updated_at.
-    second = await config.upsert(
-        school_id=a.id,
-        enabled=True,
-        sender_number="15551234567",
-        template_name="photo_notice",
-        business_name="A School",
-    )
-    assert second.enabled is True
-    assert second.sender_number == "15551234567"
-    assert second.template_name == "photo_notice"
-    assert second.business_name == "A School"
-    assert second.created_at == first.created_at  # create time unchanged on update
-    assert second.updated_at >= first.updated_at  # bumped (func.now())
-
-    # Tenant-safe: a malformed/foreign school never leaks a row.
-    assert await config.get("not-a-uuid") is None
-    assert await config.get(_MISSING_UUID) is None
-
-
 async def test_platform_config_upsert_partial_update_round_trip(
     sm: async_sessionmaker[AsyncSession],
 ) -> None:
@@ -1059,60 +1011,69 @@ async def test_platform_config_upsert_partial_update_round_trip(
 
     assert await config.get() is None  # never saved
 
-    # Save only the token — sender/interim stay at their defaults.
+    # Save only the token — sender/template/interim stay at their defaults.
     first = await config.upsert(
         meta_access_token="tok-1234",
         sender_number=None,
+        template_name=None,
         interim_test_number=None,
         interim_mode=None,
     )
     assert first.id == "platform"
     assert first.meta_access_token == "tok-1234"
     assert first.sender_number is None
+    assert first.template_name is None
     assert first.interim_test_number is None
     assert first.interim_mode is False
 
-    # Save only the sender + interim number/mode — the token MUST survive (partial update).
+    # Save only the sender + template + interim number/mode — the token MUST survive (partial).
     second = await config.upsert(
         meta_access_token=None,
         sender_number="106540388866237",
+        template_name="event_photos_util",
         interim_test_number="919999888877",
         interim_mode=True,
     )
     assert second.meta_access_token == "tok-1234"  # unchanged
     assert second.sender_number == "106540388866237"
+    assert second.template_name == "event_photos_util"
     assert second.interim_test_number == "919999888877"
     assert second.interim_mode is True
     assert second.created_at == first.created_at  # create time unchanged on update
     assert second.updated_at >= first.updated_at  # bumped (func.now())
 
-    # Save only a new token — the sender/interim settings survive.
+    # Save only a new token — the sender/template/interim settings survive.
     third = await config.upsert(
         meta_access_token="tok-9999",
         sender_number=None,
+        template_name=None,
         interim_test_number=None,
         interim_mode=None,
     )
     assert third.meta_access_token == "tok-9999"
     assert third.sender_number == "106540388866237"
+    assert third.template_name == "event_photos_util"  # unchanged
     assert third.interim_test_number == "919999888877"
     assert third.interim_mode is True
 
-    # CLEAR the interim number with an explicit "" (turns interim OFF) — the sender/token survive,
-    # and None still means "unchanged" (the sender is not passed here).
+    # CLEAR the interim number with an explicit "" (turns interim OFF) — the sender/template/token
+    # survive, and None still means "unchanged".
     fourth = await config.upsert(
         meta_access_token=None,
         sender_number=None,
+        template_name=None,
         interim_test_number="",
         interim_mode=None,
     )
     assert fourth.interim_test_number is None  # cleared to NULL
     assert fourth.sender_number == "106540388866237"  # unchanged
+    assert fourth.template_name == "event_photos_util"  # unchanged
     assert fourth.meta_access_token == "tok-9999"  # unchanged
 
     got = await config.get()
     assert got is not None and got.meta_access_token == "tok-9999"
     assert got.interim_test_number is None
+    assert got.template_name == "event_photos_util"
 
 
 async def test_whatsapp_send_log_record_count_and_check(

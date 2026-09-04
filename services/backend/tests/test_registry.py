@@ -30,7 +30,6 @@ ALL_TARGETS = [
         registry.OBJECT_STORE_REGISTRY,
         registry.ML_ENROLLMENT_CLIENT_REGISTRY,
         registry.WHATSAPP_SENDER_REGISTRY,
-        registry.WHATSAPP_CONFIG_REPO_REGISTRY,
         registry.WHATSAPP_SEND_LOG_REPO_REGISTRY,
     )
     for impl in table

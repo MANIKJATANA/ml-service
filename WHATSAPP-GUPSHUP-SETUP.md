@@ -115,17 +115,18 @@ BE_WHATSAPP_IMAGE_QUALITY_FLOOR=40
 All of these are documented in `.env.example` (with placeholders). **Restart the backend** after
 editing `.env` so it picks up the new values.
 
-## Step 6 — Configure the school (in the app)
+## Step 6 — Configure WhatsApp (in the app, as the platform admin)
 
-Sign in as a **school admin** → **WhatsApp** in the left nav (`/settings/whatsapp`):
+Schools no longer configure WhatsApp — the **platform admin** owns it all (0099). Sign in as the
+**platform admin** → **WhatsApp** in the left nav (`/whatsapp`):
 
-1. **Enable WhatsApp for this school** — turn it on.
-2. **Sender number** — leave blank to use the shared number from `.env`, or set this school's own
-   number (must be a number you've registered in Gupshup).
-3. **Template ID** — paste the **approved template's UUID** from Step 3 (e.g.
-   `c6aecef6-bcb0-4fb1-8100-28c094e3bc6b`), **not** its display name.
-4. **Business name** — optional display label.
-5. Save.
+1. **Sender number** — the Gupshup source number you registered (for Meta, the phone-number ID).
+2. **Meta access token** — only for the Meta provider (leave blank for Gupshup — its key is in `.env`).
+3. **Template name** — paste the **approved template's UUID** from Step 3 for Gupshup (e.g.
+   `c6aecef6-bcb0-4fb1-8100-28c094e3bc6b`, **not** the display name), or the template's **name** for
+   Meta. A send fails until this is set.
+4. **Interim test number** — optional; while set, every "Send on WhatsApp" diverts to it (testing).
+5. Save. No restart — the DB values apply on the next send.
 
 ## Step 7 — Prepare a test student (opt-in + number)
 
@@ -207,32 +208,34 @@ BE_WHATSAPP_SENDER_IMPL=meta
 BE_WHATSAPP_META_API_VERSION=v21.0                            # keep current
 BE_WHATSAPP_META_TEMPLATE_LANG=en_US                          # the template's language
 ```
-The **access token** and the **sender phone-number ID** are **NOT env vars** (0098) — set them in
-the UI at **Platform → WhatsApp** (they live only in the DB, resolved fresh per send, no restart).
-Then in **`/settings/whatsapp`** the template field reads **"Template name"** (Meta matches by name,
-not a UUID) — paste the approved template's **name**. Enable it, and send a test to your own
-opted-in number.
+The **access token** and the **sender phone-number ID** are **NOT env vars** (0098/0099) — set them
+in the UI at **Platform → WhatsApp** (they live only in the DB, resolved fresh per send, no restart).
+On that same screen the **Template name** field takes the approved template's **name** for Meta (Meta
+matches by name, not a UUID). Set them and send a test to your own opted-in number.
 
 **Differences vs Gupshup:**
-- Meta matches a template by its **name** (Gupshup uses the template UUID) — the settings field
-  relabels automatically to "Template name" when Meta is active, and shows "Provider: Meta".
-- For Meta the per-school **"Sender number" is ignored** — the sender is the platform sender
-  phone-number ID set at **Platform → WhatsApp** (per-school Meta numbers = a future add).
+- Meta matches a template by its **name** (Gupshup uses the template UUID) — paste the right value in
+  the **Template name** field at **Platform → WhatsApp** (its hint spells out which per provider).
+- For Meta the **"Sender number"** field IS the Meta sender phone-number ID; for Gupshup it's the
+  source number.
 - Keep `BE_WHATSAPP_META_API_VERSION` current — Meta deprecates old Graph API versions.
 
 The same reality-check applies: the Meta adapter is written to Meta's Cloud API docs but the real
 delivery is untested until your account is live — **ping me at go-live and I'll walk the smoke.**
 
-**Three DB-controlled fields (no restart) + the interim test mode.** Meta's temporary token expires
+**Four DB-controlled fields (no restart) + the interim test mode.** Meta's temporary token expires
 ~daily. Instead of editing `.env` + restarting, sign in as the **platform admin → WhatsApp** — that
-one screen has **three fields, all stored in the DB and applied on the next send**:
+one screen has **four fields, all stored in the DB and applied on the next send** (schools no longer
+configure WhatsApp, 0099):
 
 1. **Sender number** — the Meta sender **phone-number ID** (from Meta → WhatsApp → API Setup — the
    numeric "Phone number ID", *not* the +country number). This is the ONLY place it's set — there is
    no env var for it.
 2. **Meta access token** — paste a fresh token here; it's stored **only in the DB** (no env var), and
    is never shown again (only "set · ending 1234").
-3. **Interim test number** — the interim/pre-template test mode. **Setting a number here turns it ON**
+3. **Template name** — the approved template's **name** (Meta) or **UUID** (Gupshup). A real
+   (non-interim) send fails until this is set.
+4. **Interim test number** — the interim/pre-template test mode. **Setting a number here turns it ON**
    (there is no separate toggle): "Send on WhatsApp" then sends a text + the real photos to *that*
    number, not the student. It only delivers inside WhatsApp's 24-hour window (the test number must
    have messaged your business in the last 24h), and it diverts *all* sends while set — **clear the

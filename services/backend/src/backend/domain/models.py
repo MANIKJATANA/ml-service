@@ -310,36 +310,22 @@ class WhatsAppReceipt:
 
 
 @dataclass(frozen=True, slots=True)
-class SchoolWhatsAppConfig:
-    """A school's per-school, NON-SECRET WhatsApp settings (W1). The one platform provider
-    secret (the Gupshup API key) is a process env var, never stored here. ``sender_number``
-    is the school's own approved sender (null → the shared platform number is used at send
-    time); ``template_name`` names the approved message template; ``business_name`` is a
-    display label. ``enabled`` gates whether this school sends at all."""
-
-    school_id: str
-    enabled: bool
-    sender_number: str | None
-    template_name: str | None
-    business_name: str | None
-    created_at: datetime
-    updated_at: datetime
-
-
-@dataclass(frozen=True, slots=True)
 class PlatformConfig:
     """The platform-wide config singleton (W-live-test, migration 0024; ``sender_number`` added in
-    0025). ``meta_access_token`` is a SECRET stored in the DB per owner decision (a UI-editable Meta
-    Cloud API temp token) — the API layer NEVER returns it in full (only ``token_set``/
-    ``token_last4``) and it is never logged; the container reads it (with an env fallback) to build
-    the sender's token provider. ``sender_number`` is the Meta sender phone-number ID
-    (DB-controlled, env fallback) — likewise resolved fresh per send. ``interim_test_number`` drives
-    the interim free-form send (a text intro + N real photos to a hardcoded test number) whenever it
-    is set; ``interim_mode`` is a vestigial column (the interim path is gated on the number)."""
+    0025, ``template_name`` in 0026). Schools no longer configure WhatsApp — the platform admin
+    owns it all here (0099). ``meta_access_token`` is a SECRET stored in the DB per owner decision
+    (a UI-editable Meta Cloud API token) — the API layer NEVER returns it in full (only
+    ``token_set``/``token_last4``) and it is never logged; the container reads it (DB-only, no env
+    fallback) to build the sender's token provider. ``sender_number`` is the Meta sender
+    phone-number ID (DB-only) — likewise resolved fresh per send. ``template_name`` is the approved
+    message template the (non-interim) send uses. ``interim_test_number`` drives the interim
+    free-form send (a text intro + N real photos to a hardcoded test number) whenever it is set;
+    ``interim_mode`` is a vestigial column (the interim path is gated on the number)."""
 
     id: str
     meta_access_token: str | None
     sender_number: str | None
+    template_name: str | None
     interim_test_number: str | None
     interim_mode: bool
     created_at: datetime

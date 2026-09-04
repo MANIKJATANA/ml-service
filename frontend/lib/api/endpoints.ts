@@ -48,7 +48,6 @@ import type {
   UserListPageResponse,
   UserResponse,
   UserStatus,
-  WhatsAppConfigResponse,
   WhatsAppPlatformConfigResponse,
   WhatsAppSendResponse,
 } from "./types";
@@ -523,29 +522,9 @@ export function deleteClass(classId: string): Promise<void> {
   });
 }
 
-// --- WhatsApp config (W1) ---
-
-/** The school's WhatsApp config (whatsapp:manage — school_admin only). A disabled default if
- *  never saved. */
-export function getWhatsAppConfig(): Promise<WhatsAppConfigResponse> {
-  return bffFetch<WhatsAppConfigResponse>("/api/v1/schools/whatsapp-config");
-}
-
-/** Create/replace the school's WhatsApp config (whatsapp:manage). Saving does not send
- *  anything — that arrives in a later phase. */
-export function updateWhatsAppConfig(body: {
-  enabled: boolean;
-  sender_number: string | null;
-  template_name: string | null;
-  business_name: string | null;
-}): Promise<WhatsAppConfigResponse> {
-  return bffFetch<WhatsAppConfigResponse>("/api/v1/schools/whatsapp-config", {
-    method: "PUT",
-    body: JSON.stringify(body),
-  });
-}
-
 // --- WhatsApp platform config (W-live-test, platform-admin only) ---
+// The SOLE WhatsApp config (0099): schools no longer configure WhatsApp — the platform admin owns
+// the sender number, token, approved template, and interim number here.
 
 /** The platform-wide WhatsApp config (SCHOOL_MANAGE — platform-admin). The Meta token is never
  *  returned — only `token_set` + `token_last4`. */
@@ -553,12 +532,14 @@ export function getWhatsAppPlatformConfig(): Promise<WhatsAppPlatformConfigRespo
   return bffFetch<WhatsAppPlatformConfigResponse>("/api/v1/platform/whatsapp-config");
 }
 
-/** Update the platform WhatsApp config (the three DB-controlled fields). `meta_access_token: null`
+/** Update the platform WhatsApp config (the DB-controlled fields). `meta_access_token: null`
  *  (or omitted) leaves the stored token unchanged; a non-null value replaces it. `sender_number` /
- *  `interim_test_number`: null (or omitted) leaves unchanged; `""` → cleared (server trims). */
+ *  `template_name` / `interim_test_number`: null (or omitted) leaves unchanged; `""` → cleared
+ *  (server trims). */
 export function updateWhatsAppPlatformConfig(body: {
   meta_access_token?: string | null;
   sender_number?: string | null;
+  template_name?: string | null;
   interim_test_number?: string | null;
 }): Promise<WhatsAppPlatformConfigResponse> {
   return bffFetch<WhatsAppPlatformConfigResponse>("/api/v1/platform/whatsapp-config", {

@@ -52,6 +52,7 @@ class PlatformConfigService:
             id=_SINGLETON_ID,
             meta_access_token=None,
             sender_number=None,
+            template_name=None,
             interim_test_number=None,
             interim_mode=False,
             created_at=now,
@@ -63,15 +64,17 @@ class PlatformConfigService:
         *,
         meta_access_token: str | None = None,
         sender_number: str | None = None,
+        template_name: str | None = None,
         interim_test_number: str | None = None,
         interim_mode: bool | None = None,
     ) -> PlatformConfig:
         """Create/replace the platform config — a PARTIAL update, so ``None`` leaves a field
-        unchanged (a caller can save just the token, or just the sender/interim number). String
-        fields are trimmed (blank → None, so a whitespace-only edit clears the field)."""
+        unchanged (a caller can save just the token, or just the sender/template/interim number).
+        String fields are trimmed (blank → None, so a whitespace-only edit clears the field)."""
         return await self._repo.upsert(
             meta_access_token=_clean(meta_access_token),
             sender_number=_clean(sender_number),
+            template_name=_clean(template_name),
             interim_test_number=_clean(interim_test_number),
             interim_mode=interim_mode,
         )

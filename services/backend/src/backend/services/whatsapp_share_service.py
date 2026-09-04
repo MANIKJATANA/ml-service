@@ -35,7 +35,6 @@ from backend.domain.ports import (
 )
 from backend.services.gallery_service import GalleryService
 from backend.services.platform_config_service import PlatformConfigService
-from backend.services.whatsapp_config_service import WhatsAppConfigService
 from backend.services.whatsapp_image import make_whatsapp_variant
 
 _log = structlog.get_logger(__name__)
@@ -49,7 +48,6 @@ def _utc_month_start(now: datetime) -> datetime:
 class WhatsAppShareService:
     def __init__(
         self,
-        config_service: WhatsAppConfigService,
         platform_config_service: PlatformConfigService,
         gallery_service: GalleryService,
         students: StudentRepository,
@@ -67,7 +65,6 @@ class WhatsAppShareService:
         monthly_send_cap: int,
         variant_prefix: str,
     ) -> None:
-        self._config = config_service
         self._platform_config = platform_config_service
         self._gallery = gallery_service
         self._students = students
@@ -120,27 +117,30 @@ class WhatsAppShareService:
                 test_number=platform.interim_test_number,
             )
 
-        # 2) The school must have WhatsApp enabled.
-        config = await self._config.get_config(school_id=school_id)
-        if not config.enabled:
-            raise ValidationError("WhatsApp sending is not enabled for this school")
-
-        # 3) An approved sender + template are required.
-        sender = config.sender_number or self._default_sender
+        # 2) Platform WhatsApp config (schools no longer configure WhatsApp — 0099). The sender
+        #    phone-number ID + the approved template both come from the platform config (edited at
+        #    Platform → WhatsApp); "enabled" is implied by BOTH being present. For Meta the real
+        #    sender is the phone-number ID in the send URL (resolved fresh per send from the same
+        #    platform config); this `sender` value is what the log records + what Gupshup uses.
+        sender = platform.sender_number or self._default_sender
         if not sender:
-            raise ValidationError("no sender number configured")
-        template = config.template_name
+            raise ValidationError(
+                "WhatsApp is not configured — set the sender number at Platform → WhatsApp"
+            )
+        template = platform.template_name
         if not template:
-            raise ValidationError("no approved template configured")
+            raise ValidationError(
+                "WhatsApp is not configured — set the approved template at Platform → WhatsApp"
+            )
 
-        # 4) Consent gate: opted in AND a number on file.
+        # 3) Consent gate: opted in AND a number on file.
         if not student.whatsapp_opt_in:
             raise ValidationError("student has not opted in to WhatsApp")
         recipient = student.mobile_number
         if recipient is None:
             raise ValidationError("student has no mobile number")
 
-        # 5) The student's EFFECTIVE media (BP5 overlay, reused — never re-derived). If specific
+        # 4) The student's EFFECTIVE media (BP5 overlay, reused — never re-derived). If specific
         #    ids were requested, intersect: a requested media the student does NOT effectively
         #    appear in is recorded ``skipped`` "not entitled" (a client can't force a rejected
         #    photo). ``None`` → the whole effective set.
@@ -148,14 +148,14 @@ class WhatsAppShareService:
             school_id=school_id, student_id=student_id, media_ids=media_ids
         )
 
-        # 6) Budget: one check up front. Count this school's ``sent`` rows since the UTC month
+        # 5) Budget: one check up front. Count this school's ``sent`` rows since the UTC month
         #    start; ``remaining`` decrements only on a real send below.
         sent_this_month = await self._send_log.count_sent_since(
             school_id, since=_utc_month_start(datetime.now(UTC))
         )
         remaining = self._cap - sent_this_month
 
-        # 7) Best-effort loop per media (BP27 pattern).
+        # 6) Best-effort loop per media (BP27 pattern).
         for media in targets:
             result = await self._send_one(
                 school_id=school_id,

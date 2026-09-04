@@ -19,8 +19,8 @@ from backend.domain.models import (
     MatchCorrection,
     MatchVerdict,
     Media,
+    PlatformConfig,
     Role,
-    SchoolWhatsAppConfig,
     User,
 )
 from backend.main import create_app
@@ -29,10 +29,10 @@ from backend_fakes import (
     FakeMatchCorrectionRepo,
     FakeMediaRepo,
     FakeMlResultsReader,
+    FakePlatformConfigRepo,
     FakeSchoolRepo,
     FakeStudentRepo,
     FakeUserRepo,
-    FakeWhatsAppConfigRepo,
     FakeWhatsAppSendLogRepo,
     SeededContainer,
     make_appearance,
@@ -62,14 +62,18 @@ def _user(*, id: str, role: Role, school_id: str | None) -> User:
     return user
 
 
-def _config(*, school_id: str, enabled: bool = True) -> SchoolWhatsAppConfig:
+def _platform_config(
+    *, sender: str | None = _SENDER, template: str | None = _TEMPLATE
+) -> PlatformConfig:
+    # 0099: the platform config is the SOLE WhatsApp config (sender phone-number ID + template).
     now = datetime(2026, 1, 1, tzinfo=UTC)
-    return SchoolWhatsAppConfig(
-        school_id=school_id,
-        enabled=enabled,
-        sender_number=_SENDER,
-        template_name=_TEMPLATE,
-        business_name="Alpha",
+    return PlatformConfig(
+        id="platform",
+        meta_access_token=None,
+        sender_number=sender,
+        template_name=template,
+        interim_test_number=None,
+        interim_mode=False,
         created_at=now,
         updated_at=now,
     )
@@ -82,7 +86,7 @@ def _build(
     appearances: list[Appearance] | None = None,
     corrections: list[MatchCorrection] | None = None,
     media: list[Media] | None = None,
-    config_enabled: bool = True,
+    configured: bool = True,
     sender: FakeWhatsAppSender | None = None,
 ) -> tuple[TestClient, SeededContainer, FakeWhatsAppSender]:
     fake_sender = sender or FakeWhatsAppSender()
@@ -116,7 +120,9 @@ def _build(
             or [make_appearance(student_id="stu-1", media_id="m1", event_id="event-1")]
         ),
         match_corrections=FakeMatchCorrectionRepo(corrections or []),
-        whatsapp_config=FakeWhatsAppConfigRepo([_config(school_id="s1", enabled=config_enabled)]),
+        platform_config=FakePlatformConfigRepo(
+            _platform_config() if configured else _platform_config(sender=None, template=None)
+        ),
         whatsapp_sender=fake_sender,
         whatsapp_send_log=FakeWhatsAppSendLogRepo(),
     )
@@ -262,8 +268,10 @@ def test_no_number_is_400() -> None:
     assert sender.sent == []
 
 
-def test_disabled_config_is_400() -> None:
-    client, _c, sender = _build(config_enabled=False)
+def test_unconfigured_platform_is_400() -> None:
+    # 0099: WhatsApp is configured platform-side (no per-school enable). With no sender/template
+    # set at Platform → WhatsApp, a send fails fast with 400 and nothing is sent.
+    client, _c, sender = _build(configured=False)
     resp = _send(client, _auth(client, "sa1"))
     assert resp.status_code == 400, resp.text
     assert sender.sent == []

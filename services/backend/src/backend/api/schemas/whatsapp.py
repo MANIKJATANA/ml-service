@@ -1,23 +1,20 @@
-"""Per-school WhatsApp config API schemas (W1).
+"""WhatsApp send API schemas (W2).
 
-School-admin-facing (``whatsapp:manage``). The request is the four editable, NON-SECRET
-fields; the response adds the computed display facts — the ``effective_sender_number`` a
-school will actually send from (its own, or the shared platform number) and whether it's using
-that shared number. The one provider secret is never in either schema.
+Staff-facing (``whatsapp:send``). Schools no longer configure WhatsApp — the per-school config
+request/response were removed in 0099 (the platform admin owns it all; see
+``api/schemas/platform_config.py``). This module now holds only the send request + per-media
+results.
 """
 
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from backend.domain.models import SchoolWhatsAppConfig, WhatsAppSendSummary
+from backend.domain.models import WhatsAppSendSummary
 
 __all__ = [
-    "UpdateWhatsAppConfigRequest",
-    "WhatsAppConfigResponse",
     "WhatsAppSendRequest",
     "WhatsAppSendResponse",
     "WhatsAppSendResultResponse",
@@ -25,57 +22,6 @@ __all__ = [
 
 # The most media ids one send request can carry (reuses the students bulk cap → 422 over it).
 _MAX_SEND_MEDIA_IDS = 1000
-
-
-class UpdateWhatsAppConfigRequest(BaseModel):
-    """The editable per-school WhatsApp settings (W1). All NON-SECRET."""
-
-    enabled: bool
-    sender_number: str | None = Field(default=None, max_length=32)
-    template_name: str | None = Field(default=None, max_length=200)
-    business_name: str | None = Field(default=None, max_length=200)
-
-
-class WhatsAppConfigResponse(BaseModel):
-    """A school's WhatsApp config + the computed send-from display facts (W1)."""
-
-    school_id: str
-    enabled: bool
-    sender_number: str | None
-    effective_sender_number: str | None
-    template_name: str | None
-    business_name: str | None
-    using_shared_number: bool
-    # The active send provider (fake/gupshup/meta) — the FE labels the template field by it
-    # (Gupshup: the template UUID; Meta: the template name).
-    provider: str
-    created_at: datetime
-    updated_at: datetime
-
-    @classmethod
-    def from_config(
-        cls,
-        config: SchoolWhatsAppConfig,
-        *,
-        default_sender_number: str,
-        provider: str,
-    ) -> WhatsAppConfigResponse:
-        return cls(
-            school_id=config.school_id,
-            enabled=config.enabled,
-            sender_number=config.sender_number,
-            # The number this school actually sends from: its own, else the shared platform
-            # number, else None (nothing configured yet).
-            effective_sender_number=config.sender_number
-            or default_sender_number
-            or None,
-            template_name=config.template_name,
-            business_name=config.business_name,
-            using_shared_number=config.sender_number is None,
-            provider=provider,
-            created_at=config.created_at,
-            updated_at=config.updated_at,
-        )
 
 
 class WhatsAppSendRequest(BaseModel):

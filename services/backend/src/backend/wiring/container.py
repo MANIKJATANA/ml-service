@@ -45,7 +45,6 @@ from backend.domain.ports import (
     Thumbnailer,
     TokenService,
     UserRepository,
-    WhatsAppConfigRepository,
     WhatsAppSender,
     WhatsAppSendLogRepository,
 )
@@ -67,7 +66,6 @@ from backend.services.onboarding_service import OnboardingService
 from backend.services.platform_config_service import PlatformConfigService
 from backend.services.review_service import ReviewService
 from backend.services.student_service import StudentService
-from backend.services.whatsapp_config_service import WhatsAppConfigService
 from backend.services.whatsapp_share_service import WhatsAppShareService
 from backend.settings import Settings
 from backend.wiring import registry
@@ -104,8 +102,6 @@ class Container:
         self._whatsapp_sender: WhatsAppSender | None = None
         self._platform_config_repo: PlatformConfigRepository | None = None
         self._platform_config_service: PlatformConfigService | None = None
-        self._whatsapp_config_repo: WhatsAppConfigRepository | None = None
-        self._whatsapp_config_service: WhatsAppConfigService | None = None
         self._whatsapp_send_log_repo: WhatsAppSendLogRepository | None = None
         self._whatsapp_share_service: WhatsAppShareService | None = None
         self._password_hasher: PasswordHasher | None = None
@@ -450,28 +446,6 @@ class Container:
                         )
         return self._whatsapp_sender
 
-    def whatsapp_config_repo(self) -> WhatsAppConfigRepository:
-        if self._whatsapp_config_repo is None:
-            with self._lock:
-                if self._whatsapp_config_repo is None:
-                    cls = registry.resolve(
-                        registry.WHATSAPP_CONFIG_REPO_REGISTRY,
-                        self._s.repository_impl,
-                    )
-                    self._whatsapp_config_repo = cls(self.sessionmaker())
-        return self._whatsapp_config_repo
-
-    def whatsapp_config_service(self) -> WhatsAppConfigService:
-        if self._whatsapp_config_service is None:
-            with self._lock:
-                if self._whatsapp_config_service is None:
-                    self._whatsapp_config_service = WhatsAppConfigService(
-                        self.whatsapp_config_repo(),
-                        default_sender_number=self._s.whatsapp_default_sender_number,
-                        provider=self._s.whatsapp_sender_impl,
-                    )
-        return self._whatsapp_config_service
-
     def whatsapp_send_log_repo(self) -> WhatsAppSendLogRepository:
         if self._whatsapp_send_log_repo is None:
             with self._lock:
@@ -484,14 +458,14 @@ class Container:
         return self._whatsapp_send_log_repo
 
     def whatsapp_share_service(self) -> WhatsAppShareService:
-        # W2: the FIRST place whatsapp_sender() is wired into a service. Composes the config
-        # service + the gallery service (its BP5 overlay gives the student's EFFECTIVE media —
-        # never re-derived) + the object store / thumbnailer / sender / send-log + the send knobs.
+        # W2: the FIRST place whatsapp_sender() is wired into a service. Composes the platform
+        # config service (the sole WhatsApp config — sender/template/interim, 0099) + the gallery
+        # service (its BP5 overlay gives the student's EFFECTIVE media — never re-derived) + the
+        # object store / thumbnailer / sender / send-log + the send knobs.
         if self._whatsapp_share_service is None:
             with self._lock:
                 if self._whatsapp_share_service is None:
                     self._whatsapp_share_service = WhatsAppShareService(
-                        self.whatsapp_config_service(),
                         self.platform_config_service(),
                         self.gallery_service(),
                         self.student_repo(),

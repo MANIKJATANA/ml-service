@@ -74,15 +74,18 @@ class Settings(BaseSettings):
     # --- WhatsApp (W1) ---------------------------------------------------
     # Outbound WhatsApp provider. fake = credential-free default (a real, deterministic
     # adapter); gupshup = the Gupshup BSP; meta = the direct Meta WhatsApp Cloud API (Meta creds
-    # in their own block below). The platform owns ONE provider account = ONE secret per provider;
-    # per-school config (sender_number/template_name/...) is NON-SECRET and lives in the
-    # school_whatsapp_config table.
+    # in their own block below). The platform owns ONE provider account = ONE secret per provider.
+    # WhatsApp is CONFIGURED platform-side only (0099): the sender phone-number ID + approved
+    # template + interim number live in the DB (platform_config, edited at Platform → WhatsApp);
+    # schools no longer configure WhatsApp.
     whatsapp_sender_impl: str = "fake"  # fake | gupshup | meta
     whatsapp_api_key: SecretStr = SecretStr("")  # SECRET: the ONE Gupshup provider key
     whatsapp_base_url: str = "https://api.gupshup.io"
     whatsapp_app_name: str = ""  # the registered Gupshup app source name
     whatsapp_http_timeout_s: float = 30.0
-    # The shared platform sender number a school falls back to when it sets none of its own.
+    # A last-resort sender fallback used only if the platform sender_number is unset (the Gupshup
+    # path; Meta ignores it — the phone-number ID in the URL is the sender). Normally "" → the
+    # platform config's sender_number is authoritative.
     whatsapp_default_sender_number: str = ""
     # The ≤5 MB WhatsApp image variant bounds (the sender resizes before send in W2).
     whatsapp_image_max_edge: int = 2000

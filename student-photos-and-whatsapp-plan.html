@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Plan — WhatsApp platform-only + student photo send/filter</title>
+<style>
+  :root{
+    --wa:#25d366; --wa-dark:#128c7e; --ink:#0f172a; --ink2:#475569; --muted:#94a3b8;
+    --line:#e2e8f0; --bg:#f1f5f9; --card:#ffffff;
+    --warn-bg:#fff7ed; --warn-ink:#9a3412; --warn-line:#fdba74;
+    --ok-bg:#ecfdf5; --ok-ink:#065f46; --ok-line:#6ee7b7;
+    --bad-bg:#fef2f2; --bad-ink:#991b1b; --bad-line:#fca5a5;
+    --acc:#2563eb; --acc-soft:#eff6ff; --acc-line:#bfdbfe;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.6 -apple-system,Segoe UI,Roboto,system-ui,sans-serif;padding:32px 16px}
+  .wrap{max-width:900px;margin:0 auto}
+  h1{font-size:27px;margin:0 0 6px}
+  .sub{color:var(--ink2);margin:0 0 8px}
+  .pill{display:inline-block;font-size:12px;font-weight:700;color:var(--acc);background:var(--acc-soft);border:1px solid var(--acc-line);border-radius:999px;padding:3px 10px;margin:2px 6px 2px 0}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:22px;margin:16px 0;box-shadow:0 1px 2px rgba(15,23,42,.04)}
+  .phase{display:flex;align-items:center;gap:10px;margin:0 0 4px}
+  .pn{width:30px;height:30px;line-height:30px;text-align:center;background:var(--wa-dark);color:#fff;border-radius:50%;font-weight:800;font-size:15px;flex:none}
+  h2{font-size:20px;margin:0}
+  h3{font-size:15px;margin:16px 0 6px;color:var(--ink)}
+  p{margin:8px 0}
+  .tag{display:inline-block;font-size:11.5px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;color:var(--wa-dark);background:#e7fbf1;border:1px solid #bff3d8;border-radius:999px;padding:3px 10px;margin-bottom:8px}
+  ul{margin:6px 0;padding-left:20px} li{margin:5px 0;font-size:14.7px}
+  code,.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px;background:#eef2f7;border:1px solid var(--line);border-radius:5px;padding:1px 6px}
+  .note{background:var(--warn-bg);border:1px solid var(--warn-line);border-radius:12px;padding:12px 15px;color:var(--warn-ink);font-size:14px}
+  .ok{background:var(--ok-bg);border:1px solid var(--ok-line);border-radius:12px;padding:12px 15px;color:var(--ok-ink);font-size:14px}
+  /* diagram */
+  .flow{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:center;margin:10px 0}
+  .box{border:1px solid var(--line);border-radius:10px;padding:9px 13px;background:#fff;font-size:13.5px;text-align:center;min-width:120px}
+  .box.old{background:var(--bad-bg);border-color:var(--bad-line);color:var(--bad-ink)}
+  .box.new{background:var(--ok-bg);border-color:var(--ok-line);color:var(--ok-ink)}
+  .arw{color:var(--muted);font-weight:800}
+  /* mock UI */
+  .mock{border:1px solid var(--line);border-radius:12px;overflow:hidden;box-shadow:0 6px 18px rgba(15,23,42,.08);margin:10px 0}
+  .mbar{background:#f8fafc;border-bottom:1px solid var(--line);display:flex;gap:7px;align-items:center;padding:9px 13px}
+  .dot{width:10px;height:10px;border-radius:50%}
+  .murl{flex:1;background:#fff;border:1px solid var(--line);border-radius:7px;padding:4px 11px;color:var(--ink2);font-size:12.5px;font-family:ui-monospace,Consolas,monospace}
+  .mbody{padding:18px}
+  .mbody h4{margin:0 0 3px;font-size:17px}
+  .mbody .d{color:var(--ink2);font-size:13px;margin:0 0 14px}
+  .fld{margin:0 0 13px}
+  .fld label{display:block;font-weight:600;font-size:13px;margin-bottom:4px}
+  .fld .hint{color:var(--muted);font-size:12px;margin-top:3px}
+  .inp{width:100%;border:1px solid var(--line);border-radius:8px;padding:8px 11px;font-size:14px;background:#fff;font-family:ui-monospace,Consolas,monospace;color:var(--ink)}
+  .newf{border-color:var(--wa);box-shadow:0 0 0 3px #e7fbf1}
+  .newtag{display:inline-block;font-size:10.5px;font-weight:800;color:#fff;background:var(--wa-dark);border-radius:5px;padding:1px 6px;margin-left:6px;vertical-align:middle}
+  /* chip row */
+  .chips{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:6px 0 14px}
+  .chip{border:1px solid var(--line);border-radius:999px;padding:6px 13px;font-size:13px;background:#fff;color:var(--ink2)}
+  .chip.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+  .chip.btn{background:var(--acc-soft);border-color:var(--acc-line);color:var(--acc);font-weight:600}
+  .toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;background:#f8fafc;border:1px solid var(--line);border-radius:10px;padding:9px 11px;margin:8px 0 12px}
+  .btn{border:1px solid var(--line);border-radius:8px;padding:6px 12px;font-size:13px;background:#fff;font-weight:600;color:var(--ink)}
+  .btn.p{background:var(--wa-dark);color:#fff;border:none}
+  .btn.g{background:#0f172a;color:#fff;border:none}
+  .num{width:52px;border:1px solid var(--line);border-radius:8px;padding:6px 8px;font-size:13px;text-align:center}
+  .sel{margin-left:auto;font-size:13px;color:var(--ink2);font-weight:700}
+  .grid{display:grid;grid-template-columns:repeat(5,1fr);gap:7px;margin:4px 0}
+  .tile{aspect-ratio:1;border-radius:8px;background:linear-gradient(135deg,#dbeafe,#ede9fe);position:relative;border:1px solid var(--line)}
+  .tile.sel{outline:3px solid var(--wa);outline-offset:-3px}
+  .tile.sel::after{content:"✓";position:absolute;top:4px;right:5px;background:var(--wa-dark);color:#fff;width:18px;height:18px;line-height:18px;text-align:center;border-radius:50%;font-size:11px;font-weight:800}
+  table{width:100%;border-collapse:collapse;margin:8px 0;font-size:13.5px}
+  th,td{text-align:left;padding:7px 9px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--ink2);font-size:12px;text-transform:uppercase;letter-spacing:.03em}
+  .foot{color:var(--muted);font-size:13px;text-align:center;margin:22px 0 4px}
+  .tl{background:#0f172a;color:#e2e8f0;border:none}
+  .tl b{color:var(--wa)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>Plan — WhatsApp platform-only + student photo <span style="color:var(--wa-dark)">send / filter</span></h1>
+  <p class="sub">Teen chize, teen phase. Abhi sirf plan — <b>tu HTML approve kare tabhi implement</b>.</p>
+  <div>
+    <span class="pill">Phase 1 · WhatsApp = sirf hamare (platform) control me</span>
+    <span class="pill">Phase 2 · Student "Appears in" ka smart event filter</span>
+    <span class="pill">Phase 3 · Send ko divide — current event / random</span>
+  </div>
+
+  <!-- WHAT I FOUND -->
+  <div class="card">
+    <span class="tag">Explore kiya — 2 zaroori baatein</span>
+    <ul>
+      <li><b>Send endpoint pehle se subset leta hai.</b> <code>media_ids</code> = <code>null</code> → saari photos; ya array → sirf wahi (server pe effective-set se intersect hota hai, security safe). Matlab <b>"select all / random select" ke liye backend me kuch change nahi</b> — pure frontend.</li>
+      <li><b>School tab hatane ka ek catch hai.</b> Abhi send flow <code>enabled</code> + <code>template_name</code> <b>per-school config</b> se padhta hai (platform fallback nahi). To platform-only banane ke liye <b>template ko platform config me laana padega</b> + send ko udhar point karna — warna production (template) send toot jaayega.</li>
+    </ul>
+  </div>
+
+  <!-- ============ PHASE 1 ============ -->
+  <div class="card">
+    <div class="phase"><span class="pn">1</span><h2>WhatsApp sirf platform-admin (hum) set karenge</h2></div>
+    <p>School ke andar se <b>WhatsApp tab hata denge</b>. Poora control ek jagah — <b>Platform → WhatsApp</b>. School ko WhatsApp configure karne ki zaroorat hi nahi.</p>
+
+    <h3>Config source shift (send flow)</h3>
+    <div class="flow">
+      <div class="box old">Per-school<br>WhatsApp config<br><small>(enabled · sender · template)</small></div>
+      <span class="arw">➜</span>
+      <div class="box new">Platform config<br><small>(token · sender · <b>template</b> · interim)</small></div>
+      <span class="arw">➜</span>
+      <div class="box">Send flow padhta hai<br>platform se</div>
+    </div>
+
+    <h3>Rebuild ke baad Platform → WhatsApp aisa dikhega</h3>
+    <div class="mock">
+      <div class="mbar"><span class="dot" style="background:#ff5f57"></span><span class="dot" style="background:#febc2e"></span><span class="dot" style="background:#28c840"></span><span class="murl">yourapp.com/whatsapp</span></div>
+      <div class="mbody">
+        <h4>WhatsApp</h4>
+        <p class="d">Platform-wide settings — sab DB me, yahin editable (no restart). Schools ke paas apna WhatsApp tab nahi.</p>
+        <div class="fld"><label>Sender number</label><input class="inp" value="106540388866237" readonly><div class="hint">Meta phone-number ID.</div></div>
+        <div class="fld"><label>Meta access token</label><input class="inp" type="password" value="xxxxxxxx" readonly><div class="hint">Write-only — set · ending 1234.</div></div>
+        <div class="fld"><label>Template name <span class="newtag">NEW</span></label><input class="inp newf" value="event_photos_util" readonly><div class="hint">Approved image-header template — ab yahan (pehle per-school tha). Production (non-interim) send isko use karta hai.</div></div>
+        <div class="fld"><label>Interim test number</label><input class="inp" value="919306229596" readonly><div class="hint">Set = test mode ON (sab sends is number pe). Khaali = normal delivery.</div></div>
+      </div>
+    </div>
+
+    <h3>Kya badlega</h3>
+    <table>
+      <tr><th>Frontend — hatao</th><th>Backend</th></tr>
+      <tr>
+        <td>
+          <code>(school)/settings/whatsapp</code> page<br>
+          <code>use-whatsapp-config.ts</code> hook<br>
+          nav se "WhatsApp" (school_admin)<br>
+          <code>get/updateWhatsAppConfig</code> + type
+        </td>
+        <td>
+          Platform config me <b><code>template_name</code> column</b> (naya migration, 1 column — jaise 0025)<br>
+          Send flow: sender+template+enabled ab <b>platform config se</b> (school se nahi); <b>enabled</b> = sender+template set hai<br>
+          School config routes/service/<code>whatsapp:manage</code> perm hatao; purani <code>school_whatsapp_config</code> table dormant chhodo (koi destructive migration nahi)
+        </td>
+      </tr>
+    </table>
+    <p class="note">⚠️ <b>Zaroori:</b> platform screen pe <b>template name set karna padega</b> real (non-interim) send ke liye. Interim test path pe koi asar nahi — wo waise hi chalega.</p>
+    <p style="font-size:13px;color:var(--ink2)"><b>Send permission</b> (<code>whatsapp:send</code>, school-admin+teacher) same rehti hai — sirf <b>config</b> ka control platform pe jaata hai.</p>
+  </div>
+
+  <!-- ============ PHASE 2 ============ -->
+  <div class="card">
+    <div class="phase"><span class="pn">2</span><h2>Student "Appears in" — smart event filter</h2></div>
+    <p>Abhi har event ka ek raw chip dikhta hai. 10–20 events pe ye bekaar ho jaayega. Naya filter: <b>All</b> + <b>latest 3 events</b> quick chips + ek <b>"Filter events" picker</b> (search waala) baaki sab ke liye.</p>
+
+    <div class="mock">
+      <div class="mbar"><span class="dot" style="background:#ff5f57"></span><span class="dot" style="background:#febc2e"></span><span class="dot" style="background:#28c840"></span><span class="murl">…/students/aarav</span></div>
+      <div class="mbody">
+        <h4>Appears in</h4>
+        <p class="d">Quick chips + poore itihaas ke liye picker button.</p>
+        <div class="chips">
+          <span class="chip on">All · 28</span>
+          <span class="chip">Sports Day · Aug 20</span>
+          <span class="chip">Annual Fn · Jul 12</span>
+          <span class="chip">Trip · Jun 3</span>
+          <span class="chip btn">🔍 Filter events ▾</span>
+        </div>
+        <div class="grid">
+          <div class="tile"></div><div class="tile"></div><div class="tile"></div><div class="tile"></div><div class="tile"></div>
+        </div>
+      </div>
+    </div>
+
+    <h3>Behaviour</h3>
+    <ul>
+      <li><b>All</b> → student ki saari effective photos (har photo pe "Event · Date" caption). Default = All.</li>
+      <li><b>Latest 3 chips</b> → date ke hisaab se sabse naye 3 events (kitne dikhaye — tunable, abhi 3).</li>
+      <li><b>Filter events ▾</b> → searchable popover (existing <code>StudentPicker</code> pattern reuse → <code>EventPicker</code>) — poori list, count+date ke saath. Koi bhi event chuno → grid us event pe.</li>
+      <li>Selected event → sirf us event ki photos (<code>useStudentMedia</code>); All → sab (<code>useAllStudentMedia</code>). Dono hooks pehle se hain.</li>
+    </ul>
+    <p class="ok">✅ <b>Pure frontend</b> — koi backend/API change nahi.</p>
+  </div>
+
+  <!-- ============ PHASE 3 ============ -->
+  <div class="card">
+    <div class="phase"><span class="pn">3</span><h2>Send ko divide — select-all / random select</h2></div>
+    <p>Abhi "Send on WhatsApp" seedha <b>saari</b> photos bhejta hai. Ise choice do: <b>current event ki sab select karo</b>, ya <b>random N select karo</b>, ya photos tap karke khud chuno — phir selected count bhejo/download karo.</p>
+
+    <div class="mock">
+      <div class="mbar"><span class="dot" style="background:#ff5f57"></span><span class="dot" style="background:#febc2e"></span><span class="dot" style="background:#28c840"></span><span class="murl">…/students/aarav — Sports Day</span></div>
+      <div class="mbody">
+        <div class="toolbar">
+          <span class="btn">☑ Select all (28)</span>
+          <span class="btn">🎲 Select random <input class="num" value="10" readonly></span>
+          <span class="btn">Clear</span>
+          <span class="sel">3 selected</span>
+        </div>
+        <div class="grid">
+          <div class="tile sel"></div><div class="tile"></div><div class="tile sel"></div><div class="tile"></div><div class="tile sel"></div>
+        </div>
+        <div class="chips" style="margin-top:12px">
+          <span class="btn p">Send 3 on WhatsApp</span>
+          <span class="btn g">⤓ Download 3</span>
+        </div>
+      </div>
+    </div>
+
+    <h3>Behaviour</h3>
+    <ul>
+      <li><b>Tap-to-select</b> — grid pe selection mode on (existing <code>PhotoGrid selectionMode</code> reuse).</li>
+      <li><b>Select all (this view)</b> — jo bhi abhi dikh raha (current event, ya All) uski sab photos.</li>
+      <li><b>Select random N</b> — current view se N random photos (client-side shuffle; default 10, tunable).</li>
+      <li><b>Send N</b> → confirm dialog exact count + cost dikhaata hai → <code>sendWhatsApp(studentId, selectedIds)</code>. <b>Subset send pehle se supported</b> (server effective-set se intersect karta hai — safe).</li>
+      <li><b>Download N</b> → same selection <code>useDownloadAll</code> pe (zip).</li>
+      <li>Kuch select nahi → Send/Download disabled (ya "sab bhejo" ka clear default).</li>
+    </ul>
+    <p class="ok">✅ <b>Pure frontend</b> — send endpoint already <code>media_ids</code> subset leta hai; koi backend change nahi.</p>
+  </div>
+
+  <!-- HONEST LIMITS -->
+  <div class="card">
+    <span class="tag">Honest limits / scope</span>
+    <ul>
+      <li>Random select <b>client-side</b> hai (jo photos load hui hain unme se) — abhi tak masonry/window sab load kar leta hai student scale pe, thik hai.</li>
+      <li>Phase 2/3 sirf <b>student-detail "Appears in"</b> pe. Event-gallery ke "By student" tab pe same treatment ek easy follow-on hai (abhi scope se bahar, focused rakhne ke liye).</li>
+      <li>Platform-only me "enabled" = token+sender+template set (alag global on/off toggle chahiye to 1-line add ho jaayega).</li>
+      <li>Real (non-interim) delivery abhi bhi tere Meta setup pe depend — verified number + approved template + non-expiring token.</li>
+    </ul>
+  </div>
+
+  <!-- ROADMAP -->
+  <div class="card">
+    <span class="tag">Kaise chalega</span>
+    <table>
+      <tr><th>Phase</th><th>Change</th><th>Migration?</th><th>Risk</th></tr>
+      <tr><td>1 · Platform-only WhatsApp</td><td>BE + FE</td><td>Haan (1 column, template_name)</td><td>Chhota — 0098 jaisa hi path</td></tr>
+      <tr><td>2 · Smart event filter</td><td>FE only</td><td>Nahi</td><td>Kam</td></tr>
+      <tr><td>3 · Select-all / random send</td><td>FE only</td><td>Nahi</td><td>Kam</td></tr>
+    </table>
+    <p style="font-size:13.5px">Har phase: implement → 2× review→fix loop → gate green (BE ruff+mypy+pytest+layering / FE lint+tsc+build) → <b>tere review ke liye ruko</b>. Ek-ek karke commit (tere OK pe).</p>
+  </div>
+
+  <div class="card tl">
+    <p style="margin:0"><b>TL;DR</b> — (1) School se WhatsApp tab hatega, sab kuch <b>Platform → WhatsApp</b> pe (template field naya + send udhar se). (2) Student "Appears in" me <b>All + latest 3 + Filter picker</b>. (3) Send/Download pe <b>select-all · random · tap-select</b>, sirf chuni hui photos jaayengi. Phase 2 &amp; 3 pure frontend. <b>Approve kare to shuru karu — Phase 1 se.</b></p>
+  </div>
+
+  <p class="foot">File: student-photos-and-whatsapp-plan.html · abhi tak commit nahi kiya — tere OK ka wait</p>
+</div>
+</body>
+</html>

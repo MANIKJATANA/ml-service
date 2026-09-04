@@ -29,7 +29,6 @@ class Permission(StrEnum):
     MATCH_REVIEW = "match:review"  # admin + teacher: confirm/reject/add face matches
     AUDIT_VIEW = "audit:view"  # school_admin: read the download/access audit
     CLASS_MANAGE = "class:manage"  # school_admin: create/edit/delete classes (BP11a)
-    WHATSAPP_MANAGE = "whatsapp:manage"  # school_admin: configure WhatsApp sending (W1)
     WHATSAPP_SEND = "whatsapp:send"  # admin + teacher: send a student their photos (W2)
 
 
@@ -54,11 +53,9 @@ ROLE_PERMISSIONS: dict[Role, frozenset[Permission]] = {
             # BP11a: class (student-group) lifecycle is admin-only, like audit:view. The
             # day-to-day student↔class assignment rides on student:manage (both roles).
             Permission.CLASS_MANAGE,
-            # W1: WhatsApp config is admin-only (like audit:view / class:manage). Granting it
-            # to teachers later is a one-line addition to the TEACHER set below.
-            Permission.WHATSAPP_MANAGE,
             # W2: sending a student their photos over WhatsApp is granted to BOTH school_admin
-            # and teacher (mirrors notification:send — both roles distribute photos).
+            # and teacher (mirrors notification:send — both roles distribute photos). WhatsApp is
+            # CONFIGURED platform-side only (0099) — there is no per-school whatsapp:manage.
             Permission.WHATSAPP_SEND,
         }
     ),

@@ -48,13 +48,12 @@ async def test_container_builds_and_memoizes_student_stack() -> None:
         container.admin_action_audit_service()
         is container.admin_action_audit_service()
     )
-    # W1: the WhatsApp sender builds the fake under the default impl + memoizes; the config
-    # service builds (repo lazy — no connect). None is wired into any service (no send yet).
+    # W1: the WhatsApp sender builds the fake under the default impl + memoizes. WhatsApp is
+    # configured platform-side only (0099); the platform config service (below) is its sole config.
     from backend.adapters.whatsapp.fake_sender import FakeWhatsAppSender
 
     assert isinstance(container.whatsapp_sender(), FakeWhatsAppSender)
     assert container.whatsapp_sender() is container.whatsapp_sender()
-    assert container.whatsapp_config_service() is container.whatsapp_config_service()
     # W2: the send-log repo (postgres, lazy — no connect) + the share service memoize; the share
     # service is the FIRST place the sender is wired into a service.
     assert container.whatsapp_send_log_repo() is container.whatsapp_send_log_repo()
@@ -102,6 +101,7 @@ async def test_meta_token_resolved_from_db_only_no_env_fallback() -> None:
             id="platform",
             meta_access_token="db-token",
             sender_number=None,
+            template_name=None,
             interim_test_number=None,
             interim_mode=False,
             created_at=now,
@@ -135,6 +135,7 @@ async def test_meta_phone_number_id_resolved_from_db_only_no_env_fallback() -> N
             id="platform",
             meta_access_token=None,
             sender_number="db-phone-id",
+            template_name=None,
             interim_test_number=None,
             interim_mode=False,
             created_at=now,

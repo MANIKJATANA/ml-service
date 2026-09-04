@@ -32,7 +32,6 @@ from backend.api.routers import (
     schools,
     staff,
     students,
-    whatsapp,
 )
 from backend.deps import get_container
 from backend.domain.errors import (
@@ -278,13 +277,10 @@ def create_app(rate_limiter: RateLimiter | None = None) -> FastAPI:
     app = FastAPI(title="Backend", version=__version__, lifespan=lifespan)
     app.include_router(health.router)
     app.include_router(auth.router)
-    # The WhatsApp config router uses the literal path /v1/schools/whatsapp-config, which would
-    # otherwise be captured by the schools router's GET/PATCH /v1/schools/{school_id}
-    # (SCHOOL_MANAGE, platform-only). Register it FIRST so the literal wins the match.
-    app.include_router(whatsapp.router)
-    # Platform-wide config (W-live-test): the DB-stored Meta token + interim-send settings,
-    # platform-admin only. The literal path /v1/platform/whatsapp-config has its own prefix, no
-    # collision with the schools router.
+    # Platform-wide WhatsApp config (W-live-test): the SOLE WhatsApp config (0099) — the DB-stored
+    # Meta token + sender phone-number ID + approved template + interim-send settings,
+    # platform-admin only. Its literal path /v1/platform/whatsapp-config has its own prefix, so no
+    # collision with the schools router. (The per-school /v1/schools/whatsapp-config was removed.)
     app.include_router(platform_config.router)
     app.include_router(schools.router)
     app.include_router(staff.router)

@@ -15,10 +15,11 @@ import { isApiError } from "@/lib/api/errors";
 import type { WhatsAppPlatformConfigResponse } from "@/lib/api/types";
 import { useWhatsAppPlatformConfig } from "@/lib/hooks/use-whatsapp-platform-config";
 
-/** The platform WhatsApp form — the three DB-controlled fields (sender number, token, interim
- *  number), seeded from the loaded config so the current DB values are visible. Remounted by `key`
- *  on save. The token field is WRITE-ONLY — it starts blank and a blank field on save leaves the
- *  stored token unchanged (the API never returns the token); the sender/interim fields show their
+/** The platform WhatsApp form — the DB-controlled fields (sender number, token, approved template,
+ *  interim number), the SOLE WhatsApp config (0099: schools no longer configure WhatsApp). Seeded
+ *  from the loaded config so the current DB values are visible. Remounted by `key` on save. The
+ *  token field is WRITE-ONLY — it starts blank and a blank field on save leaves the stored token
+ *  unchanged (the API never returns the token); the sender/template/interim fields show their
  *  current value and clearing one (saving it blank) clears it server-side. */
 function PlatformWhatsAppForm({
   config,
@@ -30,6 +31,7 @@ function PlatformWhatsAppForm({
   const { toast } = useToast();
   const [senderNumber, setSenderNumber] = useState(config.sender_number ?? "");
   const [token, setToken] = useState(""); // always blank; write-only
+  const [templateName, setTemplateName] = useState(config.template_name ?? "");
   const [interimNumber, setInterimNumber] = useState(config.interim_test_number ?? "");
   const [saving, setSaving] = useState(false);
 
@@ -50,6 +52,7 @@ function PlatformWhatsAppForm({
         meta_access_token: token.trim() || null,
         // These are visible fields: send the value as-is, so "" clears them server-side.
         sender_number: senderNumber.trim(),
+        template_name: templateName.trim(),
         interim_test_number: interimNumber.trim(),
       });
       await onSaved();
@@ -94,6 +97,20 @@ function PlatformWhatsAppForm({
         </Field>
 
         <Field
+          label="Template name"
+          htmlFor="wa-template"
+          hint="The approved WhatsApp message template used for real (non-interim) sends. For Meta this is the template's NAME; for Gupshup its template ID/UUID. A send fails until this is set."
+        >
+          <Input
+            id="wa-template"
+            placeholder="e.g. event_photos_util"
+            value={templateName}
+            onChange={(e) => setTemplateName(e.target.value)}
+            disabled={saving}
+          />
+        </Field>
+
+        <Field
           label="Interim test number"
           htmlFor="wa-interim-number"
           hint="Where interim test sends go, E.164 digits (e.g. 919306229596). When set, every send is diverted here (not to students). Clear it for normal delivery. Use a number that has messaged your WhatsApp business in the last 24h."
@@ -122,8 +139,9 @@ function PlatformWhatsAppForm({
         ) : null}
 
         <p className="rounded-button bg-surface px-3 py-2 text-body-sm text-ink-secondary">
-          All three settings are stored in the database and take effect on the next send — no
-          restart needed. The token is stored securely and never shown again. Interim mode is for
+          Schools no longer configure WhatsApp — you control it all here. These settings are stored
+          in the database and take effect on the next send — no restart needed. The token is stored
+          securely and never shown again. Interim mode is for
           testing — it delivers only inside WhatsApp&rsquo;s 24-hour window and to the test number,
           not to students. If the test number hasn&rsquo;t messaged your WhatsApp business in the
           last 24h, a send is accepted but won&rsquo;t arrive (and the app will still say
@@ -147,12 +165,12 @@ function PlatformWhatsAppInner() {
     <div className="flex flex-col gap-6">
       <PageHeader
         title="WhatsApp"
-        description="Platform-wide WhatsApp settings — the sender number, Meta access token, and the interim test number. All stored in the database and editable here (no restart)."
+        description="Platform-wide WhatsApp settings — the sender number, Meta access token, approved template, and interim test number. Schools no longer configure WhatsApp; you control it all here. All stored in the database and editable here (no restart)."
       />
 
       {isLoading && !config ? (
         <Card className="flex flex-col gap-3 p-6">
-          {[0, 1, 2].map((i) => (
+          {[0, 1, 2, 3].map((i) => (
             <Skeleton key={i} className="h-10 w-full" />
           ))}
         </Card>

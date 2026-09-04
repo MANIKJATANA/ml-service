@@ -42,7 +42,6 @@ from backend.domain.models import (
     School,
     SchoolSort,
     SchoolStatus,
-    SchoolWhatsAppConfig,
     SignedUpload,
     StoredObject,
     Student,
@@ -75,7 +74,6 @@ from backend.domain.ports import (
     TeacherClassRepository,
     Thumbnailer,
     UserRepository,
-    WhatsAppConfigRepository,
     WhatsAppSender,
     WhatsAppSendLogRepository,
 )
@@ -2406,6 +2404,7 @@ class FakePlatformConfigRepo:
         *,
         meta_access_token: str | None,
         sender_number: str | None,
+        template_name: str | None,
         interim_test_number: str | None,
         interim_mode: bool | None,
     ) -> PlatformConfig:
@@ -2425,6 +2424,9 @@ class FakePlatformConfigRepo:
         merged_sender = merge(
             sender_number, current.sender_number if current else None
         )
+        merged_template = merge(
+            template_name, current.template_name if current else None
+        )
         merged_number = merge(
             interim_test_number, current.interim_test_number if current else None
         )
@@ -2437,51 +2439,13 @@ class FakePlatformConfigRepo:
             id=self._SINGLETON_ID,
             meta_access_token=merged_token,
             sender_number=merged_sender,
+            template_name=merged_template,
             interim_test_number=merged_number,
             interim_mode=merged_mode,
             created_at=created_at,
             updated_at=_NOW + timedelta(seconds=self._tick),
         )
         return self._row
-
-
-class FakeWhatsAppConfigRepo:
-    """WhatsAppConfigRepository double (W1): a dict keyed on school_id. ``get`` returns the row
-    or None; ``upsert`` creates/replaces it, keeping ``created_at`` stable and bumping
-    ``updated_at`` (a monotonic tick so a re-save is observably newer)."""
-
-    def __init__(self, configs: list[SchoolWhatsAppConfig] | None = None) -> None:
-        self._by_school: dict[str, SchoolWhatsAppConfig] = {
-            c.school_id: c for c in (configs or [])
-        }
-        self._tick = 0
-
-    async def get(self, school_id: str) -> SchoolWhatsAppConfig | None:
-        return self._by_school.get(school_id)
-
-    async def upsert(
-        self,
-        *,
-        school_id: str,
-        enabled: bool,
-        sender_number: str | None,
-        template_name: str | None,
-        business_name: str | None,
-    ) -> SchoolWhatsAppConfig:
-        self._tick += 1
-        existing = self._by_school.get(school_id)
-        created_at = existing.created_at if existing is not None else _NOW
-        config = SchoolWhatsAppConfig(
-            school_id=school_id,
-            enabled=enabled,
-            sender_number=sender_number,
-            template_name=template_name,
-            business_name=business_name,
-            created_at=created_at,
-            updated_at=_NOW + timedelta(seconds=self._tick),
-        )
-        self._by_school[school_id] = config
-        return config
 
 
 class FakeWhatsAppSendLogRepo:
@@ -2666,7 +2630,6 @@ class SeededContainer(Container):
         admin_action_audit: AdminActionAuditRepository | None = None,
         notification_reads: NotificationReadRepository | None = None,
         notifier: NotificationChannel | None = None,
-        whatsapp_config: WhatsAppConfigRepository | None = None,
         whatsapp_sender: WhatsAppSender | None = None,
         whatsapp_send_log: WhatsAppSendLogRepository | None = None,
         platform_config: PlatformConfigRepository | None = None,
@@ -2709,9 +2672,6 @@ class SeededContainer(Container):
             notification_reads or FakeNotificationReadRepo()
         )
         self._seed_notifier: NotificationChannel = notifier or FakeNotificationChannel()
-        self._seed_whatsapp_config: WhatsAppConfigRepository = (
-            whatsapp_config or FakeWhatsAppConfigRepo()
-        )
         # W2: the send path. FakeWhatsAppSender is a real deterministic adapter (records .sent);
         # the send log is the in-memory fake. Route tests keep handles to assert on both.
         self._seed_whatsapp_sender: WhatsAppSender = (
@@ -2830,9 +2790,6 @@ class SeededContainer(Container):
 
     def notifier(self) -> NotificationChannel:
         return self._seed_notifier
-
-    def whatsapp_config_repo(self) -> WhatsAppConfigRepository:
-        return self._seed_whatsapp_config
 
     def whatsapp_sender(self) -> WhatsAppSender:
         return self._seed_whatsapp_sender

@@ -39,6 +39,7 @@ def _to_config(row: ConfigRow) -> PlatformConfig:
         id=row.id,
         meta_access_token=row.meta_access_token,
         sender_number=row.sender_number,
+        template_name=row.template_name,
         interim_test_number=row.interim_test_number,
         interim_mode=row.interim_mode,
         created_at=row.created_at,
@@ -66,6 +67,7 @@ class PostgresPlatformConfigRepository:
         *,
         meta_access_token: str | None,
         sender_number: str | None,
+        template_name: str | None,
         interim_test_number: str | None,
         interim_mode: bool | None,
     ) -> PlatformConfig:
@@ -77,6 +79,9 @@ class PostgresPlatformConfigRepository:
         )
         merged_sender = _merge_str(
             sender_number, current.sender_number if current else None
+        )
+        merged_template = _merge_str(
+            template_name, current.template_name if current else None
         )
         merged_number = _merge_str(
             interim_test_number, current.interim_test_number if current else None
@@ -92,6 +97,7 @@ class PostgresPlatformConfigRepository:
                 id=_SINGLETON_ID,
                 meta_access_token=merged_token,
                 sender_number=merged_sender,
+                template_name=merged_template,
                 interim_test_number=merged_number,
                 interim_mode=merged_mode,
             )
@@ -100,6 +106,7 @@ class PostgresPlatformConfigRepository:
                 set_={
                     "meta_access_token": merged_token,
                     "sender_number": merged_sender,
+                    "template_name": merged_template,
                     "interim_test_number": merged_number,
                     "interim_mode": merged_mode,
                     "updated_at": func.now(),

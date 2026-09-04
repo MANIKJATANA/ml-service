@@ -53,14 +53,6 @@ def test_teacher_cannot_manage_staff() -> None:
     assert Permission.STUDENT_MANAGE in perms
 
 
-def test_whatsapp_manage_is_school_admin_only() -> None:
-    # W1: whatsapp:manage is granted to school_admin only (like audit:view / class:manage).
-    resolver = StaticPermissionResolver()
-    assert Permission.WHATSAPP_MANAGE in resolver.permissions_for(_user(Role.SCHOOL_ADMIN))
-    for role in (Role.TEACHER, Role.STUDENT, Role.PLATFORM_ADMIN):
-        assert Permission.WHATSAPP_MANAGE not in resolver.permissions_for(_user(role))
-
-
 def test_whatsapp_send_is_admin_and_teacher() -> None:
     # W2: whatsapp:send is granted to school_admin AND teacher (mirrors notification:send).
     resolver = StaticPermissionResolver()

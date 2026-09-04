@@ -197,18 +197,22 @@ BE_WHATSAPP_IMAGE_MAX_BYTES=4800000    <span class="cmt"># keep each photo under
   </div>
 
   <div class="step">
-    <h3><span class="num">6</span> Configure the school (in the app)</h3>
-    <p>Sign in as a <strong>school admin</strong> → <strong>WhatsApp</strong> in the left nav
-      (<code>/settings/whatsapp</code>):</p>
+    <h3><span class="num">6</span> Configure WhatsApp (in the app, as the platform admin)</h3>
+    <p>Schools no longer configure WhatsApp — the <strong>platform admin</strong> owns it all (0099).
+      Sign in as the <strong>platform admin</strong> → <strong>WhatsApp</strong> in the left nav
+      (<code>/whatsapp</code>):</p>
     <ol>
-      <li><strong>Enable WhatsApp for this school</strong> — turn it on.</li>
-      <li><strong>Sender number</strong> — leave blank to use the shared number from
-        <code>.env</code>, or set this school's own registered number.</li>
-      <li><strong>Template ID</strong> — paste the approved template's <strong>UUID</strong> from
-        Step 3 (e.g. <code>c6aecef6-bcb0-4fb1-8100-28c094e3bc6b</code>), <strong>not</strong> its
-        display name.</li>
-      <li><strong>Business name</strong> — optional display label.</li>
-      <li>Save.</li>
+      <li><strong>Sender number</strong> — the Gupshup source number you registered (for Meta, the
+        phone-number ID).</li>
+      <li><strong>Meta access token</strong> — only for the Meta provider (leave blank for Gupshup —
+        its key is in <code>.env</code>).</li>
+      <li><strong>Template name</strong> — paste the approved template's <strong>UUID</strong> from
+        Step 3 for Gupshup (e.g. <code>c6aecef6-bcb0-4fb1-8100-28c094e3bc6b</code>, <strong>not</strong>
+        the display name), or the template's <strong>name</strong> for Meta. A send fails until this
+        is set.</li>
+      <li><strong>Interim test number</strong> — optional; while set, every "Send on WhatsApp" diverts
+        to it (testing).</li>
+      <li>Save. No restart — the DB values apply on the next send.</li>
     </ol>
   </div>
 
@@ -304,27 +308,31 @@ BE_WHATSAPP_META_API_VERSION=v21.0                     <span class="cmt"># keep 
 BE_WHATSAPP_META_TEMPLATE_LANG=en_US</code></pre>
     <p>The <strong>access token</strong> and the <strong>sender phone-number ID</strong> are
       <strong>NOT env vars</strong> — set them in the UI at <strong>Platform → WhatsApp</strong>
-      (DB-only, resolved fresh per send, no restart). In <code>/settings/whatsapp</code> the field
-      reads <strong>"Template name"</strong> (Meta matches by name, not a UUID) — paste the approved
-      template's <strong>name</strong>, and it shows <em>Provider: Meta</em>.</p>
+      (DB-only, resolved fresh per send, no restart). On that same screen the <strong>Template
+      name</strong> field takes the approved template's <strong>name</strong> for Meta (Meta matches
+      by name, not a UUID).</p>
     <div class="callout tip">
       <span class="tag">Differences vs Gupshup</span>
-      <p>Meta matches a template by its <strong>name</strong> (Gupshup uses the UUID) — the settings
-        field relabels automatically. The per-school <strong>"Sender number" is ignored</strong> for
-        Meta (the sender is the platform phone-number ID set at <strong>Platform → WhatsApp</strong>).
+      <p>Meta matches a template by its <strong>name</strong> (Gupshup uses the UUID) — paste the
+        right value in the <strong>Template name</strong> field at <strong>Platform → WhatsApp</strong>
+        (its hint spells out which per provider). For Meta the <strong>"Sender number"</strong> field
+        IS the Meta sender phone-number ID; for Gupshup it's the source number.
         Keep the <strong>API version</strong> current — Meta deprecates old Graph versions.</p>
     </div>
     <div class="callout warn">
-      <span class="tag">Three DB-controlled fields (no restart) + interim test mode</span>
+      <span class="tag">Four DB-controlled fields (no restart) + interim test mode</span>
       <p>Meta's temporary token expires ~daily. Instead of editing <code>.env</code> + restarting,
-        go to <strong>Platform → WhatsApp</strong> — that one screen has <strong>three fields, all
-        stored in the DB and applied on the next send</strong>:</p>
+        go to <strong>Platform → WhatsApp</strong> — that one screen has <strong>four fields, all
+        stored in the DB and applied on the next send</strong> (schools no longer configure WhatsApp,
+        0099):</p>
       <ol>
         <li><strong>Sender number</strong> — the Meta sender <strong>phone-number ID</strong> (from
           Meta → WhatsApp → API Setup, the numeric "Phone number ID", <em>not</em> the +country
           number). This is the ONLY place it's set — there is no env var for it.</li>
         <li><strong>Meta access token</strong> — paste a fresh token; stored <strong>only in the
           DB</strong> (no env var), never shown again (only "set · ending 1234").</li>
+        <li><strong>Template name</strong> — the approved template's <strong>name</strong> (Meta) or
+          <strong>UUID</strong> (Gupshup). A real (non-interim) send fails until this is set.</li>
         <li><strong>Interim test number</strong> — the pre-template test mode.
           <strong>Setting a number here turns it ON</strong> (there is no separate toggle): "Send on
           WhatsApp" then sends a text + the real photos to <em>that</em> number, not the student. It

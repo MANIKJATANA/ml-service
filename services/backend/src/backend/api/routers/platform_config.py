@@ -48,6 +48,7 @@ async def update_platform_config(
     config = await container.platform_config_service().set_config(
         meta_access_token=body.meta_access_token,
         sender_number=body.sender_number,
+        template_name=body.template_name,
         interim_test_number=body.interim_test_number,
     )
     return PlatformConfigResponse.from_config(config)

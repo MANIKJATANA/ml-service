@@ -1,11 +1,13 @@
 """WhatsAppShareService (W2) — the gate truth table + the best-effort send loop, on fakes.
 
-Covers: config-disabled / not-opted-in / no-number / no-template / no-sender → 400 + NO send;
-the EFFECTIVE-appearance overlay is REUSED (a REJECTED appearance is never sent; an ADDED one
-IS); the happy path (N sent, N log rows, `to` == the mobile number, resolved sender/template/
-signed url); partial-failure isolation (one media raises → failed, the rest sent); the monthly
-budget cap stops sends; the ≤5 MB skip (an un-shrinkable variant → failed, not sent); and PII —
-no log row / error string carries the phone number.
+WhatsApp is now configured PLATFORM-side only (0099): the sender + approved template come from
+the ``platform_config`` singleton (there is no per-school config). Covers: not-configured
+(no-sender / no-template) / not-opted-in / no-number → 400 + NO send; the EFFECTIVE-appearance
+overlay is REUSED (a REJECTED appearance is never sent; an ADDED one IS); the happy path (N sent,
+N log rows, `to` == the mobile number, resolved sender/template/signed url); partial-failure
+isolation (one media raises → failed, the rest sent); the monthly budget cap stops sends; the
+≤5 MB skip (an un-shrinkable variant → failed, not sent); and PII — no log row / error string
+carries the phone number.
 """
 
 from __future__ import annotations
@@ -22,7 +24,6 @@ from backend.domain.models import (
     MatchVerdict,
     Media,
     PlatformConfig,
-    SchoolWhatsAppConfig,
     Student,
     WhatsAppReceipt,
     WhatsAppSendSummary,
@@ -30,7 +31,6 @@ from backend.domain.models import (
 from backend.domain.ports import Thumbnailer
 from backend.services.gallery_service import GalleryService
 from backend.services.platform_config_service import PlatformConfigService
-from backend.services.whatsapp_config_service import WhatsAppConfigService
 from backend.services.whatsapp_share_service import (
     WhatsAppShareService,
     _utc_month_start,
@@ -46,7 +46,6 @@ from backend_fakes import (
     FakePlatformConfigRepo,
     FakeStudentRepo,
     FakeThumbnailer,
-    FakeWhatsAppConfigRepo,
     FakeWhatsAppSendLogRepo,
     make_appearance,
     make_event,
@@ -58,6 +57,30 @@ from backend_fakes import (
 _MOBILE = "15559990000"
 _SENDER = "15551234567"
 _TEMPLATE = "photo_notice"
+_TEST_NUMBER = "919999888877"
+
+
+def _platform_config(
+    *,
+    sender: str | None = _SENDER,
+    template: str | None = _TEMPLATE,
+    interim_test_number: str | None = None,
+) -> PlatformConfig:
+    """The platform WhatsApp config — the SOLE config source (0099). For the template path it
+    carries a ``sender`` (Meta phone-number ID) + an approved ``template``; an
+    ``interim_test_number`` set → the interim free-form path (``interim_mode`` is vestigial, the
+    gate is the number's presence)."""
+    now = datetime(2026, 1, 1, tzinfo=UTC)
+    return PlatformConfig(
+        id="platform",
+        meta_access_token=None,
+        sender_number=sender,
+        template_name=template,
+        interim_test_number=interim_test_number,
+        interim_mode=False,
+        created_at=now,
+        updated_at=now,
+    )
 
 
 class _SizedThumbnailer:
@@ -84,24 +107,6 @@ class _SizedThumbnailer:
         return b"x" * self._size_for(quality, max_edge)
 
 
-def _config(
-    *,
-    enabled: bool,
-    sender: str | None = _SENDER,
-    template: str | None = _TEMPLATE,
-) -> SchoolWhatsAppConfig:
-    now = datetime(2026, 1, 1, tzinfo=UTC)
-    return SchoolWhatsAppConfig(
-        school_id="school-1",
-        enabled=enabled,
-        sender_number=sender,
-        template_name=template,
-        business_name="Alpha",
-        created_at=now,
-        updated_at=now,
-    )
-
-
 @dataclass
 class _Handles:
     students: FakeStudentRepo
@@ -116,7 +121,6 @@ def _build(
     appearances: list[Appearance] | None = None,
     corrections: list[MatchCorrection] | None = None,
     media: list[Media] | None = None,
-    config: SchoolWhatsAppConfig | None = None,
     sender: _RecordingSender | None = None,
     thumbnailer: Thumbnailer | None = None,
     object_store: FakeObjectStore | None = None,
@@ -126,7 +130,9 @@ def _build(
     platform_config: PlatformConfig | None = None,
 ) -> tuple[_Svc, _Handles]:
     """Wire a WhatsAppShareService over fakes. Returns (service, handles). ``platform_config``
-    (W-live-test) drives the interim path; default None → interim off → template path."""
+    (0099: the SOLE WhatsApp config) supplies the sender + template for the template path, and an
+    ``interim_test_number`` drives the interim path; default None → a template-ready config
+    (sender + template, no interim number) → the template path."""
     student = student or make_student(
         id="stu-1",
         school_id="school-1",
@@ -150,19 +156,14 @@ def _build(
         audit,
         download_url_ttl_s=3600,
     )
-    config_repo = FakeWhatsAppConfigRepo(
-        [config] if config is not None else [_config(enabled=True)]
-    )
-    config_service = WhatsAppConfigService(
-        config_repo, default_sender_number=default_sender, provider="gupshup"
-    )
     platform_service = PlatformConfigService(
-        FakePlatformConfigRepo(platform_config)
+        FakePlatformConfigRepo(
+            platform_config if platform_config is not None else _platform_config()
+        )
     )
     fake_sender = sender or _RecordingSender()
     log = send_log or FakeWhatsAppSendLogRepo()
     service = WhatsAppShareService(
-        config_service,
         platform_service,
         gallery,
         students,
@@ -253,8 +254,12 @@ async def _send(
 # ---- gate truth table ---------------------------------------------------
 
 
-async def test_config_disabled_is_400_and_no_send() -> None:
-    service, h = _build(config=_config(enabled=False))
+async def test_unconfigured_platform_is_400_and_no_send() -> None:
+    # 0099: there is no per-school enable flag — an unconfigured platform (no sender + no
+    # template) fails fast with 400 and sends nothing.
+    service, h = _build(
+        platform_config=_platform_config(sender=None, template=None), default_sender=""
+    )
     with pytest.raises(ValidationError):
         await _send(service)
     assert h.sender.sent == []
@@ -282,15 +287,17 @@ async def test_no_number_is_400_and_no_send() -> None:
 
 
 async def test_no_template_is_400() -> None:
-    service, h = _build(config=_config(enabled=True, template=None))
+    service, h = _build(platform_config=_platform_config(template=None))
     with pytest.raises(ValidationError):
         await _send(service)
     assert h.sender.sent == []
 
 
 async def test_no_sender_is_400() -> None:
-    # Config sender None AND no platform default → no sender number configured.
-    service, h = _build(config=_config(enabled=True, sender=None), default_sender="")
+    # Platform sender None AND no fallback default → no sender number configured.
+    service, h = _build(
+        platform_config=_platform_config(sender=None), default_sender=""
+    )
     with pytest.raises(ValidationError):
         await _send(service)
     assert h.sender.sent == []
@@ -564,24 +571,8 @@ def test_utc_month_start_is_first_of_month() -> None:
 
 
 # ---- interim free-form send (W-live-test) -------------------------------
-
-_TEST_NUMBER = "919999888877"
-
-
-def _platform(*, interim_mode: bool, number: str | None = _TEST_NUMBER) -> PlatformConfig:
-    # NB: the interim path is now gated PURELY on `number` (interim_test_number) being set — the
-    # `interim_mode` flag is a vestigial column and does NOT drive the gate. `number=None` → the
-    # template path runs; a set `number` → the interim path.
-    now = datetime(2026, 1, 1, tzinfo=UTC)
-    return PlatformConfig(
-        id="platform",
-        meta_access_token=None,
-        sender_number=None,
-        interim_test_number=number,
-        interim_mode=interim_mode,
-        created_at=now,
-        updated_at=now,
-    )
+# The interim path is gated PURELY on the platform ``interim_test_number`` being set (built via
+# ``_platform_config(interim_test_number=...)``); a None number → the template path runs.
 
 
 async def test_interim_mode_sends_text_intro_plus_photos_to_test_number() -> None:
@@ -605,7 +596,7 @@ async def test_interim_mode_sends_text_intro_plus_photos_to_test_number() -> Non
         appearances=appearances,
         media=media,
         sender=sender,
-        platform_config=_platform(interim_mode=True),
+        platform_config=_platform_config(interim_test_number=_TEST_NUMBER),
     )
     summary = await _send(service)
     assert summary.sent == 2 and summary.failed == 0 and summary.skipped == 0
@@ -647,7 +638,7 @@ async def test_interim_mode_reuses_effective_overlay_rejected_not_sent() -> None
         corrections=corrections,
         media=media,
         sender=sender,
-        platform_config=_platform(interim_mode=True),
+        platform_config=_platform_config(interim_test_number=_TEST_NUMBER),
     )
     summary = await _send(service)
     assert summary.sent == 0
@@ -672,7 +663,8 @@ async def test_interim_mode_respects_budget_cap() -> None:
     sender = _RecordingSender()
     service, h = _build(
         appearances=appearances, media=media, sender=sender, send_log=log,
-        monthly_cap=2, platform_config=_platform(interim_mode=True),
+        monthly_cap=2,
+        platform_config=_platform_config(interim_test_number=_TEST_NUMBER),
     )
     summary = await _send(service)
     assert summary.sent == 1 and summary.skipped == 1
@@ -695,7 +687,7 @@ async def test_interim_intro_failure_does_not_abort_photos() -> None:
     sender = _IntroFailsSender()
     service, h = _build(
         appearances=appearances, media=media, sender=sender,
-        platform_config=_platform(interim_mode=True),
+        platform_config=_platform_config(interim_test_number=_TEST_NUMBER),
     )
     summary = await _send(service)
     assert summary.sent == 1  # the photo still went out
@@ -705,7 +697,7 @@ async def test_interim_intro_failure_does_not_abort_photos() -> None:
 async def test_no_interim_number_uses_template_path_regression() -> None:
     """With NO interim test number set the existing template path runs unchanged: the consent
     gate applies (opted-in + number) and send_image (template) is used, not the free-form calls.
-    (interim_mode is vestigial — even set True below, an absent number means the template path.)"""
+    The template path reads its sender + template from the SAME platform config (0099)."""
     media = [make_media(id="m1", school_id="school-1", event_id="event-1")]
     appearances = [
         make_appearance(student_id="stu-1", media_id="m1", event_id="event-1")
@@ -715,33 +707,13 @@ async def test_no_interim_number_uses_template_path_regression() -> None:
         appearances=appearances,
         media=media,
         sender=sender,
-        platform_config=_platform(interim_mode=True, number=None),
+        platform_config=_platform_config(interim_test_number=None),
     )
     summary = await _send(service)
     assert summary.sent == 1
     # The TEMPLATE send was used; the free-form interim calls were not.
     assert len(sender.sent) == 1 and sender.sent[0]["template"] == _TEMPLATE
     assert sender.texts == [] and sender.image_links == []
-
-
-async def test_interim_mode_without_number_falls_back_to_template() -> None:
-    """interim_mode True but NO test number → not interim; the template path runs (consent
-    applies)."""
-    media = [make_media(id="m1", school_id="school-1", event_id="event-1")]
-    appearances = [
-        make_appearance(student_id="stu-1", media_id="m1", event_id="event-1")
-    ]
-    sender = _RecordingSender()
-    service, h = _build(
-        appearances=appearances,
-        media=media,
-        sender=sender,
-        platform_config=_platform(interim_mode=True, number=None),
-    )
-    summary = await _send(service)
-    assert summary.sent == 1
-    assert len(sender.sent) == 1  # template path
-    assert sender.image_links == []
 
 
 async def test_no_recipient_number_leaks_in_interim_log_rows() -> None:
@@ -753,7 +725,7 @@ async def test_no_recipient_number_leaks_in_interim_log_rows() -> None:
     sender = _RecordingSender(raise_on_url_substr="m1.jpg")  # force a failure
     service, h = _build(
         appearances=appearances, media=media, sender=sender,
-        platform_config=_platform(interim_mode=True),
+        platform_config=_platform_config(interim_test_number=_TEST_NUMBER),
     )
     await _send(service)
     for r in h.log.rows:

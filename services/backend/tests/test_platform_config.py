@@ -89,6 +89,19 @@ async def test_set_sender_number_and_partial_update() -> None:
     assert after.meta_access_token == _SECRET
 
 
+async def test_set_template_name_and_partial_update() -> None:
+    # 0099: the approved template lives on the platform config now. Set it, then a token-only save
+    # keeps it (partial update); a blank clears it.
+    repo = FakePlatformConfigRepo()
+    service = PlatformConfigService(repo)
+    after = await service.set_config(template_name="event_photos_util")
+    assert after.template_name == "event_photos_util"
+    after = await service.set_config(meta_access_token=_SECRET)
+    assert after.template_name == "event_photos_util"  # unchanged
+    after = await service.set_config(template_name="")
+    assert after.template_name is None  # cleared
+
+
 async def test_clearing_interim_number_turns_off_and_keeps_others() -> None:
     # The gate is now the interim number's PRESENCE (no toggle) — clearing it (a provided "") must
     # NULL it (turn interim off) while leaving the sender/token untouched. `None` = unchanged.
@@ -132,6 +145,7 @@ def test_response_no_token_when_unset() -> None:
             id="platform",
             meta_access_token=None,
             sender_number=None,
+            template_name=None,
             interim_test_number=None,
             interim_mode=False,
             created_at=now,
@@ -141,6 +155,7 @@ def test_response_no_token_when_unset() -> None:
     assert resp.token_set is False
     assert resp.token_last4 is None
     assert resp.sender_number is None
+    assert resp.template_name is None
 
 
 def test_short_token_has_no_last4() -> None:
@@ -154,6 +169,7 @@ def test_short_token_has_no_last4() -> None:
             id="platform",
             meta_access_token="abc",  # < 4 chars
             sender_number=None,
+            template_name=None,
             interim_test_number=None,
             interim_mode=False,
             created_at=now,
@@ -197,6 +213,7 @@ def test_route_get_default_masked() -> None:
     assert body["token_set"] is False
     assert body["token_last4"] is None
     assert body["sender_number"] is None
+    assert body["template_name"] is None
     assert body["interim_test_number"] is None
     assert "meta_access_token" not in body  # the secret is never in the response
     assert "interim_mode" not in body  # the toggle was dropped from the API surface
@@ -211,6 +228,7 @@ def test_route_put_then_get_reflects_and_masks() -> None:
         json={
             "meta_access_token": _SECRET,
             "sender_number": "106540388866237",
+            "template_name": "event_photos_util",
             "interim_test_number": "919999888877",
         },
     )
@@ -219,12 +237,14 @@ def test_route_put_then_get_reflects_and_masks() -> None:
     assert body["token_set"] is True
     assert body["token_last4"] == _SECRET[-4:]
     assert body["sender_number"] == "106540388866237"
+    assert body["template_name"] == "event_photos_util"
     assert body["interim_test_number"] == "919999888877"
     assert _SECRET not in put.text  # the full token never appears in the response body
 
     reread = client.get("/v1/platform/whatsapp-config", headers=hdr).json()
     assert reread["token_set"] is True
     assert reread["sender_number"] == "106540388866237"
+    assert reread["template_name"] == "event_photos_util"
     assert reread["interim_test_number"] == "919999888877"
 
 

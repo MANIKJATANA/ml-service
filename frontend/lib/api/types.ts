@@ -94,32 +94,18 @@ export interface ClassRefListResponse {
   items: ClassResponse[];
 }
 
-/** A school's per-school, NON-SECRET WhatsApp config (W1). `effective_sender_number` is the
- *  number the school actually sends from (its own, or the shared platform number);
- *  `using_shared_number` is true when it hasn't set its own. The provider secret is never here. */
-export interface WhatsAppConfigResponse {
-  school_id: string;
-  enabled: boolean;
-  sender_number: string | null;
-  effective_sender_number: string | null;
-  template_name: string | null;
-  business_name: string | null;
-  using_shared_number: boolean;
-  /** The active send provider (fake/gupshup/meta) — labels the template field. */
-  provider: string;
-  created_at: string;
-  updated_at: string;
-}
-
-/** Platform-wide WhatsApp config (W-live-test), platform-admin only. The three DB-controlled
- *  fields: `sender_number` (the Meta sender phone-number ID, returned in full — not a secret), the
- *  Meta access token (stored server-side but NEVER returned — only `token_set` + `token_last4`),
- *  and `interim_test_number`. When an interim number is set, every "Send on WhatsApp" is diverted
- *  to it (the interim test flow); clear it for normal delivery. */
+/** Platform-wide WhatsApp config (W-live-test) — the SOLE WhatsApp config (0099), platform-admin
+ *  only (schools no longer configure WhatsApp). The DB-controlled fields: `sender_number` (the Meta
+ *  sender phone-number ID, returned in full — not a secret), the Meta access token (stored
+ *  server-side but NEVER returned — only `token_set` + `token_last4`), `template_name` (the approved
+ *  template the non-interim send uses), and `interim_test_number`. When an interim number is set,
+ *  every "Send on WhatsApp" is diverted to it (the interim test flow); clear it for normal
+ *  delivery. */
 export interface WhatsAppPlatformConfigResponse {
   token_set: boolean;
   token_last4: string | null;
   sender_number: string | null;
+  template_name: string | null;
   interim_test_number: string | null;
   updated_at: string;
 }

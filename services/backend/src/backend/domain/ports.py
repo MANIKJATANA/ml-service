@@ -41,7 +41,6 @@ from backend.domain.models import (
     School,
     SchoolSort,
     SchoolStatus,
-    SchoolWhatsAppConfig,
     SignedUpload,
     StoredObject,
     Student,
@@ -933,8 +932,10 @@ class WhatsAppSender(Protocol):
 class PlatformConfigRepository(Protocol):
     """The platform-wide config singleton (W-live-test, migration 0024). Exactly ONE row, keyed
     on the constant id ``"platform"``. Holds the DB-stored Meta access token (a SECRET, never
-    returned in full / never logged — the container reads it with an env fallback) + the interim
-    free-form-send settings. Platform-admin only (authorization is at the route)."""
+    returned in full / never logged — the container reads it DB-only) + the sender phone-number ID
+    + the approved template + the interim free-form-send settings. Schools no longer configure
+    WhatsApp — this is the sole config source (0099). Platform-admin only (authorization is at the
+    route)."""
 
     async def get(self) -> PlatformConfig | None: ...
     async def upsert(
@@ -942,30 +943,14 @@ class PlatformConfigRepository(Protocol):
         *,
         meta_access_token: str | None,
         sender_number: str | None,
+        template_name: str | None,
         interim_test_number: str | None,
         interim_mode: bool | None,
     ) -> PlatformConfig:
         """Create/replace the singleton, updating ONLY the provided (non-None) fields — a caller
-        can save just the token, OR just the sender/interim number, without clobbering the rest (a
-        fetch-merge upsert). ``None`` for any field means "leave unchanged"."""
+        can save just the token, OR just the sender/template/interim number, without clobbering the
+        rest (a fetch-merge upsert). ``None`` for any field means "leave unchanged"."""
         ...
-
-
-class WhatsAppConfigRepository(Protocol):
-    """Backend-owned, per-school NON-SECRET WhatsApp config (W1). Keyed on ``school_id`` (PK);
-    reads are by that key, so tenant isolation is inherent. The one provider secret lives in
-    settings, never in a column here."""
-
-    async def get(self, school_id: str) -> SchoolWhatsAppConfig | None: ...
-    async def upsert(
-        self,
-        *,
-        school_id: str,
-        enabled: bool,
-        sender_number: str | None,
-        template_name: str | None,
-        business_name: str | None,
-    ) -> SchoolWhatsAppConfig: ...
 
 
 class WhatsAppSendLogRepository(Protocol):

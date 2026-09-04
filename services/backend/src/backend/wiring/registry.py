@@ -115,15 +115,9 @@ WHATSAPP_SENDER_REGISTRY: dict[str, str] = {
     "meta": "backend.adapters.whatsapp.meta_sender:MetaWhatsAppSender",
 }
 
-WHATSAPP_CONFIG_REPO_REGISTRY: dict[str, str] = {
-    "postgres": (
-        "backend.adapters.repositories.postgres_whatsapp_config"
-        ":PostgresWhatsAppConfigRepository"
-    ),
-}
-
-# Platform-wide config singleton (W-live-test). Holds the DB-stored Meta token + interim-send
-# settings; platform-admin only.
+# Platform-wide config singleton (W-live-test). The SOLE WhatsApp config (0099): the DB-stored
+# Meta token + sender phone-number ID + approved template + interim-send settings; platform-admin
+# only. (Schools no longer configure WhatsApp — the per-school config repo was removed.)
 PLATFORM_CONFIG_REPO_REGISTRY: dict[str, str] = {
     "postgres": (
         "backend.adapters.repositories.postgres_platform_config"

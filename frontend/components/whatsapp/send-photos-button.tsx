@@ -17,6 +17,9 @@ interface SendPhotosButtonProps {
   hasNumber: boolean;
   /** Compact variant for a per-row/tab placement (defaults to a full-size secondary button). */
   size?: "sm" | "md";
+  /** Ultra-compact label ("Send", no count/"on WhatsApp") + no inline reason hint — for the
+   *  floating action capsule where the count lives beside it and space is tight. */
+  compact?: boolean;
 }
 
 /**
@@ -33,6 +36,7 @@ export function SendPhotosButton({
   optedIn,
   hasNumber,
   size = "md",
+  compact = false,
 }: SendPhotosButtonProps) {
   const { toast } = useToast();
   const { busy, send } = useWhatsAppSend(studentId);
@@ -94,9 +98,9 @@ export function SendPhotosButton({
         title={disabledReason ?? undefined}
       >
         <MessageCircle className="size-4" aria-hidden="true" />
-        {busy ? "Sending…" : `Send ${n} on WhatsApp`}
+        {busy ? "Sending…" : compact ? "Send" : `Send ${n} on WhatsApp`}
       </Button>
-      {disabledReason ? (
+      {!compact && disabledReason ? (
         <span className="text-body-sm text-ink-secondary">{disabledReason}</span>
       ) : null}
       {/* SR-only summary — announced once on resolve (the toast covers sighted users). */}

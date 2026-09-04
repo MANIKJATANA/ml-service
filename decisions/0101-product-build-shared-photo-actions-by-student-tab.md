@@ -82,6 +82,23 @@ select/send/download division is needed (no event filter).
 - Random select is client-side over the loaded view; the BP9 500-photo non-streaming download cap
   still applies (honest capped toast) — both inherited from the reused `useDownloadAll`.
 
+## Addendum — floating action capsule (follow-on, FE-only)
+
+After the shared component landed, the owner asked for the Send/Download bar to stay reachable
+without scrolling past a long grid (50–100+ photos). We explored three treatments in HTML
+(`photo-action-bar-designs.html`: sticky top bar / floating capsule / FAB cluster) and the owner
+picked the **floating capsule**. The action bar in `StudentPhotoActions` is now a compact
+centre-bottom pill that **floats above the grid while scrolling** — `sticky bottom-4` on the last
+child, so it reserves its space in flow (nothing is permanently hidden) and settles below the grid at
+max scroll; the wrapper is `pointer-events-none` (grid taps pass through) while the pill is
+`pointer-events-auto`; `z-10` keeps it under the lightbox (z-50). The pill carries the count
+("N selected" / "N photos") beside compact **Send** + **Download** buttons — so `SendPhotosButton`
+gained a `compact` mode (label "Send", no inline reason hint; the disabled reason stays as a `title`)
+and the `size` prop was dropped from `StudentPhotoActions` (both buttons are always `sm` in the pill).
+Both surfaces (student-detail "Appears in" + event "By student") inherit it via the shared component.
+**Pure frontend** — no backend/ML change, no migration, no new dependency. FE gate (lint+tsc+build)
+green.
+
 ## What's next
 
 - Awaiting the owner's review + commit. A separate, owner-flagged idea — the event **"All photos"**

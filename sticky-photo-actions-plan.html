@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Plan — sticky Send/Download action bar</title>
+<style>
+  :root{
+    --wa:#25d366; --wa-dark:#128c7e; --ink:#0f172a; --ink2:#475569; --muted:#94a3b8;
+    --line:#e2e8f0; --bg:#f1f5f9; --card:#ffffff; --surface:#f8fafc;
+    --ok-bg:#ecfdf5; --ok-ink:#065f46; --ok-line:#6ee7b7;
+    --bad-bg:#fef2f2; --bad-ink:#991b1b; --bad-line:#fca5a5;
+    --acc:#2563eb; --acc-soft:#eff6ff; --acc-line:#bfdbfe;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.6 -apple-system,Segoe UI,Roboto,system-ui,sans-serif;padding:32px 16px}
+  .wrap{max-width:900px;margin:0 auto}
+  h1{font-size:26px;margin:0 0 6px}
+  .sub{color:var(--ink2);margin:0 0 18px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:22px;margin:16px 0;box-shadow:0 1px 2px rgba(15,23,42,.04)}
+  h2{font-size:20px;margin:0 0 4px}
+  h3{font-size:15px;margin:14px 0 6px}
+  p{margin:8px 0}
+  .tag{display:inline-block;font-size:11.5px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;color:var(--wa-dark);background:#e7fbf1;border:1px solid #bff3d8;border-radius:999px;padding:3px 10px;margin-bottom:8px}
+  ul{margin:6px 0;padding-left:20px} li{margin:5px 0;font-size:14.6px}
+  code{font-family:ui-monospace,Consolas,monospace;font-size:13px;background:#eef2f7;border:1px solid var(--line);border-radius:5px;padding:1px 6px}
+  .ok{background:var(--ok-bg);border:1px solid var(--ok-line);border-radius:12px;padding:12px 15px;color:var(--ok-ink);font-size:14px}
+  /* mock */
+  .mock{border:1px solid var(--line);border-radius:12px;overflow:hidden;box-shadow:0 6px 18px rgba(15,23,42,.08);margin:10px 0}
+  .mbar{background:#f8fafc;border-bottom:1px solid var(--line);display:flex;gap:7px;align-items:center;padding:8px 12px}
+  .dot{width:9px;height:9px;border-radius:50%}
+  .murl{flex:1;background:#fff;border:1px solid var(--line);border-radius:6px;padding:3px 10px;color:var(--ink2);font-size:12px;font-family:ui-monospace,Consolas,monospace}
+  .win{position:relative;height:260px;overflow:hidden;background:#fff}
+  .scroll{position:absolute;inset:0;overflow-y:auto}
+  .h2row{font-size:15px;font-weight:700;padding:12px 16px 6px}
+  .stickybar{position:sticky;top:0;z-index:5;background:#fff;border-bottom:1px solid var(--line);box-shadow:0 2px 6px rgba(15,23,42,.06);padding:10px 14px;display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+  .btn{border:1px solid var(--line);border-radius:8px;padding:5px 11px;font-size:12.5px;background:#fff;font-weight:600;color:var(--ink)}
+  .btn.p{background:var(--wa-dark);color:#fff;border:none}
+  .btn.g{background:#0f172a;color:#fff;border:none}
+  .num{width:44px;border:1px solid var(--line);border-radius:8px;padding:4px 6px;font-size:12px;text-align:center}
+  .cnt{margin-left:auto;font-size:12.5px;color:var(--ink2);font-weight:700}
+  .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;padding:12px 14px}
+  .tile{aspect-ratio:1;border-radius:8px;background:linear-gradient(135deg,#dbeafe,#ede9fe);border:1px solid var(--line);position:relative}
+  .tile.sel{outline:3px solid var(--wa);outline-offset:-3px}
+  .tile.sel::after{content:"✓";position:absolute;top:3px;right:4px;background:var(--wa-dark);color:#fff;width:16px;height:16px;line-height:16px;text-align:center;border-radius:50%;font-size:10px;font-weight:800}
+  .float{position:absolute;left:12px;right:12px;bottom:12px;z-index:6;background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:0 8px 24px rgba(15,23,42,.16);padding:10px 12px;display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+  .ba{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media(max-width:680px){.ba{grid-template-columns:1fr}}
+  .col{border-radius:14px;padding:14px 16px}
+  .col.old{background:var(--bad-bg);border:1px solid var(--bad-line)} .col.new{background:var(--ok-bg);border:1px solid var(--ok-line)}
+  .col h4{margin:0 0 8px;font-size:14.5px} .col.old h4{color:var(--bad-ink)} .col.new h4{color:var(--ok-ink)}
+  .col ul{margin:0;padding-left:18px} .col li{margin:5px 0;font-size:14px}
+  .pick{display:inline-block;font-size:11px;font-weight:800;color:#fff;background:var(--wa-dark);border-radius:5px;padding:2px 7px;margin-left:6px;vertical-align:middle}
+  .foot{color:var(--muted);font-size:13px;text-align:center;margin:22px 0 4px}
+  .tl{background:#0f172a;color:#e2e8f0;border:none} .tl b{color:var(--wa)}
+  .hint{font-size:12px;color:var(--ink2);padding:0 14px 12px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>Plan — Send/Download <span style="color:var(--wa-dark)">hamesha dikhe</span> (sticky action bar)</h1>
+  <p class="sub">Photos zyada ho to neeche scroll karke Send/Download dhoondhna na pade. Ek shared component → <b>dono jagah theek</b>: event <b>By student</b> + student <b>By event ("Appears in")</b>. Abhi sirf plan.</p>
+
+  <!-- PROBLEM -->
+  <div class="card">
+    <span class="tag">Problem</span>
+    <p>Abhi Send/Download buttons grid ke <b>neeche</b> hain. 50–100 photos me unhe click karne ke liye poora scroll karna padta hai.</p>
+  </div>
+
+  <!-- OPTION A -->
+  <div class="card">
+    <span class="tag">Option A — Sticky top bar <span class="pick">Recommended</span></span>
+    <p>Select-mode ka toolbar + <b>Send/Download upar pin</b> ho jaate hain. Photos neeche scroll hoti hain, controls upar chipke rehte — kabhi scroll nahi karna.</p>
+    <div class="mock">
+      <div class="mbar"><span class="dot" style="background:#ff5f57"></span><span class="dot" style="background:#febc2e"></span><span class="dot" style="background:#28c840"></span><span class="murl">…/students/aarav — Appears in</span></div>
+      <div class="win">
+        <div class="scroll">
+          <div class="h2row">Appears in</div>
+          <div class="stickybar">
+            <span class="btn">☑ Select all (60)</span>
+            <span class="btn">🎲 Random <input class="num" value="10" readonly></span>
+            <span class="btn">Clear</span>
+            <span class="cnt">8 selected</span>
+            <span class="btn p">Send 8</span>
+            <span class="btn g">⤓ 8</span>
+          </div>
+          <div class="grid">
+            <div class="tile sel"></div><div class="tile"></div><div class="tile sel"></div><div class="tile"></div>
+            <div class="tile"></div><div class="tile sel"></div><div class="tile"></div><div class="tile"></div>
+            <div class="tile"></div><div class="tile"></div><div class="tile sel"></div><div class="tile"></div>
+            <div class="tile"></div><div class="tile"></div><div class="tile"></div><div class="tile"></div>
+            <div class="tile sel"></div><div class="tile"></div><div class="tile"></div><div class="tile"></div>
+          </div>
+        </div>
+      </div>
+      <div class="hint">↑ Scroll karo — grey <b>Select all / Send / Download</b> bar upar chipka rehta hai (photos peeche scroll hoti hain).</div>
+    </div>
+  </div>
+
+  <!-- OPTION B -->
+  <div class="card">
+    <span class="tag">Option B — Floating bottom bar</span>
+    <p>Jab kuch selected ho, screen ke <b>neeche ek floating bar</b> aata hai: "8 selected · Send 8 · Download 8". Mobile-friendly.</p>
+    <div class="mock">
+      <div class="mbar"><span class="dot" style="background:#ff5f57"></span><span class="dot" style="background:#febc2e"></span><span class="dot" style="background:#28c840"></span><span class="murl">…/events/sports-day — By student</span></div>
+      <div class="win">
+        <div class="scroll">
+          <div class="h2row">Aarav · 60 photos</div>
+          <div class="grid">
+            <div class="tile sel"></div><div class="tile"></div><div class="tile sel"></div><div class="tile"></div>
+            <div class="tile"></div><div class="tile sel"></div><div class="tile"></div><div class="tile"></div>
+            <div class="tile"></div><div class="tile"></div><div class="tile sel"></div><div class="tile"></div>
+            <div class="tile"></div><div class="tile"></div><div class="tile"></div><div class="tile"></div>
+            <div class="tile sel"></div><div class="tile"></div><div class="tile"></div><div class="tile"></div>
+          </div>
+        </div>
+        <div class="float">
+          <span class="cnt" style="margin-left:0">8 selected</span>
+          <span class="btn p" style="margin-left:auto">Send 8 on WhatsApp</span>
+          <span class="btn g">⤓ Download 8</span>
+        </div>
+      </div>
+      <div class="hint">↑ Floating bar hamesha screen ke neeche dikhta (grid uske peeche scroll hoti).</div>
+    </div>
+  </div>
+
+  <!-- BEFORE/AFTER -->
+  <div class="card">
+    <span class="tag">Kya badlega</span>
+    <div class="ba">
+      <div class="col old">
+        <h4>❌ Abhi</h4>
+        <ul>
+          <li>Send/Download grid ke <b>neeche</b></li>
+          <li>Zyada photos = scroll karke dhoondho</li>
+        </ul>
+      </div>
+      <div class="col new">
+        <h4>✅ Ab (Option A)</h4>
+        <ul>
+          <li>Toolbar + Send/Download <b>upar pinned</b></li>
+          <li>Scroll me bhi hamesha reach me</li>
+          <li>Browse mode: "Send N / Download N" bhi pinned</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- HOW -->
+  <div class="card">
+    <span class="tag">Kaise banega</span>
+    <ul>
+      <li>Sirf <b>shared <code>StudentPhotoActions</code></b> ka layout badlega — toggle + select-toolbar + Send/Download ko ek <b><code>sticky top-0</code></b> bar me daal denge, grid neeche.</li>
+      <li>Ye component <b>dono</b> jagah use hota hai → event <b>By student</b> + student <b>By event</b>, dono ek saath fix.</li>
+      <li>Bar ka apna background + halki border/shadow (scroll hoti photos peeche na jhaanke). Section ke andar sticky, so sirf us section me pinned rehta.</li>
+      <li>Mobile pe bhi kaam karta (flex-wrap se buttons wrap).</li>
+    </ul>
+    <p class="ok">✅ <b>Pure frontend</b> — koi backend/ML change, migration, ya nayi dependency nahi. Behaviour same, bas position sticky.</p>
+  </div>
+
+  <div class="card tl">
+    <p style="margin:0"><b>TL;DR</b> — Send/Download (+ select toolbar) ko <b>sticky/pinned</b> kar denge taaki zyada photos me bhi scroll na karna pade. Shared component → event By-student + student By-event dono fix. <b>Option A (top-pinned)</b> recommend karta, ya <b>B (floating bottom)</b>. Pure frontend. <b>Bata konsa — bana du.</b></p>
+  </div>
+
+  <p class="foot">File: sticky-photo-actions-plan.html · abhi tak commit nahi kiya — tere OK ka wait</p>
+</div>
+</body>
+</html>

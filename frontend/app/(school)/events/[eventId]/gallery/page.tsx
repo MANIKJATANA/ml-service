@@ -225,7 +225,6 @@ function EventStudentPhotos({
       resetKey={studentId}
       zipEntryFor={zipEntryFor}
       zipName={zipName}
-      size="sm"
       leftHeader={
         <p className="text-body-sm text-ink-secondary">
           {media.length} {media.length === 1 ? "photo" : "photos"} in this event

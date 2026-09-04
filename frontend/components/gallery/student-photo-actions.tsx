@@ -30,12 +30,10 @@ function PhotoDownloadButton({
   mediaList,
   zipEntryFor,
   zipName,
-  size,
 }: {
   mediaList: GalleryMediaResponse[];
   zipEntryFor: (media: GalleryMediaResponse, index: number) => string;
   zipName: string;
-  size?: "sm" | "md";
 }) {
   const { toast } = useToast();
   const mediaIds = useMemo(() => mediaList.map((m) => m.media_id), [mediaList]);
@@ -79,15 +77,13 @@ function PhotoDownloadButton({
     <div className="flex items-center gap-3">
       <Button
         variant="secondary"
-        size={size === "sm" ? "sm" : undefined}
+        size="sm"
         onClick={handleDownload}
         loading={busy}
         disabled={busy || total === 0}
       >
         <Download className="size-4" aria-hidden="true" />
-        {busy
-          ? `Preparing ${done}/${total}…`
-          : `Download ${total} ${total === 1 ? "photo" : "photos"}`}
+        {busy ? "Preparing…" : "Download"}
       </Button>
       {/* SR-only progress (a *visible* per-tick live region would announce on every photo; the
           button-label flip covers sighted users). */}
@@ -120,7 +116,6 @@ export function StudentPhotoActions({
   captionOf,
   canManageAppearances = true,
   leftHeader,
-  size = "md",
 }: {
   media: GalleryMediaResponse[];
   studentId: string;
@@ -136,8 +131,6 @@ export function StudentPhotoActions({
   canManageAppearances?: boolean;
   /** Optional context node shown left of the "Select photos" toggle (e.g. a photo count). */
   leftHeader?: ReactNode;
-  /** Send/Download button size — "sm" for a compact tab context (the By-student tab), else md. */
-  size?: "sm" | "md";
 }) {
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -237,9 +230,6 @@ export function StudentPhotoActions({
           >
             Clear
           </Button>
-          <span role="status" className="ml-auto text-body-sm text-ink-secondary">
-            {selected.size} selected
-          </span>
         </div>
       ) : null}
 
@@ -256,22 +246,38 @@ export function StudentPhotoActions({
         <PhotoGrid items={items} canManageAppearances={canManageAppearances} />
       )}
 
-      {/* Actions — target the selection (Select mode) or the whole view (Browse). */}
-      <div className="flex flex-wrap items-center gap-3">
-        <SendPhotosButton
-          studentId={studentId}
-          studentName={studentName}
-          mediaIds={targetIds}
-          optedIn={optedIn}
-          hasNumber={hasNumber}
-          size={size}
-        />
-        <PhotoDownloadButton
-          mediaList={targetMedia}
-          zipEntryFor={zipEntryFor}
-          zipName={zipName}
-          size={size}
-        />
+      {/* Floating action capsule (the picked design) — a compact centered pill that FLOATS above
+          the grid while scrolling (sticky), so Send/Download stay reachable without scrolling past a
+          long grid. Scroll behaviour: the wrapper is the last child + `sticky bottom-4`, so it
+          reserves its space in flow (nothing is permanently hidden) and settles below the grid at
+          max scroll; the wrapper is `pointer-events-none` (grid taps pass through) while the pill
+          itself is `pointer-events-auto`. `z-10` keeps it above tiles, below the lightbox (z-50).
+          The count sits in the pill (what you're about to act on); the buttons are compact. */}
+      <div className="pointer-events-none sticky bottom-4 z-10 flex justify-center">
+        <div
+          className="pointer-events-auto flex items-center gap-2 rounded-full border border-hairline bg-canvas py-2 pl-4 pr-2"
+          style={{ boxShadow: "0 10px 30px -8px rgba(15, 23, 42, 0.28)" }}
+        >
+          <span role="status" className="whitespace-nowrap text-body-sm font-medium text-ink">
+            {selectMode
+              ? `${selected.size} selected`
+              : `${media.length} ${media.length === 1 ? "photo" : "photos"}`}
+          </span>
+          <SendPhotosButton
+            studentId={studentId}
+            studentName={studentName}
+            mediaIds={targetIds}
+            optedIn={optedIn}
+            hasNumber={hasNumber}
+            size="sm"
+            compact
+          />
+          <PhotoDownloadButton
+            mediaList={targetMedia}
+            zipEntryFor={zipEntryFor}
+            zipName={zipName}
+          />
+        </div>
       </div>
     </div>
   );

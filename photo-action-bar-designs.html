@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Photo actions — 3 design options</title>
+<style>
+  :root{
+    --wa:#128c7e; --wa2:#25d366; --ink:#0f172a; --ink2:#475569; --muted:#94a3b8;
+    --line:#e2e8f0; --bg:#eef2f7; --card:#ffffff; --surface:#f6f8fb; --surface2:#eef2f7;
+    --accent:#2563eb; --accent-soft:#eff6ff; --accent-line:#bfdbfe;
+    --ring:#93c5fd;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.55 -apple-system,Segoe UI,Roboto,system-ui,sans-serif;padding:30px 16px}
+  .wrap{max-width:1040px;margin:0 auto}
+  h1{font-size:25px;margin:0 0 4px}
+  .sub{color:var(--ink2);margin:0 0 6px}
+  .note{color:var(--ink2);font-size:13.5px;margin:0 0 22px}
+  .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
+  @media(max-width:900px){.grid3{grid-template-columns:1fr}}
+  .opt{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:16px;box-shadow:0 1px 3px rgba(15,23,42,.05)}
+  .opt.rec{border-color:#bff3d8;box-shadow:0 0 0 2px #e7fbf1, 0 6px 18px rgba(15,23,42,.06)}
+  .badge{display:inline-block;font-size:10.5px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:#fff;background:var(--wa);border-radius:6px;padding:2px 8px}
+  .lbl{display:flex;align-items:center;gap:8px;margin:0 0 3px}
+  .lbl h2{font-size:17px;margin:0}
+  .desc{color:var(--ink2);font-size:13px;margin:2px 0 12px;min-height:34px}
+  /* device frame */
+  .phone{position:relative;height:340px;border:1px solid var(--line);border-radius:14px;overflow:hidden;background:#fff;box-shadow:inset 0 0 0 1px #fff}
+  .status{height:26px;background:var(--surface);border-bottom:1px solid var(--line);display:flex;align-items:center;gap:6px;padding:0 10px;font-size:11px;color:var(--muted)}
+  .dot{width:8px;height:8px;border-radius:50%}
+  .scroll{position:absolute;top:26px;left:0;right:0;bottom:0;overflow:hidden}
+  .h2{font-size:13.5px;font-weight:700;padding:10px 12px 6px}
+  .toolbar{display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:0 12px 8px}
+  .chip{border:1px solid var(--line);border-radius:999px;background:#fff;font-size:11.5px;padding:4px 10px;font-weight:600;color:var(--ink2)}
+  .num{width:34px;border:1px solid var(--line);border-radius:6px;font-size:11px;padding:3px 4px;text-align:center}
+  .pgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;padding:2px 12px 90px}
+  .tile{aspect-ratio:1;border-radius:8px;background:linear-gradient(135deg,#dbeafe,#ede9fe);border:1px solid var(--line);position:relative}
+  .tile.sel{outline:3px solid var(--wa2);outline-offset:-3px}
+  .tile.sel::after{content:"✓";position:absolute;top:3px;right:4px;background:var(--wa);color:#fff;width:15px;height:15px;line-height:15px;text-align:center;border-radius:50%;font-size:9px;font-weight:800}
+  /* buttons */
+  .btn{border:1px solid var(--line);border-radius:9px;background:#fff;font-size:12.5px;font-weight:700;color:var(--ink);padding:7px 12px;display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+  .btn.send{background:var(--wa);color:#fff;border:none}
+  .btn.dl{background:#fff;color:var(--ink)}
+  .ico{font-size:13px}
+  .cnt{font-size:12px;font-weight:700;color:var(--ink)}
+  /* Design 1 — sticky TOP bar */
+  .topbar{position:absolute;top:26px;left:0;right:0;z-index:5;background:rgba(255,255,255,.94);backdrop-filter:blur(6px);border-bottom:1px solid var(--line);box-shadow:0 4px 14px -8px rgba(15,23,42,.25);display:flex;align-items:center;gap:8px;padding:8px 12px}
+  .d1 .scroll{top:26px}
+  .d1 .pgrid{padding-top:52px}
+  /* Design 2 — floating bottom capsule */
+  .capsule{position:absolute;left:50%;transform:translateX(-50%);bottom:16px;z-index:6;display:flex;align-items:center;gap:8px;background:#fff;border:1px solid var(--line);border-radius:999px;padding:7px 8px 7px 14px;box-shadow:0 12px 30px -8px rgba(15,23,42,.35)}
+  /* Design 3 — FAB cluster bottom-right */
+  .fabs{position:absolute;right:14px;bottom:14px;z-index:6;display:flex;flex-direction:column;gap:10px;align-items:flex-end}
+  .fab{border:none;border-radius:999px;font-size:12.5px;font-weight:800;color:#fff;background:var(--wa);padding:11px 16px;display:inline-flex;align-items:center;gap:7px;box-shadow:0 10px 24px -6px rgba(18,140,126,.5)}
+  .fab.sec{background:#fff;color:var(--ink);border:1px solid var(--line);box-shadow:0 8px 20px -8px rgba(15,23,42,.28);font-weight:700}
+  .pc{margin:12px 0 0;padding:0;list-style:none}
+  .pc li{font-size:12.5px;color:var(--ink2);margin:5px 0;padding-left:16px;position:relative}
+  .pc li::before{content:"";position:absolute;left:0;top:8px;width:6px;height:6px;border-radius:50%;background:var(--wa2)}
+  .pc li.con::before{background:#fca5a5}
+  .foot{color:var(--muted);font-size:13px;text-align:center;margin:24px 0 4px}
+  .tl{background:#0f172a;color:#e2e8f0;border-radius:16px;padding:16px 20px;margin-top:18px;font-size:14px}
+  .tl b{color:var(--wa2)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Send / Download — 3 design options</h1>
+  <p class="sub">Dono jagah lagega (event <b>By student</b> + student <b>By event</b>). Har frame ek <b>scrolled photo grid</b> dikha raha — dekh action kahan aur kaise dikhta.</p>
+  <p class="note">Ek number bata de (1 / 2 / 3), main wahi implement kar dunga. Green = Send (WhatsApp), white = Download.</p>
+
+  <div class="grid3">
+
+    <!-- DESIGN 1 -->
+    <div class="opt">
+      <div class="lbl"><h2>1 · Sticky top bar</h2></div>
+      <div class="desc">Toggle + Send/Download <b>upar pin</b>. Scroll karo — controls upar chipke, photos peeche.</div>
+      <div class="phone d1">
+        <div class="status"><span class="dot" style="background:#ff5f57"></span><span class="dot" style="background:#febc2e"></span><span class="dot" style="background:#28c840"></span></div>
+        <div class="topbar">
+          <span class="cnt">8 selected</span>
+          <span class="btn send" style="margin-left:auto"><span class="ico">💬</span>Send 8</span>
+          <span class="btn dl"><span class="ico">⤓</span>8</span>
+        </div>
+        <div class="scroll">
+          <div class="pgrid">
+            <div class="tile sel"></div><div class="tile"></div><div class="tile sel"></div><div class="tile"></div>
+            <div class="tile"></div><div class="tile sel"></div><div class="tile"></div><div class="tile"></div>
+            <div class="tile"></div><div class="tile"></div><div class="tile sel"></div><div class="tile"></div>
+            <div class="tile"></div><div class="tile"></div><div class="tile"></div><div class="tile"></div>
+            <div class="tile sel"></div><div class="tile"></div><div class="tile"></div><div class="tile"></div>
+          </div>
+        </div>
+      </div>
+      <ul class="pc">
+        <li>Desktop pe bahut clean + predictable</li>
+        <li>Photos ke bottom ko kabhi cover nahi karta</li>
+        <li class="con">Long scroll me action ke liye upar dekhna padta</li>
+      </ul>
+    </div>
+
+    <!-- DESIGN 2 (recommended) -->
+    <div class="opt rec">
+      <div class="lbl"><h2>2 · Floating capsule</h2><span class="badge">Recommended</span></div>
+      <div class="desc">Neeche-center ek <b>floating pill</b> (count + Send + Download). Photos poori dikhti, pill upar float karti.</div>
+      <div class="phone">
+        <div class="status"><span class="dot" style="background:#ff5f57"></span><span class="dot" style="background:#febc2e"></span><span class="dot" style="background:#28c840"></span></div>
+        <div class="scroll">
+          <div class="h2">Aarav · 62 photos</div>
+          <div class="pgrid">
+            <div class="tile sel"></div><div class="tile"></div><div class="tile sel"></div><div class="tile"></div>
+            <div class="tile"></div><div class="tile sel"></div><div class="tile"></div><div class="tile"></div>
+            <div class="tile"></div><div class="tile"></div><div class="tile sel"></div><div class="tile"></div>
+            <div class="tile"></div><div class="tile"></div><div class="tile"></div><div class="tile"></div>
+            <div class="tile sel"></div><div class="tile"></div><div class="tile"></div><div class="tile"></div>
+          </div>
+        </div>
+        <div class="capsule">
+          <span class="cnt">8 selected</span>
+          <span class="btn send"><span class="ico">💬</span>Send</span>
+          <span class="btn dl"><span class="ico">⤓</span>Download</span>
+        </div>
+      </div>
+      <ul class="pc">
+        <li>Mobile + desktop dono pe natural (Photos/Snackbar style)</li>
+        <li>Compact — grid ki poori width cover nahi karta</li>
+        <li>Selection ke saath smoothly aata/jaata</li>
+      </ul>
+    </div>
+
+    <!-- DESIGN 3 -->
+    <div class="opt">
+      <div class="lbl"><h2>3 · Corner buttons (FAB)</h2></div>
+      <div class="desc">Neeche-<b>right corner</b> me Send (green) + Download — Material-style floating buttons. Minimal.</div>
+      <div class="phone">
+        <div class="status"><span class="dot" style="background:#ff5f57"></span><span class="dot" style="background:#febc2e"></span><span class="dot" style="background:#28c840"></span></div>
+        <div class="scroll">
+          <div class="h2">Aarav · 62 photos</div>
+          <div class="pgrid">
+            <div class="tile sel"></div><div class="tile"></div><div class="tile sel"></div><div class="tile"></div>
+            <div class="tile"></div><div class="tile sel"></div><div class="tile"></div><div class="tile"></div>
+            <div class="tile"></div><div class="tile"></div><div class="tile sel"></div><div class="tile"></div>
+            <div class="tile"></div><div class="tile"></div><div class="tile"></div><div class="tile"></div>
+            <div class="tile sel"></div><div class="tile"></div><div class="tile"></div><div class="tile"></div>
+          </div>
+        </div>
+        <div class="fabs">
+          <span class="fab"><span class="ico">💬</span>Send 8</span>
+          <span class="fab sec"><span class="ico">⤓</span>Download 8</span>
+        </div>
+      </div>
+      <ul class="pc">
+        <li>Sabse minimal — grid barely covered</li>
+        <li>Mobile-native (thumb ke paas)</li>
+        <li class="con">Count/context inline nahi (button labels me hi)</li>
+      </ul>
+    </div>
+
+  </div>
+
+  <div class="tl">
+    <b>Mera suggestion:</b> <b style="color:#fff">Design 2 (Floating capsule)</b> — mobile + desktop dono pe clean lagti, compact hai, aur selection ke saath contextually aati. Par teri marzi — <b>1 / 2 / 3</b> bata de, wahi bana dunga (dono surfaces me, gate + review ke saath). Pichla "full-width flush bar" wala hata ke ye laga dunga.
+  </div>
+
+  <p class="foot">File: photo-action-bar-designs.html · abhi kuch commit nahi kiya — tere pick ka wait</p>
+</div>
+</body>
+</html>

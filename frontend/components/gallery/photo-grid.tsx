@@ -24,9 +24,11 @@ export interface GalleryItem {
 const INITIAL_WINDOW = 48;
 const WINDOW_STEP = 48;
 
-/** Masonry grid of lazily-loaded media tiles; owns the Lightbox (open index + prev/next).
- *  `items` is the ordered id+type list (decisions/0035, 0043). `variant` picks the tile
- *  treatment: "grid" (staff) or "masonry" (natural aspect, the student surface — BP3).
+/** Uniform grid of lazily-loaded media tiles; owns the Lightbox (open index + prev/next).
+ *  `items` is the ordered id+type list (decisions/0035, 0043). Every tile is the same fixed
+ *  square (object-cover) so a mix of portrait/landscape photos reads as one size; `variant`
+ *  picks the tile CHROME only: "grid" (staff — bordered, selectable) or "masonry" (student —
+ *  rounded, hover zoom + hover-download, BP3). The Lightbox still shows the full image uncropped.
  *
  *  Scale (BP9, decisions/0055): the grid **windows** — it mounts only the first N tiles and
  *  grows N as a sentinel scrolls into view. When the window reaches the end of the loaded
@@ -105,10 +107,11 @@ export function PhotoGrid({
     <>
       <div
         className={cn(
-          "columns-2 sm:columns-3 [&>*]:break-inside-avoid",
-          variant === "masonry"
-            ? "gap-3 lg:columns-4 [&>*]:mb-3"
-            : "gap-2 lg:columns-4 [&>*]:mb-2",
+          // Uniform grid — every tile is the same fixed square (object-cover), row-major, so
+          // a mix of portrait/landscape photos all read as the same size (was a natural-aspect
+          // `columns` masonry; the full image is still shown uncropped in the Lightbox).
+          "grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4",
+          variant === "masonry" ? "gap-3" : "gap-2",
         )}
       >
         {shown.map((item, i) => (

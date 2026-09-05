@@ -22,8 +22,9 @@ interface PhotoTileProps {
   /** BP20: the photo's "story" (event + date) — its accessible name, a hover scrim label
    *  (masonry), and the saved filename. Omitted on surfaces that don't supply it. */
   caption?: string;
-  /** "grid" = uniform square crop (staff galleries); "masonry" = natural aspect ratio,
-   *  borderless, with a hover-to-download affordance (the student surface, BP3). */
+  /** Both variants are a uniform square crop; the variant only picks the chrome — "grid"
+   *  (staff: bordered, selectable) vs "masonry" (student: rounded, hover zoom + hover-download,
+   *  BP3). */
   variant?: "grid" | "masonry";
   /** BP13 multi-select (staff "grid" only): when on, a tile click toggles selection instead of
    *  opening the lightbox, and a checkmark overlay + ring show the selected state. */
@@ -114,7 +115,9 @@ function GridTile({
         alt=""
         loading="square"
         className="aspect-square w-full"
-        imgClassName="block w-full align-top"
+        // Fill the square and crop (object-cover) so every tile is the same size regardless of
+        // the photo's real aspect; the Lightbox shows it uncropped.
+        imgClassName="block aspect-square w-full object-cover align-top"
         fallbackText="Unavailable"
       />
       {isVideo ? <PlayBadge /> : null}
@@ -135,9 +138,8 @@ function GridTile({
   );
 }
 
-/** Student surface: the photo is the hero — natural aspect ratio in a masonry column, a
- *  gentle zoom on hover, and a hover-revealed download so a photo can be saved in one tap
- *  without opening the viewer (BP3). */
+/** Student surface: a uniform square crop, rounded, with a gentle zoom on hover and a
+ *  hover-revealed download so a photo can be saved in one tap without opening the viewer (BP3). */
 function MasonryTile({
   mediaId,
   index,
@@ -166,9 +168,10 @@ function MasonryTile({
           enabled={inView}
           size={hasThumbnail ? "thumb" : "full"}
           alt=""
-          loading="block"
-          className="aspect-[3/4] rounded-2xl"
-          imgClassName="block w-full align-top transition-transform duration-300 group-hover:scale-[1.03]"
+          loading="square"
+          className="aspect-square w-full rounded-2xl"
+          // Uniform square, cropped to fill (object-cover) — same size as every other tile.
+          imgClassName="block aspect-square w-full object-cover align-top transition-transform duration-300 group-hover:scale-[1.03]"
           fallbackText="Unavailable"
         />
         {isVideo ? <PlayBadge /> : null}

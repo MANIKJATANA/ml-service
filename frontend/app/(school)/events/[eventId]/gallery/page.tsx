@@ -595,7 +595,8 @@ function NeedsReview({ eventId }: { eventId: string }) {
                       alt=""
                       loading="square"
                       className="aspect-square w-full"
-                      imgClassName="block w-full align-top"
+                      // Uniform square crop (matches PhotoTile) so review-lane thumbs are all one size.
+                      imgClassName="block aspect-square w-full object-cover align-top"
                       fallbackText="Unavailable"
                     />
                   </label>

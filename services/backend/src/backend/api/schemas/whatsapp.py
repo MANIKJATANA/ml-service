@@ -74,9 +74,14 @@ class WhatsAppSendResponse(BaseModel):
 
 
 class EventPhotoRecipientsRequest(BaseModel):
-    """The SELECTED event photos to preview recipients for. Capped (abuse guard → 422)."""
+    """The event photos to preview recipients for. ``media_ids`` OMITTED/null → the WHOLE event
+    (every matched photo — "Announce on WhatsApp"); a NON-EMPTY list → only the SELECTED photos.
+    An explicit empty list is rejected (422 — a fan-out with no photos is a bug, not "all").
+    Capped (→ 422)."""
 
-    media_ids: list[str] = Field(min_length=1, max_length=_MAX_SEND_MEDIA_IDS)
+    media_ids: list[str] | None = Field(
+        default=None, min_length=1, max_length=_MAX_SEND_MEDIA_IDS
+    )
 
 
 class EventPhotoRecipientResponse(BaseModel):
@@ -102,9 +107,13 @@ class EventPhotoRecipientsResponse(BaseModel):
 
 
 class EventPhotoSendRequest(BaseModel):
-    """The SELECTED event photos to fan out to whoever appears in them. Capped (→ 422)."""
+    """The event photos to fan out to whoever appears in them. ``media_ids`` OMITTED/null → the
+    WHOLE event (every matched photo — "Announce on WhatsApp"); a NON-EMPTY list → only the
+    SELECTED photos. An explicit empty list is rejected (422). Capped (→ 422)."""
 
-    media_ids: list[str] = Field(min_length=1, max_length=_MAX_SEND_MEDIA_IDS)
+    media_ids: list[str] | None = Field(
+        default=None, min_length=1, max_length=_MAX_SEND_MEDIA_IDS
+    )
 
 
 class EventPhotoSendResultResponse(BaseModel):

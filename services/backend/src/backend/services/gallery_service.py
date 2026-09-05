@@ -166,23 +166,25 @@ class GalleryService:
         ]
 
     async def event_photo_recipients(
-        self, *, school_id: str, event_id: str, media_ids: list[str]
+        self, *, school_id: str, event_id: str, media_ids: list[str] | None
     ) -> list[tuple[Student, list[str]]]:
-        """For the SELECTED media in an event, the students who EFFECTIVELY appear in them, each
-        paired with the subset of the selected media they appear in (BP5 overlay — a ``rejected``
-        pair is excluded, an ``added`` one included). Drives the "send selected photos to whoever
-        appears" fan-out + its pre-send preview. A ``media_id`` outside this event/school, or one
-        no one effectively appears in, contributes nothing — so a crafted id can never leak a
-        student or fan a send outside the event (the safety spine). Ordered most-matched-first,
-        then stable by student id."""
+        """The students who EFFECTIVELY appear in an event's photos, each paired with the subset
+        they appear in (BP5 overlay — a ``rejected`` pair is excluded, an ``added`` one included).
+        ``media_ids=None`` → the WHOLE event (every matched photo — the "Announce on WhatsApp"
+        one-click); a list → only those SELECTED photos (intersected). Drives the fan-out + its
+        pre-send preview. A ``media_id`` outside this event/school, or one no one effectively
+        appears in, contributes nothing — so a crafted id can never leak a student or fan a send
+        outside the event (the safety spine); the ``None`` (whole-event) path only ever ranges over
+        THIS event's own effective pairs, so it stays inside the tenant + event. Ordered
+        most-matched-first, then stable by student id."""
         await self._require_event(school_id, event_id)
         appearances = await self._reader.list_event_appearances(school_id, event_id)
         corrections = await self._corrections.list_for_event(school_id, event_id)
         pairs = effective_event_pairs(appearances, corrections)  # (student_id, media_id)
-        selected = set(media_ids)
+        selected = None if media_ids is None else set(media_ids)
         by_student: dict[str, list[str]] = {}
         for student_id, media_id in pairs:
-            if media_id in selected:
+            if selected is None or media_id in selected:
                 by_student.setdefault(student_id, []).append(media_id)
         # De-rostered (BP9): fetch only the students who appear in the selection.
         students = await self._students.list_by_ids(school_id, list(by_student))

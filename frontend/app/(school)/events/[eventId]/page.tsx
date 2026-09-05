@@ -1,12 +1,23 @@
 "use client";
 
-import { Archive, Images, Pencil, Play, RotateCcw, ScanSearch, Send, Upload } from "lucide-react";
+import {
+  Archive,
+  Images,
+  MessageCircle,
+  Pencil,
+  Play,
+  RotateCcw,
+  ScanSearch,
+  Send,
+  Upload,
+} from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { type FormEvent, useEffect, useState } from "react";
 import { mutate as globalMutate } from "swr";
 
 import { FilterChips } from "@/components/gallery/filter-chips";
+import { SendToAppearingDialog } from "@/components/gallery/send-to-appearing-dialog";
 import { Breadcrumb } from "@/components/ui/breadcrumb";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -233,6 +244,9 @@ function DistributionCard({
   const [notifying, setNotifying] = useState(false);
   const [togglingAuto, setTogglingAuto] = useState(false);
   const [confirmAnnounceOpen, setConfirmAnnounceOpen] = useState(false);
+  // "Announce on WhatsApp" — the whole-event fan-out (each appearing student gets all the photos
+  // they appear in) via the shared preview→confirm→send dialog (no mediaIds = whole event).
+  const [waOpen, setWaOpen] = useState(false);
   // BP24 (R3-A2-10): the roster can be hundreds of rows — filter to the actionable "not opened"
   // cohort + collapse behind a preview so "who needs a nudge?" is one click, not an eye-scan.
   const [rosterFilter, setRosterFilter] = useState<"all" | "not_opened">("all");
@@ -334,10 +348,25 @@ function DistributionCard({
             {reviewCount} {reviewCount === 1 ? "match" : "matches"} to review
           </Link>
         ) : null}
-        <Button onClick={onAnnounceClick} loading={notifying} disabled={!canNotify} className="w-fit">
-          <Send className="size-4" aria-hidden="true" />
-          {roster?.notified_at ? "Announce again" : "Announce to students"}
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          {/* WhatsApp is the real v1 distribution channel — so it leads. Sends each appearing
+              student all the photos they appear in (preview + confirm + budget in the dialog). */}
+          <Button onClick={() => setWaOpen(true)} disabled={!canNotify} className="w-fit">
+            <MessageCircle className="size-4" aria-hidden="true" />
+            Announce on WhatsApp
+          </Button>
+          {/* The in-app "My Photos" signal (dormant in v1 — no student login) stays available. */}
+          <Button
+            variant="secondary"
+            onClick={onAnnounceClick}
+            loading={notifying}
+            disabled={!canNotify}
+            className="w-fit"
+          >
+            <Send className="size-4" aria-hidden="true" />
+            {roster?.notified_at ? "Re-announce in-app" : "Announce in-app"}
+          </Button>
+        </div>
         {!canNotify ? (
           <p className="text-body-sm text-ink-secondary">
             Finish matching the photos before announcing.
@@ -356,6 +385,10 @@ function DistributionCard({
           void onNotify();
         }}
       />
+
+      {/* Whole-event WhatsApp fan-out (no mediaIds) — preview (who gets how many) → confirm →
+          send. All gating (consent, budget, effective overlay, PII) is server-side. */}
+      <SendToAppearingDialog eventId={event.id} open={waOpen} onOpenChange={setWaOpen} />
 
       {rosterStudents.length > 0 ? (
         <div className="flex flex-col gap-2">

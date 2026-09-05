@@ -186,15 +186,17 @@ class WhatsAppShareService:
         *,
         school_id: str,
         event_id: str,
-        media_ids: list[str],
+        media_ids: list[str] | None,
         actor_user_id: str,
         actor_role: str,
     ) -> EventPhotoSendSummary:
-        """Fan out a set of SELECTED event photos to the students who appear in them (photo-fanout,
-        a deliberate revision of [0094]'s student-centric-only stance — guarded by a pre-send
-        preview + consent + budget). Each appearing student gets the subset they EFFECTIVELY appear
-        in (BP5 overlay, via ``GalleryService.event_photo_recipients`` — a rejected pair excluded, a
-        crafted/foreign media id contributing nothing). Reuses ``send_student_photos`` per recipient
+        """Fan out event photos to the students who appear in them (photo-fanout, a deliberate
+        revision of [0094]'s student-centric-only stance — guarded by a pre-send preview + consent
+        + budget). ``media_ids=None`` → the WHOLE event (every matched photo — the "Announce on
+        WhatsApp" one-click); a list → only those SELECTED photos. Each appearing student gets the
+        subset they EFFECTIVELY appear in (BP5 overlay, via
+        ``GalleryService.event_photo_recipients`` — a rejected pair excluded, a crafted/foreign
+        media id contributing nothing). Reuses ``send_student_photos`` per recipient
         — so every per-student gate (consent, budget, effective intersection, interim divert,
         send-log, PII-free) is inherited unchanged; a non-consenting student is SKIPPED (never
         aborting the fan-out)."""

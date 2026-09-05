@@ -234,9 +234,10 @@ async def event_photo_recipients(
     container: ContainerDep,
     actor: WhatsAppSendManager,
 ) -> EventPhotoRecipientsResponse:
-    """Pre-send preview for the event-photo fan-out: for the SELECTED photos, who effectively
-    appears in them (BP5 overlay — rejected excluded), how many each, and whether they can
-    receive (opted in + a number). Requires ``whatsapp:send``; tenant from the token (a foreign
+    """Pre-send preview for the event-photo fan-out: who effectively appears (BP5 overlay —
+    rejected excluded), how many each, and whether they can receive (opted in + a number).
+    ``media_ids`` omitted/null → the WHOLE event ("Announce on WhatsApp"), a non-empty list →
+    only the SELECTED photos. Requires ``whatsapp:send``; tenant from the token (a foreign
     event/media contributes nothing). Sends NOTHING — the FE confirms before the send."""
     recipients = await container.gallery_service().event_photo_recipients(
         school_id=tenant_of(actor), event_id=event_id, media_ids=body.media_ids
@@ -268,9 +269,10 @@ async def send_event_photos(
     container: ContainerDep,
     actor: WhatsAppSendManager,
 ) -> EventPhotoSendResponse:
-    """Fan out the SELECTED event photos to the students who appear in them — each gets the
-    subset they effectively appear in (BP5 overlay). Reuses the fully-gated per-student send
-    (consent + budget + effective intersection + interim + PII); a non-consenting student is
+    """Fan out event photos to the students who appear in them — each gets the subset they
+    effectively appear in (BP5 overlay). ``media_ids`` omitted/null → the WHOLE event ("Announce
+    on WhatsApp"), a non-empty list → only the SELECTED photos. Reuses the fully-gated per-student
+    send (consent + budget + effective intersection + interim + PII); a non-consenting student is
     skipped, never aborting the fan-out. Requires ``whatsapp:send``; tenant from the token. 400
     if WhatsApp isn't configured. PII-free (no recipient number in the response)."""
     summary = await container.whatsapp_share_service().send_event_photos(

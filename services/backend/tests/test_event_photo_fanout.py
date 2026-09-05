@@ -247,6 +247,45 @@ async def test_recipients_ignores_foreign_media_id() -> None:
     assert {s.id: set(ids) for s, ids in got} == {"a": {"m1"}}
 
 
+async def test_recipients_whole_event_includes_all_matched_photos() -> None:
+    # media_ids=None → the WHOLE event ("Announce on WhatsApp"): every effective pair, no filter.
+    students = [_student("a"), _student("b")]
+    media = _media("m1", "m2", "m3")
+    appearances = [
+        make_appearance(student_id="a", media_id="m1", event_id="event-1"),
+        make_appearance(student_id="a", media_id="m2", event_id="event-1"),
+        make_appearance(student_id="b", media_id="m3", event_id="event-1"),
+    ]
+    gallery = _gallery(students=students, appearances=appearances, media=media)
+    got = await gallery.event_photo_recipients(
+        school_id="school-1", event_id="event-1", media_ids=None
+    )
+    assert {s.id: set(ids) for s, ids in got} == {"a": {"m1", "m2"}, "b": {"m3"}}
+
+
+async def test_recipients_whole_event_still_excludes_rejected() -> None:
+    # The whole-event (None) path reuses the SAME effective overlay — a rejected pair is still out.
+    students = [_student("a")]
+    media = _media("m1", "m2")
+    appearances = [
+        make_appearance(student_id="a", media_id="m1", event_id="event-1"),
+        make_appearance(student_id="a", media_id="m2", event_id="event-1"),
+    ]
+    corrections = [
+        make_match_correction(
+            media_id="m1", student_id="a", event_id="event-1",
+            verdict=MatchVerdict.REJECTED,
+        )
+    ]
+    gallery = _gallery(
+        students=students, appearances=appearances, corrections=corrections, media=media
+    )
+    got = await gallery.event_photo_recipients(
+        school_id="school-1", event_id="event-1", media_ids=None
+    )
+    assert {s.id: set(ids) for s, ids in got} == {"a": {"m2"}}  # rejected m1 out even whole-event
+
+
 async def test_recipients_foreign_event_404() -> None:
     gallery = _gallery(students=[_student("a")], appearances=[], media=[])
     with pytest.raises(NotFoundError):
@@ -290,6 +329,29 @@ async def test_fanout_sends_each_consenting_student_their_subset() -> None:
         assert r.sender_number != "15551110001" and r.sender_number != "15551110002"
     by_student = {r.student_id: r.sent for r in summary.results}
     assert by_student == {"a": 2, "b": 1}
+
+
+async def test_fanout_whole_event_sends_all_matched() -> None:
+    # media_ids=None → the whole-event announce: each appearing student gets ALL their photos.
+    students = [_student("a", number="15551110001"), _student("b", number="15551110002")]
+    media = _media("m1", "m2", "m3")
+    appearances = [
+        make_appearance(student_id="a", media_id="m1", event_id="event-1"),
+        make_appearance(student_id="a", media_id="m2", event_id="event-1"),
+        make_appearance(student_id="b", media_id="m3", event_id="event-1"),
+    ]
+    gallery = _gallery(students=students, appearances=appearances, media=media)
+    service, sender, _log = _share(gallery=gallery, students=students)
+    summary = await service.send_event_photos(
+        school_id="school-1",
+        event_id="event-1",
+        media_ids=None,
+        actor_user_id="actor-1",
+        actor_role="school_admin",
+    )
+    assert summary.sent == 3 and summary.students_sent == 2
+    assert {r.student_id: r.sent for r in summary.results} == {"a": 2, "b": 1}
+    assert len(sender.sent) == 3
 
 
 async def test_fanout_skips_non_consenting_student() -> None:
@@ -480,6 +542,33 @@ def test_send_route_200() -> None:
     assert body["sent"] == 1 and body["students_sent"] == 1
     # PII-free — the recipient number never appears in the response.
     assert "15551110001" not in resp.text
+
+
+def test_whole_event_routes_omit_media_ids() -> None:
+    # "Announce on WhatsApp" sends {} (no media_ids) → the whole event. Both routes accept it.
+    client = _route_client()
+    resp = client.post(
+        "/v1/events/event-1/photo-recipients",
+        headers=_auth(client, "sa1"),
+        json={},
+    )
+    assert resp.status_code == 200, resp.text
+    assert len(resp.json()["recipients"]) == 1
+    resp = client.post(
+        "/v1/events/event-1/whatsapp-send-photos",
+        headers=_auth(client, "sa1"),
+        json={},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["sent"] == 1
+    # The FE sends an EXPLICIT null (JSON.stringify({media_ids: null})) — same whole-event path.
+    resp = client.post(
+        "/v1/events/event-1/whatsapp-send-photos",
+        headers=_auth(client, "sa1"),
+        json={"media_ids": None},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["sent"] == 1
 
 
 def test_teacher_allowed_student_and_platform_403() -> None:

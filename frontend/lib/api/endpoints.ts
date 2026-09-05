@@ -380,11 +380,12 @@ export function sendWhatsApp(
   );
 }
 
-/** Preview the event-photo fan-out: which students effectively appear in the SELECTED photos +
- *  whether they can receive (opted in + a number). Sends nothing — the FE confirms first. */
+/** Preview the event-photo fan-out: which students effectively appear + whether they can receive
+ *  (opted in + a number). `mediaIds = null` → the WHOLE event ("Announce on WhatsApp"); a list →
+ *  only the SELECTED photos. Sends nothing — the FE confirms first. */
 export function eventPhotoRecipients(
   eventId: string,
-  mediaIds: string[],
+  mediaIds: string[] | null,
 ): Promise<EventPhotoRecipientsResponse> {
   return bffFetch<EventPhotoRecipientsResponse>(
     `/api/v1/events/${encodeURIComponent(eventId)}/photo-recipients`,
@@ -392,11 +393,12 @@ export function eventPhotoRecipients(
   );
 }
 
-/** Fan out the SELECTED event photos to whoever appears in them — each gets the subset they
- *  effectively appear in. The server loops the per-student send (consent + budget + PII). */
+/** Fan out event photos to whoever appears in them — each gets the subset they effectively appear
+ *  in. `mediaIds = null` → the WHOLE event ("Announce on WhatsApp"); a list → only the SELECTED
+ *  photos. The server loops the per-student send (consent + budget + PII). */
 export function sendEventPhotos(
   eventId: string,
-  mediaIds: string[],
+  mediaIds: string[] | null,
 ): Promise<EventPhotoSendResponse> {
   return bffFetch<EventPhotoSendResponse>(
     `/api/v1/events/${encodeURIComponent(eventId)}/whatsapp-send-photos`,

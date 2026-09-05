@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, ChevronDown, ChevronUp, MoonStar } from "lucide-react";
+import { AlertTriangle, ChevronDown, ChevronUp, MessageCircle, MoonStar } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 
@@ -32,6 +32,8 @@ type SortKey =
   | "events"
   | "distributed"
   | "signed_in_students"
+  | "whatsapp_sent_month"
+  | "whatsapp_sent"
   | "days_to_first_delivery"
   | "stalled_since";
 
@@ -44,6 +46,8 @@ const ACCESSOR: Record<SortKey, (f: SchoolFunnelResponse) => number | string> = 
   events: (f) => f.events,
   distributed: (f) => f.distributed,
   signed_in_students: (f) => f.signed_in_students,
+  whatsapp_sent_month: (f) => f.whatsapp_sent_month,
+  whatsapp_sent: (f) => f.whatsapp_sent,
   days_to_first_delivery: (f) =>
     f.days_to_first_delivery ?? Number.POSITIVE_INFINITY,
   stalled_since: (f) => f.stalled_since ?? "", // "" (never) sorts before any ISO date
@@ -204,6 +208,34 @@ function EstateBody({ e }: { e: EstateAnalyticsResponse }) {
         <StatCard label="Events" value={e.total_events.toLocaleString()} />
       </div>
 
+      {/* WhatsApp cost across the estate — each image sent is one message (the cost unit). This
+          month is the current bill; the total is lifetime. Per-school numbers are in the funnel. */}
+      <Card className="flex flex-wrap items-center justify-between gap-4 p-5">
+        <div className="flex items-center gap-2">
+          <MessageCircle className="size-5 shrink-0 text-ink-secondary" aria-hidden="true" />
+          <div className="flex flex-col">
+            <h2 className="text-headline text-ink">WhatsApp images sent</h2>
+            <p className="text-body-sm text-ink-secondary">
+              Each image sent is one message — the cost unit.
+            </p>
+          </div>
+        </div>
+        <div className="flex gap-8">
+          <div className="flex flex-col">
+            <span className="text-body-sm text-ink-secondary">This month</span>
+            <span className="text-headline tabular-nums text-ink">
+              {e.whatsapp_sent_month_total.toLocaleString()}
+            </span>
+          </div>
+          <div className="flex flex-col">
+            <span className="text-body-sm text-ink-secondary">All time</span>
+            <span className="text-headline tabular-nums text-ink">
+              {e.whatsapp_sent_total.toLocaleString()}
+            </span>
+          </div>
+        </div>
+      </Card>
+
       {/* Funnel */}
       <section className="flex flex-col gap-3">
         <h2 className="text-headline text-ink">Adoption funnel</h2>
@@ -211,7 +243,7 @@ function EstateBody({ e }: { e: EstateAnalyticsResponse }) {
           <EmptyState title="No schools yet" description="Onboard a school to see its adoption." />
         ) : (
           <Card className="overflow-x-auto">
-            <Table className="min-w-[820px]">
+            <Table className="min-w-[980px]">
               <TableHeader>
                 <TableRow>
                   <SortHead label="School" k="school_name" sortKey={sortKey} dir={dir} onSort={onSort} />
@@ -221,6 +253,8 @@ function EstateBody({ e }: { e: EstateAnalyticsResponse }) {
                   <SortHead label="Events" k="events" sortKey={sortKey} dir={dir} onSort={onSort} numeric />
                   <SortHead label="Announced" k="distributed" sortKey={sortKey} dir={dir} onSort={onSort} numeric />
                   <SortHead label="Signed in" k="signed_in_students" sortKey={sortKey} dir={dir} onSort={onSort} numeric />
+                  <SortHead label="WhatsApp (mo)" k="whatsapp_sent_month" sortKey={sortKey} dir={dir} onSort={onSort} numeric />
+                  <SortHead label="WhatsApp (all)" k="whatsapp_sent" sortKey={sortKey} dir={dir} onSort={onSort} numeric />
                   <SortHead label="Days to deliver" k="days_to_first_delivery" sortKey={sortKey} dir={dir} onSort={onSort} numeric />
                   <SortHead label="Last event" k="stalled_since" sortKey={sortKey} dir={dir} onSort={onSort} numeric />
                   <TableHead>Status</TableHead>
@@ -250,6 +284,13 @@ function EstateBody({ e }: { e: EstateAnalyticsResponse }) {
                       <TableCell className="text-right tabular-nums text-ink-secondary">{f.distributed}</TableCell>
                       <TableCell className="text-right tabular-nums text-ink-secondary">
                         {f.signed_in_students.toLocaleString()}
+                      </TableCell>
+                      {/* WhatsApp cost: images sent this month (the current bill) + all-time. */}
+                      <TableCell className="text-right tabular-nums text-ink-secondary">
+                        {f.whatsapp_sent_month.toLocaleString()}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums text-ink-secondary">
+                        {f.whatsapp_sent.toLocaleString()}
                       </TableCell>
                       {/* BP23 age axis: days from signup to first announce; most-recent event. */}
                       <TableCell className="text-right tabular-nums text-ink-secondary">

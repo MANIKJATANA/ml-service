@@ -44,6 +44,7 @@ from backend_fakes import (
     FakeStudentRepo,
     FakeThumbnailer,
     FakeUserRepo,
+    FakeWhatsAppSendLogRepo,
     SeededContainer,
     make_appearance,
     make_download_audit_entry,
@@ -144,6 +145,7 @@ def _analytics(
     reads: FakeNotificationReadRepo | None = None,
     corrections: FakeMatchCorrectionRepo | None = None,
     audit: FakeDownloadAuditRepo | None = None,
+    whatsapp_send_log: FakeWhatsAppSendLogRepo | None = None,
 ) -> AnalyticsService:
     return AnalyticsService(
         schools,
@@ -154,6 +156,7 @@ def _analytics(
         reads or FakeNotificationReadRepo(),
         corrections or FakeMatchCorrectionRepo(),
         audit or FakeDownloadAuditRepo(),
+        whatsapp_send_log or FakeWhatsAppSendLogRepo(),
     )
 
 

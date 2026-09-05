@@ -83,6 +83,12 @@ class WhatsAppShareService:
         self._cap = monthly_send_cap
         self._prefix = variant_prefix.strip("/")
 
+    async def media_send_count(self, *, school_id: str, media_id: str) -> int:
+        """How many times this photo/video was actually SENT on WhatsApp (the per-photo cost
+        count — each send is one message, so a photo sent to N students counts N). A pure read,
+        tenant-scoped via the send log (a foreign media returns 0); sends nothing."""
+        return await self._send_log.count_sent_by_media(school_id, media_id)
+
     async def send_student_photos(
         self,
         *,

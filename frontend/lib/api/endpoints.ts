@@ -25,6 +25,7 @@ import type {
   MatchPhotosResponse,
   MediaAppearanceResponse,
   MediaDownloadLogResponse,
+  MediaWhatsAppLogResponse,
   MediaListPageResponse,
   MediaResponse,
   MediaReviewResponse,
@@ -972,6 +973,14 @@ export function recordDownload(mediaId: string): Promise<void> {
 export function getMediaDownloadLog(mediaId: string): Promise<MediaDownloadLogResponse> {
   return bffFetch<MediaDownloadLogResponse>(
     `/api/v1/media/${encodeURIComponent(mediaId)}/download-log`,
+  );
+}
+
+/** How many times a photo was actually SENT on WhatsApp (the per-photo cost count). Staff
+ *  (`gallery:view_all`); a pure read (sends nothing). */
+export function getMediaWhatsAppLog(mediaId: string): Promise<MediaWhatsAppLogResponse> {
+  return bffFetch<MediaWhatsAppLogResponse>(
+    `/api/v1/media/${encodeURIComponent(mediaId)}/whatsapp-log`,
   );
 }
 

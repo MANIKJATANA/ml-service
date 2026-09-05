@@ -98,6 +98,37 @@ class PostgresWhatsAppSendLogRepository:
             )
             return int(result.scalar_one())
 
+    async def count_sent_by_media(self, school_id: str, media_id: str) -> int:
+        sid = opt_uuid(school_id)
+        mid = opt_uuid(media_id)
+        if sid is None or mid is None:
+            return 0
+        async with self._sessionmaker() as session:
+            result = await session.execute(
+                select(func.count())
+                .select_from(SendRow)
+                .where(
+                    SendRow.school_id == sid,
+                    SendRow.media_id == mid,
+                    SendRow.status == "sent",
+                )
+            )
+            return int(result.scalar_one())
+
+    async def sent_counts_by_school(
+        self, *, since: datetime | None = None
+    ) -> dict[str, int]:
+        conds = [SendRow.status == "sent"]
+        if since is not None:
+            conds.append(SendRow.created_at >= since)
+        async with self._sessionmaker() as session:
+            result = await session.execute(
+                select(SendRow.school_id, func.count())
+                .where(*conds)
+                .group_by(SendRow.school_id)
+            )
+            return {str(school_id): int(n) for school_id, n in result.all()}
+
     async def list_for_student(
         self, school_id: str, student_id: str, *, limit: int
     ) -> list[WhatsAppSendLogEntry]:

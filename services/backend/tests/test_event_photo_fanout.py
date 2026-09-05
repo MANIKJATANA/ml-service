@@ -617,3 +617,34 @@ def test_recipients_foreign_event_404_over_route() -> None:
         json={"media_ids": ["m1"]},
     )
     assert resp.status_code == 404, resp.text
+
+
+# ---- per-photo "sent on WhatsApp N times" count -------------------------
+
+
+def test_media_whatsapp_log_counts_sent() -> None:
+    # Before any send → 0; after sending the photo to the student → 1 (each send = one message).
+    client = _route_client()
+    resp = client.get("/v1/media/m1/whatsapp-log", headers=_auth(client, "sa1"))
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["sent_count"] == 0
+    send = client.post(
+        "/v1/events/event-1/whatsapp-send-photos",
+        headers=_auth(client, "sa1"),
+        json={"media_ids": ["m1"]},
+    )
+    assert send.status_code == 200 and send.json()["sent"] == 1, send.text
+    resp = client.get("/v1/media/m1/whatsapp-log", headers=_auth(client, "sa1"))
+    assert resp.json()["sent_count"] == 1
+
+
+def test_media_whatsapp_log_permissions() -> None:
+    # gallery:view_all (staff) reads it; a student / platform admin is 403.
+    client = _route_client()
+    assert (
+        client.get("/v1/media/m1/whatsapp-log", headers=_auth(client, "t1")).status_code
+        == 200
+    )
+    for who in ("stu", "pa"):
+        resp = client.get("/v1/media/m1/whatsapp-log", headers=_auth(client, who))
+        assert resp.status_code == 403, f"{who}: {resp.text}"

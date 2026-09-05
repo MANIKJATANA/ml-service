@@ -115,3 +115,10 @@ class DownloadResponse(BaseModel):
             download_url=signed.download_url,
             expires_in_s=signed.expires_in_s,
         )
+
+
+class MediaWhatsAppLogResponse(BaseModel):
+    """How many times this photo/video was actually SENT on WhatsApp (the per-photo cost count —
+    each send is one message, so a photo sent to N students counts N)."""
+
+    sent_count: int

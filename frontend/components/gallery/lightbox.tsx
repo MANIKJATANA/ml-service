@@ -7,6 +7,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { AppearanceEditor } from "@/components/gallery/appearance-editor";
 import { AppearanceList } from "@/components/gallery/appearance-list";
 import { DownloadHistory } from "@/components/gallery/download-history";
+import { WhatsAppSendCount } from "@/components/gallery/whatsapp-send-count";
 import { SignedImage } from "@/components/gallery/signed-image";
 import { Button } from "@/components/ui/button";
 import { useDownloadToDisk } from "@/lib/hooks/use-download-to-disk";
@@ -210,6 +211,12 @@ export function Lightbox({
               <Download className="size-4" aria-hidden="true" />
               Download
             </Button>
+
+            {/* Staff only (mounts only when showAppearances — the student `/me` lightbox passes
+                false, so the gallery:view_all fetch never fires): how many times this photo went out
+                on WhatsApp, the per-photo cost count. Before the download history to match the
+                photo-detail order. */}
+            {showAppearances ? <WhatsAppSendCount mediaId={mediaId} /> : null}
 
             {/* School-admin-only download history (BP8b); the staff surface only. */}
             {showAppearances ? <DownloadHistory mediaId={mediaId} /> : null}

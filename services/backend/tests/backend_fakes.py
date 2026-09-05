@@ -2499,6 +2499,27 @@ class FakeWhatsAppSendLogRepo:
             and r.created_at >= since
         )
 
+    async def count_sent_by_media(self, school_id: str, media_id: str) -> int:
+        return sum(
+            1
+            for r in self._rows
+            if r.school_id == school_id
+            and r.media_id == media_id
+            and r.status == "sent"
+        )
+
+    async def sent_counts_by_school(
+        self, *, since: datetime | None = None
+    ) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for r in self._rows:
+            if r.status != "sent":
+                continue
+            if since is not None and r.created_at < since:
+                continue
+            counts[r.school_id] = counts.get(r.school_id, 0) + 1
+        return counts
+
     async def list_for_student(
         self, school_id: str, student_id: str, *, limit: int
     ) -> list[WhatsAppSendLogEntry]:

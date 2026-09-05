@@ -29,6 +29,7 @@ from backend.domain.ports import (
     SchoolRepository,
     StudentRepository,
     UserRepository,
+    WhatsAppSendLogRepository,
 )
 
 # A school with students but no event created in this window reads as "gone quiet" (idle).
@@ -117,6 +118,9 @@ class SchoolFunnel:
     not_started: bool
     days_to_first_delivery: int | None
     stalled_since: datetime | None
+    # WhatsApp cost: images actually SENT (each = one message). Total (all-time) + this UTC month.
+    whatsapp_sent: int
+    whatsapp_sent_month: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -130,6 +134,9 @@ class EstateAnalytics:
     total_events: int
     stalled_schools: int
     idle_schools: int
+    # WhatsApp cost across the estate: images sent all-time + this UTC month (the current bill).
+    whatsapp_sent_total: int
+    whatsapp_sent_month_total: int
 
 
 def _announced(event: Event) -> bool:
@@ -151,6 +158,7 @@ class AnalyticsService:
         reads: NotificationReadRepository,
         corrections: MatchCorrectionRepository,
         audit: DownloadAuditRepository,
+        whatsapp_send_log: WhatsAppSendLogRepository,
     ) -> None:
         self._schools = schools
         self._users = users
@@ -160,6 +168,7 @@ class AnalyticsService:
         self._reads = reads
         self._corrections = corrections
         self._audit = audit
+        self._whatsapp_send_log = whatsapp_send_log
 
     async def school_analytics(self, *, school_id: str) -> SchoolAnalytics:
         school = await self._schools.get(school_id)
@@ -225,6 +234,13 @@ class AnalyticsService:
         # BP23 age axis: first-announce time (days-to-first-delivery) + last-event time (idle).
         first_distributed_by = await self._events.first_distributed_at_by_school()
         last_event_by = await self._events.last_event_created_at_by_school()
+        # WhatsApp cost: images sent per school, all-time + this UTC month (the current bill).
+        now = datetime.now(UTC)
+        month_start = datetime(now.year, now.month, 1, tzinfo=UTC)
+        wa_sent_by = await self._whatsapp_send_log.sent_counts_by_school()
+        wa_sent_month_by = await self._whatsapp_send_log.sent_counts_by_school(
+            since=month_start
+        )
 
         funnels: list[SchoolFunnel] = []
         for s in schools:
@@ -258,6 +274,8 @@ class AnalyticsService:
                     not_started=events == 0,
                     days_to_first_delivery=days_to_first,
                     stalled_since=last_event_by.get(s.id),
+                    whatsapp_sent=wa_sent_by.get(s.id, 0),
+                    whatsapp_sent_month=wa_sent_month_by.get(s.id, 0),
                 )
             )
 
@@ -269,6 +287,10 @@ class AnalyticsService:
             total_events=sum(events_by.values()),
             stalled_schools=sum(1 for f in funnels if f.stalled),
             idle_schools=sum(1 for f in funnels if f.idle),
+            # Estate-wide WhatsApp cost (sum the per-school counts; a school with no sends is absent
+            # from the dict → contributes 0).
+            whatsapp_sent_total=sum(wa_sent_by.values()),
+            whatsapp_sent_month_total=sum(wa_sent_month_by.values()),
         )
 
 

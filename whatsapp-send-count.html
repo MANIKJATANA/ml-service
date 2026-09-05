@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>WhatsApp send count — how we count images for costing</title>
+<style>
+  :root{
+    --wa:#128c7e; --wa2:#25d366; --ink:#0f172a; --ink2:#475569; --muted:#94a3b8;
+    --line:#e2e8f0; --bg:#eef2f7; --card:#ffffff; --soft:#f6f8fb;
+    --accent:#2563eb; --accent-soft:#eff6ff; --good:#ecfdf5; --good-ink:#065f46; --good-line:#a7f3d0;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:15.5px/1.6 -apple-system,Segoe UI,Roboto,system-ui,sans-serif;padding:32px 16px}
+  .wrap{max-width:860px;margin:0 auto}
+  h1{font-size:26px;margin:0 0 4px}
+  .sub{color:var(--ink2);margin:0 0 22px;font-size:15px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:20px 22px;margin:16px 0;box-shadow:0 1px 3px rgba(15,23,42,.05)}
+  h2{font-size:18px;margin:0 0 4px;display:flex;align-items:center;gap:8px}
+  .tag{display:inline-block;font-size:11px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:#fff;background:var(--wa);border-radius:6px;padding:2px 8px}
+  p{margin:8px 0}
+  .lead{color:var(--ink2)}
+  code{font-family:ui-monospace,Consolas,monospace;font-size:13px;background:#eef2f7;border:1px solid var(--line);border-radius:5px;padding:1px 6px}
+  /* diagram: photo -> students -> count */
+  .flow{display:flex;align-items:center;gap:14px;flex-wrap:wrap;justify-content:center;margin:16px 0 6px}
+  .photo{width:88px;height:88px;border-radius:12px;background:linear-gradient(135deg,#dbeafe,#ede9fe);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;font-size:30px;flex-shrink:0}
+  .arrow{color:var(--muted);font-size:24px;font-weight:700}
+  .stu{display:flex;flex-direction:column;gap:8px}
+  .pill{display:flex;align-items:center;gap:8px;background:var(--soft);border:1px solid var(--line);border-radius:999px;padding:5px 12px;font-size:13.5px;font-weight:600;white-space:nowrap}
+  .pill .dot{width:22px;height:22px;border-radius:50%;background:var(--wa2);color:#fff;display:flex;align-items:center;justify-content:center;font-size:12px}
+  .count{width:96px;height:96px;border-radius:50%;background:var(--wa);color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;flex-shrink:0;box-shadow:0 8px 20px -6px rgba(18,140,126,.5)}
+  .count b{font-size:34px;line-height:1}
+  .count span{font-size:11px;opacity:.9;text-transform:uppercase;letter-spacing:.04em}
+  .hint{font-size:13px;color:var(--ink2);text-align:center;margin:6px 0 0}
+  .rule{background:var(--good);border:1px solid var(--good-line);border-radius:12px;padding:12px 15px;color:var(--good-ink);font-size:14.5px;margin:12px 0}
+  /* mock surfaces */
+  .mock{border:1px solid var(--line);border-radius:12px;overflow:hidden;margin:12px 0;box-shadow:0 4px 14px -8px rgba(15,23,42,.2)}
+  .mock .bar{background:var(--soft);border-bottom:1px solid var(--line);padding:7px 12px;font-size:12px;color:var(--muted)}
+  .mock .body{padding:14px}
+  .sent-line{display:flex;align-items:center;gap:8px;color:var(--ink2);font-size:14px;font-weight:600}
+  .sent-line .ic{color:var(--wa)}
+  table{width:100%;border-collapse:collapse;font-size:13.5px}
+  th,td{padding:8px 10px;text-align:right;border-bottom:1px solid var(--line)}
+  th:first-child,td:first-child{text-align:left}
+  thead th{color:var(--ink2);font-weight:700;font-size:12px;text-transform:uppercase;letter-spacing:.03em}
+  tfoot td{font-weight:800;color:var(--ink);border-top:2px solid var(--line);border-bottom:none}
+  .num{font-variant-numeric:tabular-nums}
+  .headline{display:flex;flex-wrap:wrap;gap:24px;align-items:center;justify-content:space-between;background:var(--soft);border:1px solid var(--line);border-radius:12px;padding:14px 18px;margin:10px 0}
+  .headline .big{font-size:26px;font-weight:800}
+  .headline .lbl{font-size:12px;color:var(--ink2);text-transform:uppercase;letter-spacing:.03em}
+  .steps{margin:8px 0 0;padding-left:20px}
+  .steps li{margin:6px 0}
+  .foot{color:var(--muted);font-size:13px;text-align:center;margin:22px 0 4px}
+  .kbadge{display:inline-block;background:#0f172a;color:#e2e8f0;border-radius:6px;padding:2px 8px;font-size:12px;font-family:ui-monospace,Consolas,monospace}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>💬 WhatsApp send count — for costing</h1>
+  <p class="sub">Har baar jab koi photo WhatsApp par jaati hai, wo <b>save</b> ho jaati hai. Ab hum wo count dikha rahe hain — <b>per photo</b> aur <b>per school</b> — taaki costing nikalna aasan ho. <b>Har bheji hui image = ek message = ek cost unit.</b></p>
+
+  <!-- WHAT WE COUNT -->
+  <div class="card">
+    <h2><span class="tag">Rule</span> Kya count hota hai</h2>
+    <p class="lead">Ek photo jitni baar <b>actually bheji</b> gayi, utna count. Agar ek hi photo me 2 log hain aur dono ko bheji → <b>2</b>. Wahi photo 4 baar bheji → <b>4</b>.</p>
+
+    <div class="flow">
+      <div class="photo">🖼️</div>
+      <div class="arrow">→</div>
+      <div class="stu">
+        <div class="pill"><span class="dot">✓</span> Aarav ko bheji</div>
+        <div class="pill"><span class="dot">✓</span> Diya ko bheji</div>
+      </div>
+      <div class="arrow">→</div>
+      <div class="count"><b>2</b><span>sent</span></div>
+    </div>
+    <p class="hint">1 photo &nbsp;·&nbsp; 2 students ko gayi &nbsp;·&nbsp; <b>2 messages</b> &nbsp;·&nbsp; count = 2</p>
+
+    <div class="rule">✅ Sirf <b>“sent”</b> (successfully gayi) images count hoti hain. Jo <b>fail</b> ya <b>skip</b> hui (na opt-in / budget khatam) — unka koi cost nahi, wo count me nahi aati.</div>
+  </div>
+
+  <!-- WHERE THE DATA COMES FROM -->
+  <div class="card">
+    <h2><span class="tag">Data</span> Ye pehle se save hai</h2>
+    <p class="lead">Har send ki <b>ek row</b> pehle se ek log table me likhi jaati thi (kis school, kaunsi photo, status). Hum sirf us log ki <span class="kbadge">status = "sent"</span> rows <b>gin</b> rahe hain — <b>koi nayi storage nahi, koi migration nahi</b>. Recipient ka phone number kabhi save nahi hota (privacy-safe).</p>
+    <div class="flow" style="gap:10px">
+      <div class="pill">📤 Send #1</div>
+      <div class="pill">📤 Send #2</div>
+      <div class="pill">📤 Send #3</div>
+      <div class="arrow">→</div>
+      <div class="pill" style="background:var(--good);border-color:var(--good-line);color:var(--good-ink)">🔢 COUNT the “sent” rows</div>
+    </div>
+  </div>
+
+  <!-- SURFACE 1: PER PHOTO -->
+  <div class="card">
+    <h2><span class="tag">Dikhta kahan · 1</span> Per photo (staff)</h2>
+    <p class="lead">Kisi bhi photo ko kholo (photo page ya bada view) — staff ko ek line dikhti hai:</p>
+    <div class="mock">
+      <div class="bar">Photo detail  ·  Sports Day</div>
+      <div class="body">
+        <div style="width:100%;height:120px;border-radius:10px;background:linear-gradient(135deg,#dbeafe,#ede9fe);border:1px solid var(--line);margin-bottom:12px"></div>
+        <div class="sent-line"><span class="ic">💬</span> Sent on WhatsApp <b>&nbsp;4 times</b></div>
+      </div>
+    </div>
+    <p class="hint">Agar abhi tak nahi bheji → “Not sent on WhatsApp yet”. (Students ko ye number nahi dikhta — sirf staff.)</p>
+  </div>
+
+  <!-- SURFACE 2: PER SCHOOL / PLATFORM -->
+  <div class="card">
+    <h2><span class="tag">Dikhta kahan · 2</span> Per school — platform owner (costing)</h2>
+    <p class="lead">App ke owner ko <b>Estate health</b> page par har school ka total dikhta hai — <b>is mahine</b> (current bill) aur <b>all-time</b> — plus poore estate ka headline:</p>
+
+    <div class="headline">
+      <div style="font-weight:800;font-size:16px">📊 WhatsApp images sent</div>
+      <div style="text-align:right"><div class="lbl">This month</div><div class="big num">1,240</div></div>
+      <div style="text-align:right"><div class="lbl">All time</div><div class="big num">8,530</div></div>
+    </div>
+
+    <div class="mock">
+      <div class="bar">Adoption funnel  ·  per school</div>
+      <div class="body" style="padding:0">
+        <table>
+          <thead><tr><th>School</th><th>WhatsApp (mo)</th><th>WhatsApp (all)</th></tr></thead>
+          <tbody>
+            <tr><td>Greenfield High</td><td class="num">820</td><td class="num">5,110</td></tr>
+            <tr><td>Sunrise Public</td><td class="num">360</td><td class="num">2,940</td></tr>
+            <tr><td>Riverside School</td><td class="num">60</td><td class="num">480</td></tr>
+          </tbody>
+          <tfoot><tr><td>Total</td><td class="num">1,240</td><td class="num">8,530</td></tr></tfoot>
+        </table>
+      </div>
+    </div>
+    <p class="hint">Columns sort ho jaate hain — sabse zyada bhejne wala school top par. Costing = <b>total images × per-message rate</b>.</p>
+  </div>
+
+  <!-- SUMMARY -->
+  <div class="card" style="background:#0f172a;border:none;color:#e2e8f0">
+    <h2 style="color:#fff"><span class="tag" style="background:var(--wa2);color:#04321f">TL;DR</span> Ek nazar me</h2>
+    <ol class="steps">
+      <li>Har <b>sent</b> image = <b>1 message = 1 cost unit</b> (fail/skip count nahi hote).</li>
+      <li><b>Per photo:</b> “Sent on WhatsApp N times” — staff ko photo detail + lightbox par.</li>
+      <li><b>Per school:</b> Estate page par is-mahine + all-time, sort-able, + estate ka grand total.</li>
+      <li>Data pehle se log me tha — hum sirf <b>gin</b> rahe hain. <b>No migration, no new storage, privacy-safe.</b></li>
+    </ol>
+  </div>
+
+  <p class="foot">File: whatsapp-send-count.html · decision 0105 · reads-only over the existing send log</p>
+</div>
+</body>
+</html>

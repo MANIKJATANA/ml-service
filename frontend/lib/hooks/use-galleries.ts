@@ -8,6 +8,7 @@ import {
   eventStudents,
   getEventMedia,
   getMedia,
+  getMediaWhatsAppLog,
   mediaAppearances,
   studentEvents,
   studentMedia,
@@ -18,6 +19,7 @@ import type {
   MediaAppearanceResponse,
   MediaResponse,
   MediaReviewResponse,
+  MediaWhatsAppLogResponse,
   StudentInEventResponse,
 } from "@/lib/api/types";
 import { useInfiniteList } from "@/lib/hooks/use-infinite-list";
@@ -95,6 +97,16 @@ export function useMediaAppearances(mediaId: string | null) {
     () => mediaAppearances(mediaId as string),
   );
   return { appearances: data, error, isLoading, mutate };
+}
+
+/** How many times a photo was actually sent on WhatsApp (the per-photo cost count). Staff-only
+ *  read (`gallery:view_all`); gate the fetch on `enabled` so a student surface never calls it. */
+export function useMediaWhatsAppLog(mediaId: string | null, enabled: boolean) {
+  const { data, error, isLoading } = useSWR<MediaWhatsAppLogResponse>(
+    enabled && mediaId ? `media/${mediaId}/whatsapp-log` : null,
+    () => getMediaWhatsAppLog(mediaId as string),
+  );
+  return { sentCount: data?.sent_count ?? null, error, isLoading };
 }
 
 /** The event's unresolved ambiguous matches grouped by photo — the review lane (BP5). */

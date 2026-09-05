@@ -25,6 +25,7 @@ from backend.api.schemas.gallery import (
     EventForStudentResponse,
     GalleryMediaResponse,
     MediaAppearanceResponse,
+    MediaWhatsAppLogResponse,
     StudentInEventResponse,
 )
 from backend.domain.models import MediaVariant, User
@@ -102,6 +103,19 @@ async def media_appearances(
         school_id=tenant_of(actor), media_id=media_id
     )
     return [MediaAppearanceResponse.from_view(v) for v in views]
+
+
+@router.get("/media/{media_id}/whatsapp-log", response_model=MediaWhatsAppLogResponse)
+async def media_whatsapp_log(
+    media_id: str, container: ContainerDep, actor: GalleryViewer
+) -> MediaWhatsAppLogResponse:
+    """How many times this photo/video was actually SENT on WhatsApp (the per-photo cost count —
+    each send = one message). Staff (``gallery:view_all``); tenant from the token (a foreign media
+    reads 0). A pure read — sends nothing."""
+    count = await container.whatsapp_share_service().media_send_count(
+        school_id=tenant_of(actor), media_id=media_id
+    )
+    return MediaWhatsAppLogResponse(sent_count=count)
 
 
 @router.get("/media/{media_id}/download", response_model=DownloadResponse)

@@ -118,6 +118,8 @@ class SchoolFunnelResponse(BaseModel):
     not_started: bool  # no event created yet
     days_to_first_delivery: int | None  # signup → first announce (None if never)
     stalled_since: datetime | None  # most recent event time ("no event since …")
+    whatsapp_sent: int  # images sent on WhatsApp all-time (each = one message, the cost unit)
+    whatsapp_sent_month: int  # images sent this UTC month (the current bill)
 
 
 class EstateAnalyticsResponse(BaseModel):
@@ -128,6 +130,8 @@ class EstateAnalyticsResponse(BaseModel):
     total_events: int
     stalled_schools: int
     idle_schools: int
+    whatsapp_sent_total: int  # estate-wide WhatsApp images sent all-time
+    whatsapp_sent_month_total: int  # estate-wide WhatsApp images sent this UTC month
 
     @classmethod
     def from_analytics(cls, a: EstateAnalytics) -> EstateAnalyticsResponse:
@@ -148,6 +152,8 @@ class EstateAnalyticsResponse(BaseModel):
                     not_started=f.not_started,
                     days_to_first_delivery=f.days_to_first_delivery,
                     stalled_since=f.stalled_since,
+                    whatsapp_sent=f.whatsapp_sent,
+                    whatsapp_sent_month=f.whatsapp_sent_month,
                 )
                 for f in a.schools
             ],
@@ -157,4 +163,6 @@ class EstateAnalyticsResponse(BaseModel):
             total_events=a.total_events,
             stalled_schools=a.stalled_schools,
             idle_schools=a.idle_schools,
+            whatsapp_sent_total=a.whatsapp_sent_total,
+            whatsapp_sent_month_total=a.whatsapp_sent_month_total,
         )

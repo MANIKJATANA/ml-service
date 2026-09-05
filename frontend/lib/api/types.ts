@@ -385,6 +385,12 @@ export interface MediaDownloadLogResponse {
   entries: DownloadAuditEntryResponse[];
 }
 
+/** How many times a photo was actually SENT on WhatsApp (the per-photo cost count — each send is
+ *  one message, so a photo sent to N students counts N). */
+export interface MediaWhatsAppLogResponse {
+  sent_count: number;
+}
+
 /** One page of the school-wide access log + the unpaginated total. */
 export interface DownloadLogPageResponse {
   items: DownloadAuditEntryResponse[];
@@ -575,6 +581,8 @@ export interface SchoolFunnelResponse {
   not_started: boolean; // no event created yet
   days_to_first_delivery: number | null; // signup → first announce (null if never)
   stalled_since: string | null; // most recent event time ("no event since …")
+  whatsapp_sent: number; // images sent on WhatsApp all-time (each = one message, the cost unit)
+  whatsapp_sent_month: number; // images sent this UTC month (the current bill)
 }
 export interface EstateAnalyticsResponse {
   schools: SchoolFunnelResponse[];
@@ -584,6 +592,8 @@ export interface EstateAnalyticsResponse {
   total_events: number;
   stalled_schools: number;
   idle_schools: number;
+  whatsapp_sent_total: number; // estate-wide WhatsApp images sent all-time
+  whatsapp_sent_month_total: number; // estate-wide WhatsApp images sent this UTC month
 }
 
 /** The student's "new photos" signal (BP4, decisions/0041): an unseen tally + the

@@ -705,6 +705,7 @@ class Container:
                         self.notification_reads_repo(),
                         self.match_correction_repo(),
                         self.download_audit_repo(),
+                        self.whatsapp_send_log_repo(),
                     )
         return self._analytics_service
 

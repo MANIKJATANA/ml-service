@@ -6,6 +6,7 @@ import { useParams } from "next/navigation";
 import { AppearanceEditor } from "@/components/gallery/appearance-editor";
 import { DownloadHistory } from "@/components/gallery/download-history";
 import { SignedImage } from "@/components/gallery/signed-image";
+import { WhatsAppSendCount } from "@/components/gallery/whatsapp-send-count";
 import { Breadcrumb } from "@/components/ui/breadcrumb";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -73,6 +74,8 @@ export default function PhotoDetailPage() {
             <Download className="size-4" aria-hidden="true" />
             Download
           </Button>
+          {/* How many times this photo went out on WhatsApp (the per-photo cost count). */}
+          <WhatsAppSendCount mediaId={mediaId} />
           {/* School-admin-only; renders nothing for teachers (BP8b). */}
           <DownloadHistory mediaId={mediaId} />
           <div className="flex flex-col gap-3 border-t border-hairline pt-4">

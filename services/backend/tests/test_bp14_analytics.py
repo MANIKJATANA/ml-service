@@ -9,13 +9,18 @@ from the token).
 
 from __future__ import annotations
 
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 from backend.adapters.security.argon2_hasher import Argon2PasswordHasher
 from backend.api.deps import get_container_dep
 from backend.domain.errors import NotFoundError
-from backend.domain.models import EnrollmentStatus, Role, User
+from backend.domain.models import (
+    EnrollmentStatus,
+    Role,
+    User,
+    WhatsAppSendLogEntry,
+)
 from backend.main import create_app
 from backend.services.analytics_service import AnalyticsService
 from backend_fakes import (
@@ -27,6 +32,7 @@ from backend_fakes import (
     FakeSchoolRepo,
     FakeStudentRepo,
     FakeUserRepo,
+    FakeWhatsAppSendLogRepo,
     SeededContainer,
     make_event,
     make_media,
@@ -56,6 +62,7 @@ def _school_svc(
     schools: FakeSchoolRepo | None = None,
     corrections: FakeMatchCorrectionRepo | None = None,
     audit: FakeDownloadAuditRepo | None = None,
+    whatsapp_send_log: FakeWhatsAppSendLogRepo | None = None,
 ) -> AnalyticsService:
     return AnalyticsService(
         schools or FakeSchoolRepo([make_school(id=_S1)]),
@@ -66,6 +73,7 @@ def _school_svc(
         reads,
         corrections or FakeMatchCorrectionRepo(),
         audit or FakeDownloadAuditRepo(),
+        whatsapp_send_log or FakeWhatsAppSendLogRepo(),
     )
 
 
@@ -291,6 +299,7 @@ async def test_estate_analytics_funnel_stalled_and_idle() -> None:
         FakeNotificationReadRepo(),
         FakeMatchCorrectionRepo(),
         FakeDownloadAuditRepo(),
+        FakeWhatsAppSendLogRepo(),
     ).estate_analytics()
 
     by_id = {f.school_id: f for f in estate.schools}
@@ -442,3 +451,54 @@ def test_login_route_reflects_in_analytics_signin_count() -> None:
     _token(client, "stu")
     after = client.get("/v1/analytics/school", headers=_auth(_token(client, "sa")))
     assert after.json()["students_signed_in"] == 1
+
+
+def _wa_row(school_id: str, status: str, at: datetime) -> WhatsAppSendLogEntry:
+    """One whatsapp_send_log row for the estate cost test (PII-free — no recipient number)."""
+    return WhatsAppSendLogEntry(
+        id=f"wa-{school_id}-{status}-{at.timestamp()}",
+        school_id=school_id,
+        student_id=None,
+        media_id="m1",
+        actor_user_id=None,
+        actor_role="school_admin",
+        sender_number="15551234567",
+        status=status,
+        provider_message_id=None,
+        error=None,
+        created_at=at,
+    )
+
+
+async def test_estate_whatsapp_sent_counts() -> None:
+    # Per-school WhatsApp cost: all-time + this UTC month; only 'sent' rows count; totals sum.
+    now = datetime.now(UTC)
+    before_month = datetime(now.year, now.month, 1, tzinfo=UTC) - timedelta(days=1)
+    wa = FakeWhatsAppSendLogRepo(
+        [
+            _wa_row("s1", "sent", now),
+            _wa_row("s1", "sent", now),
+            _wa_row("s1", "sent", now),
+            _wa_row("s1", "sent", before_month),  # counts all-time, NOT this month
+            _wa_row("s1", "failed", now),  # never counted
+            _wa_row("s1", "skipped", now),  # never counted
+            _wa_row("s2", "sent", now),
+        ]
+    )
+    estate = await AnalyticsService(
+        FakeSchoolRepo([make_school(id="s1"), make_school(id="s2")]),
+        FakeUserRepo(),
+        FakeStudentRepo(),
+        FakeEventRepo(),
+        FakeMediaRepo(),
+        FakeNotificationReadRepo(),
+        FakeMatchCorrectionRepo(),
+        FakeDownloadAuditRepo(),
+        wa,
+    ).estate_analytics()
+
+    by = {f.school_id: f for f in estate.schools}
+    assert by["s1"].whatsapp_sent == 4 and by["s1"].whatsapp_sent_month == 3
+    assert by["s2"].whatsapp_sent == 1 and by["s2"].whatsapp_sent_month == 1
+    assert estate.whatsapp_sent_total == 5
+    assert estate.whatsapp_sent_month_total == 4

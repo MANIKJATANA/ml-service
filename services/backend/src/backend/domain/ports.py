@@ -979,6 +979,18 @@ class WhatsAppSendLogRepository(Protocol):
         """Count ``status='sent'`` rows created at/after ``since`` for a school — the monthly
         budget count (``since`` = the UTC month start). Tenant-scoped."""
         ...
+    async def count_sent_by_media(self, school_id: str, media_id: str) -> int:
+        """How many times this media was actually SENT on WhatsApp (``status='sent'`` rows) — the
+        per-photo cost count (each send = one message; a photo sent to N students counts N).
+        Tenant-scoped (a foreign ``media_id`` returns 0, never another school's rows)."""
+        ...
+    async def sent_counts_by_school(
+        self, *, since: datetime | None = None
+    ) -> dict[str, int]:
+        """Cross-tenant: ``school_id`` -> count of ``status='sent'`` rows (each = one WhatsApp
+        image message, the cost unit). ``since`` filters to rows created at/after it (e.g. the
+        UTC month start for the current bill); ``None`` = all time. Platform costing only."""
+        ...
     async def list_for_student(
         self, school_id: str, student_id: str, *, limit: int
     ) -> list[WhatsAppSendLogEntry]:

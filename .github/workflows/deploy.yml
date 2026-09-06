@@ -1,0 +1,127 @@
+name: Deploy Production
+
+on:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy to production
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.2.2
+        with:
+          host: ${{ secrets.PROD_HOST }}
+          username: ${{ secrets.PROD_USER }}
+          key: ${{ secrets.PROD_SSH_KEY }}
+          script_stop: true
+
+          script: |
+            set -Eeuo pipefail
+
+            cd /www/wwwroot/ml-service
+
+            echo "==> Saving current version"
+
+            PREVIOUS_COMMIT="$(git rev-parse HEAD)"
+
+            docker image inspect backend:local >/dev/null 2>&1 \
+              && docker tag backend:local backend:previous \
+              || true
+
+            docker image inspect ml-service:local >/dev/null 2>&1 \
+              && docker tag ml-service:local ml-service:previous \
+              || true
+
+            docker image inspect frontend:local >/dev/null 2>&1 \
+              && docker tag frontend:local frontend:previous \
+              || true
+
+            echo "Previous commit: $PREVIOUS_COMMIT"
+
+            echo "==> Getting latest main"
+
+            git fetch origin main
+            git reset --hard origin/main
+
+            echo "New commit:"
+            git log -1 --oneline
+
+            echo "==> Building new images"
+
+            docker compose build
+
+            echo "==> Starting PostgreSQL and Redis"
+
+            docker compose up -d postgres redis
+
+            echo "==> Running backend migrations"
+
+            docker compose run --rm backend-migrate
+
+            echo "==> Running ML migrations"
+
+            docker compose run --rm migrate
+
+            echo "==> Starting new application"
+
+            docker compose up -d backend frontend ml-service ml-worker
+
+            echo "==> Checking backend health"
+
+            HEALTH_OK=0
+
+            for i in $(seq 1 30); do
+              if curl -fsS http://127.0.0.1:8001/healthz >/dev/null 2>&1; then
+                HEALTH_OK=1
+                break
+              fi
+
+              echo "Backend health check $i/30 failed"
+              sleep 2
+            done
+
+            if [ "$HEALTH_OK" -ne 1 ]; then
+
+              echo "================================"
+              echo "NEW VERSION FAILED"
+              echo "RESTORING PREVIOUS VERSION"
+              echo "================================"
+
+              docker compose logs --tail=100 backend || true
+              docker compose logs --tail=100 frontend || true
+              docker compose logs --tail=100 ml-service || true
+              docker compose logs --tail=100 ml-worker || true
+
+              git reset --hard "$PREVIOUS_COMMIT"
+
+              docker image inspect backend:previous >/dev/null 2>&1 \
+                && docker tag backend:previous backend:local
+
+              docker image inspect ml-service:previous >/dev/null 2>&1 \
+                && docker tag ml-service:previous ml-service:local
+
+              docker image inspect frontend:previous >/dev/null 2>&1 \
+                && docker tag frontend:previous frontend:local
+
+              echo "==> Restarting previous version"
+
+              docker compose up -d backend frontend ml-service ml-worker
+
+              echo "Previous version restored."
+
+              exit 1
+            fi
+
+            echo "================================"
+            echo "DEPLOYMENT SUCCESSFUL"
+            echo "================================"
+
+            docker compose ps

@@ -11,7 +11,7 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
     ports:
-      - "3000:3000"
+      - "3001:3000"
     environment:
       # The Next server (BFF) reaches FastAPI over the compose network — not the
       # host 127.0.0.1 fallback used for local `npm run dev` (decisions/0031).
@@ -129,7 +129,7 @@ services:
       - faiss:/var/lib/ml-service/faiss
       - media:/var/lib/ml-service/media
     ports:
-      - "8000:8000"
+      - "8002:8000"
     depends_on:
       postgres:
         condition: service_healthy
@@ -184,7 +184,7 @@ services:
   redis:
     image: redis:7-alpine
     ports:
-      - "6379:6379"
+      - "6380:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
